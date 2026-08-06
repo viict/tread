@@ -1,6 +1,6 @@
 # tread
 
-A terminal markdown reader — `less`, but it understands markdown: collapsible
+A terminal reader for markdown and CSV — `less`, but it understands markdown: collapsible
 headings, banner H1s, real tables, colored links, and navigation across a
 corpus of linked documents. Crate `tread`, binary `tread`.
 
@@ -52,6 +52,9 @@ corpus of linked documents. Crate `tread`, binary `tread`.
 | `src/term/` | raw-mode guard, alt screen, ANSI, frame buffer, OSC 52 |
 | `src/key/` | byte stream to `Key` decoder |
 | `src/md/` | `mod.rs` (`parse`), `block.rs`, `inline.rs`, `ast.rs`, `sanitize.rs` |
+| `src/csv/` | the CSV foundation: RFC 4180 `parse.rs`, lazy `index.rs`, windowed `read.rs`, `delim.rs` |
+| `src/source/` | the format seam: `Source`, `markdown.rs`, `csv/`, `detect.rs`. Formats are compiled in, never loaded |
+| `src/open.rs` | resolving the input and building the `Box<dyn Source>` behind it |
 | `src/render/` | AST + width to styled wrapped lines |
 | `src/theme.rs` | palette, heading styles, banner glyphs |
 | `src/pager/` | viewport, scrolling, collapse tree, search |
@@ -101,7 +104,7 @@ tools/soak.sh target/x86_64-unknown-linux-musl/release/tread ~/notes
 tools/soak_pty.py target/x86_64-unknown-linux-musl/release/tread ~/notes
 ```
 
-`WINDOWS.md` documents what the console backend does, and — importantly — what
+`docs/windows.md` documents what the console backend does, and — importantly — what
 about it is *not* verified: it type-checks for both Windows targets and its pure
 logic is host-tested, but it has never been executed on Windows hardware. Never
 claim it works; claim only what a command in this repo printed. If a change would

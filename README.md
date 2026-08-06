@@ -1,11 +1,13 @@
 # tread — `tread`
 
-`less`, but it understands markdown.
+`less`, but it understands markdown — and CSV.
 
-A terminal markdown reader with collapsible headings, banner H1s, real
-box-drawn tables, colored links, and navigation across a corpus of linked
-documents. One static binary, no runtime, no configuration, **no dependencies
-at all** — not even `libc`.
+A terminal reader with collapsible headings, banner H1s, real box-drawn tables,
+colored links, and navigation across a corpus of linked documents. It also
+reads CSV: multi-GB files open instantly, with a pinned header and column-wise
+scrolling. One static binary, no runtime, no configuration, **no dependencies
+at all** — not even `libc`. Every format is compiled in; nothing is ever loaded
+at runtime.
 
 ```
 $ tread README.md
@@ -72,7 +74,7 @@ on each release, so the macOS and Windows backends run for real rather than
 merely type-checking. What no CI run covers is interactive behaviour — that a
 console host restores its mode on exit, that drag-select still works while the
 pager is up — because none of it happens without a terminal attached.
-[`WINDOWS.md`](WINDOWS.md) records what the console backend does and what is
+[`docs/windows.md`](docs/windows.md) records what the console backend does and what is
 still only inferred.
 
 ## Usage
@@ -87,7 +89,11 @@ tread [OPTIONS] [FILE]
                    so the output stays visible after quitting.
   --plain          Disable color. Implied by NO_COLOR or a non-terminal stdout.
   --width <N>      Force the wrap width instead of detecting the terminal size.
-  --toc            Print the heading outline and exit.
+  --format <FMT>   Force the format: `md` or `csv`. By default the extension
+                   decides, and unnamed input (a pipe) is sniffed.
+  --delim <D>      CSV field delimiter: one character, or `tab`, `comma`,
+                   `semicolon`, `pipe`. Sniffed among `,` TAB `;` `|` otherwise.
+  --toc            Print the heading outline (CSV: the column names) and exit.
   -h, --help       Show help.
   -V, --version    Show the version.
 ```
@@ -116,8 +122,9 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `b` | page up |
 | `g` | top of document |
 | `G` | bottom of document |
-| `h / ←` | scroll left (code, wide tables) |
-| `l / →` | scroll right (code, wide tables) |
+| `h / ←` | scroll left (code, wide tables; one CSV column) |
+| `l / →` | scroll right (code, wide tables; one CSV column) |
+| `w` | widen the CSV column under the cursor to fit the screen |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, else toggle the section |
 | `zo` | open the section at the cursor |
@@ -147,6 +154,53 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 [`src/pager/keys.rs`](src/pager/keys.rs) is the single source of truth for this
 table: the dispatcher, the in-app help overlay and the rows above all come from
 the same `BINDINGS` array.
+
+## Reading a CSV
+
+```sh
+tread events.csv
+tread --format csv --delim tab dump.txt
+psql -c 'copy ... to stdout csv header' | tread
+```
+
+The point of CSV support is **files too big to load**. Nothing reads the whole
+file: opening stats it, sniffs the delimiter and samples the first ~1000 rows to
+size the columns, then each frame renders only the rows on screen by seeking to
+their byte offsets. The row index grows a bounded amount per frame and per idle
+tick, so `q` returns immediately whatever the file size, and the status bar says
+`≥N (indexing 12%)` while the total is still unknown rather than inventing one.
+
+- **The header is pinned.** It stays on screen while the body scrolls, and
+  scrolls sideways with it — the two are drawn from one column layout, so they
+  cannot drift apart.
+- **`h`/`l` move a whole column**, not four characters. The column they land on
+  is the one the status bar names, the one `w` widens and the one `y` copies.
+- **Widths are sampled, so a later value can overflow.** It is truncated with a
+  visible `…` rather than being allowed to break the grid. `w` fits the column
+  under the cursor to the widest value *currently on screen* — instant on any
+  file size, and pressing it twice on the same screen changes nothing.
+- **Yanks are source-faithful**, never the padded display form: `y` copies the
+  cell, `Y` the row, `c` the column and `y` in visual mode the selected rows —
+  always re-quoted, so a value holding a comma or a quote comes back as
+  something a CSV parser accepts.
+- **`G` scans, and says so.** The end of a file that has not been indexed yet is
+  not known, so `G` does not jump to the end of the indexed prefix and pretend:
+  it runs the scan a slice at a time, counts up in the status bar
+  (`scanning to end of file… 62%`), and stops on any key press. Whatever was
+  scanned is kept, so pressing `G` again resumes. `q` still exits at once.
+- Parsing is RFC 4180: quoted fields, embedded newlines and delimiters, `""`
+  escapes, BOM, CRLF, ragged rows padded to the header's arity. Malformed input
+  degrades to something readable and never panics; a control character in a
+  cell is shown as `·` rather than sent to the terminal.
+- A file that announces itself as UTF-16 or UTF-32 with a byte-order mark is
+  **refused by name** — `tread reads UTF-8 — convert it first, e.g. iconv -f
+  UTF-16 -t UTF-8` — because a lossy render of it is mojibake that says nothing.
+  Invalid UTF-8 inside an otherwise UTF-8 file is still just `�`.
+- A named pipe or device given by path (`tread /dev/fd/3`) is read as a stream,
+  the way piped stdin is: there is no size to stat and no offset to seek to.
+
+A CSV has no sections and no links, so `o`, `za`, `Tab` and `n` say so instead
+of pretending.
 
 ## Working a corpus
 
@@ -194,46 +248,8 @@ other module carries `#![deny(unsafe_code)]` or contains none. Frames go
 through the `Term` buffer as one write per frame, so there is no `println!` in
 any UI path.
 
-## Layout
+## Docs
 
-| Path | Role |
-| --- | --- |
-| [`src/main.rs`](src/main.rs) | entry, wiring, panic guard, exit codes |
-| [`src/cli.rs`](src/cli.rs) | argument parser, `--help`/`--version` |
-| [`src/sys/`](src/sys/) | the platform seam and its backends — the only `unsafe` in the tree |
-| [`src/plat/`](src/plat/) | per-OS conventions above `sys`: path syntax, file locations |
-| [`src/term/`](src/term/) | raw-mode guard, alt screen, ANSI, frame buffer, OSC 52 |
-| [`src/key/`](src/key/) | byte stream to `Key` decoder |
-| [`src/md/`](src/md/) | the markdown parser: block, inline, table, list, AST |
-| [`src/render/`](src/render/) | AST + width to styled wrapped lines |
-| [`src/theme.rs`](src/theme.rs) | palette, heading styles, banner glyphs |
-| [`src/pager/`](src/pager/) | viewport, scrolling, collapse tree, search, keymap |
-| [`src/nav/`](src/nav/) | document stack, index parsing, link resolution |
-| [`src/select/`](src/select/) | visual selection, yank text, clipboard |
-| [`src/dump.rs`](src/dump.rs) | non-interactive render for pipes and `--no-alt` |
-
-Every file is under 500 lines and every function under 50; modules split rather
-than grow. Adding an OS means a new backend beside the others and one arm in the
-dispatch — nothing above `src/sys/` is platform-specific.
-
-## Testing
-
-```sh
-cargo test
-cargo clippy --all-targets
-```
-
-Unit tests live beside the code; [`tests/`](tests/) drives the real binary with
-golden renders, adversarial input (invalid UTF-8, NUL, CRLF, 5000-char words,
-500-deep quotes, unclosed fences) and a check that this file's key table matches
-the code. Goldens hold ANSI-stripped text only, so a palette change cannot break
-a layout assertion — regenerate them with
-`UPDATE_GOLDEN=1 cargo test --test golden_files`.
-
-Two soak harnesses go beyond `cargo test`, rendering a whole corpus at four
-widths and driving the pager through a real pty:
-
-```sh
-tools/soak.sh    target/x86_64-unknown-linux-musl/release/tread ~/notes
-tools/soak_pty.py target/x86_64-unknown-linux-musl/release/tread ~/notes
-```
+How it is built and how it is proven lives in [`docs/`](docs/) — the module
+map, the test layers, and what is and is not verified about the Windows
+console backend. [`SPEC.md`](SPEC.md) is the binding contract for behaviour.
