@@ -58,6 +58,10 @@ pub fn write_source(
 ) -> fmt::Result {
     let clip = clip.then_some(width);
     src.set_width(width);
+    // A dump is not a viewport: nothing here can be opened, so anything left
+    // folded is simply missing from the output. Metadata starts folded for a
+    // reader, which would silently drop it from `tread doc.md > out.txt`.
+    src.fold_all(false);
     // Blank rows at the end of a window are held back rather than trimmed:
     // only the ones at the end of the *document* are dropped.
     let mut pending = 0usize;

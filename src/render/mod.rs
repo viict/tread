@@ -9,6 +9,8 @@
 #![deny(unsafe_code)]
 
 mod block;
+mod frontmatter;
+pub use frontmatter::METADATA_ID;
 mod code;
 mod inline;
 mod list;
@@ -22,7 +24,7 @@ mod tests;
 // Re-exported for the pager/select modules; a `pub use` in a binary crate does
 // not itself count as a use.
 #[allow(unused_imports)]
-pub use width::{char_width, pad_right, repeat, str_width, take_width, truncate_width};
+pub use width::{char_width, pad_right, repeat, str_width, take_width, truncate_width, visible, CONTROL};
 
 use crate::md::ast::Document;
 use crate::term::Style;
@@ -79,6 +81,10 @@ pub struct HeadingLine {
     pub level: u8,
     pub id: String,
     pub text: String,
+    /// This row already says what folding it hides, so the painter must not
+    /// append its usual `(N lines)`. A metadata summary counts its own fields;
+    /// `▸ Active · 7 related  (13 lines)` would be saying it twice.
+    pub summarised: bool,
 }
 
 /// One physical row of output.

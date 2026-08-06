@@ -286,7 +286,7 @@ impl Source for CsvSource {
                     // it by position. An unnamed field is still a field.
                     _ => format!("[{}]", i + 1),
                 };
-                (label, render::clean(&value))
+                (label, value)
             })
             .collect();
         Some(Detail {

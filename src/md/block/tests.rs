@@ -1,5 +1,5 @@
 #![deny(unsafe_code)]
-use super::super::ast::{inline_text, Align, Block, Inline, ListKind};
+use super::super::ast::{inline_text, Align, Block, FieldValue, Inline, ListKind};
 use super::parse_document;
 
 fn text_of(b: &Block) -> String {
@@ -52,15 +52,74 @@ fn duplicate_heading_slugs_are_suffixed() {
 }
 
 #[test]
-fn yaml_frontmatter_is_skipped() {
-    let src = "---\nstatus: Active\nowner: alice\ndeciders: [alice]\n---\n\n# Codex Conventions\n";
+fn yaml_frontmatter_is_kept_as_a_block() {
+    let src = "---\nstatus: Active\nowner: alice\n---\n\n# Codex Conventions\n";
     let d = parse_document(src);
-    assert_eq!(d.blocks.len(), 1);
+    assert_eq!(d.blocks.len(), 2, "the metadata and the heading");
+    let Block::FrontMatter { fields, .. } = &d.blocks[0] else {
+        panic!("expected frontmatter, got {:?}", d.blocks[0]);
+    };
+    assert_eq!(fields.len(), 2);
+    assert_eq!(fields[0].key, "status");
+    assert_eq!(fields[0].value, FieldValue::Scalar("Active".into()));
     assert_eq!(
-        heading(&d.blocks[0]),
+        heading(&d.blocks[1]),
         (1, "Codex Conventions".into(), "codex-conventions".into())
     );
-    assert_eq!(d.blocks[0].source_line(), 7);
+    assert_eq!(d.blocks[1].source_line(), 6);
+}
+
+/// The shapes the corpus actually uses: scalars, `-` lists, and an item long
+/// enough to be wrapped across lines.
+#[test]
+fn frontmatter_reads_scalars_lists_and_wrapped_items() {
+    let src = concat!(
+        "---\n",
+        "status: Draft\n",
+        "deciders:\n",
+        "  - alice\n",
+        "  - bo\n",
+        "notes:\n",
+        "  - A note that runs on\n",
+        "    across two lines.\n",
+        "empty:\n",
+        "---\n\nbody\n"
+    );
+    let d = parse_document(src);
+    let Block::FrontMatter { fields, .. } = &d.blocks[0] else {
+        panic!("expected frontmatter");
+    };
+    assert_eq!(fields[0].value, FieldValue::Scalar("Draft".into()));
+    assert_eq!(
+        fields[1].value,
+        FieldValue::List(vec!["alice".into(), "bo".into()])
+    );
+    assert_eq!(
+        fields[2].value,
+        FieldValue::List(vec!["A note that runs on across two lines.".into()]),
+        "a wrapped item is one value, not two"
+    );
+    assert_eq!(fields[3].value, FieldValue::List(Vec::new()), "`key:` alone");
+}
+
+/// An unterminated `---` is a thematic break, not a metadata block that eats
+/// the rest of the file.
+#[test]
+fn an_unclosed_frontmatter_fence_is_not_frontmatter() {
+    let d = parse_document("---\nstatus: Active\n\n# Title\n");
+    assert!(
+        !matches!(d.blocks.first(), Some(Block::FrontMatter { .. })),
+        "{:?}",
+        d.blocks.first()
+    );
+    assert!(d.blocks.iter().any(|b| matches!(b, Block::Heading { .. })));
+}
+
+/// A `---` that is not at the very top is a thematic break as it always was.
+#[test]
+fn frontmatter_must_lead_the_document() {
+    let d = parse_document("# Title\n\n---\nstatus: Active\n---\n");
+    assert!(!matches!(d.blocks.first(), Some(Block::FrontMatter { .. })));
 }
 
 #[test]

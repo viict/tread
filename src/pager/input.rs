@@ -9,6 +9,7 @@ use super::search::Dir;
 use super::{Mode, Pager, HSTEP};
 use crate::key::{Key, KeyEvent};
 use crate::source::Anchor;
+use crate::select::Yank;
 
 impl Pager {
     // -- input --------------------------------------------------------------
@@ -329,9 +330,31 @@ impl Pager {
             Key::Char('G') => self.detail_sel = last,
             Key::PageDown => self.detail_sel = (self.detail_sel + page).min(last),
             Key::PageUp => self.detail_sel = self.detail_sel.saturating_sub(page),
+            Key::Char('y') => self.yank_field(),
             _ => return false,
         }
         true
+    }
+
+    /// `y` in the row detail copies the highlighted *field*.
+    ///
+    /// The value verbatim, not re-quoted: in the form you are reading a value,
+    /// not exporting a record, so what lands on the clipboard is what is on the
+    /// line. `Y` on the grid is still there for the whole row as valid CSV.
+    fn yank_field(&mut self) {
+        let Some(d) = &self.detail else { return };
+        let Some((label, value)) = d.fields.get(self.detail_sel) else {
+            return;
+        };
+        if value.is_empty() {
+            let empty = format!("{label} is empty");
+            return self.notify(empty);
+        }
+        let yank = Yank {
+            text: format!("{value}\n"),
+            what: format!("{label} \u{b7} {}", d.title.to_lowercase()),
+        };
+        self.queue_yank(yank);
     }
 
     /// The outline overlay's own keys. An unhandled key falls through to the

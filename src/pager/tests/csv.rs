@@ -420,3 +420,54 @@ fn enter_still_folds_in_a_format_without_row_detail() {
     assert_eq!(p.mode, Mode::Normal, "no overlay in markdown");
     assert!(p.src.hidden_at(0).is_some(), "the section folded");
 }
+
+/// `y` in the form copies the highlighted field, not the row the cursor is on.
+#[test]
+fn y_in_the_form_copies_the_field_under_the_cursor() {
+    let mut p = csv_pager(&csv_body(), 60, ROWS);
+    p.cursor = HEAD_ROWS;
+    key(&mut p, Key::Enter);
+    press(&mut p, "jj"); // id -> name -> city
+    press(&mut p, "y");
+
+    let y = p.peek_yank().expect("a field yank");
+    assert_eq!(y.text, "town1\n", "the field, not the whole row");
+    assert!(y.what.contains("city"), "{}", y.what);
+}
+
+/// The value copied is the real one, not the dotted form the screen shows.
+#[test]
+fn y_in_the_form_copies_the_raw_value_not_the_painted_one() {
+    let mut p = csv_pager("a,b\n1,\"two\nlines\"\n", 60, ROWS);
+    p.cursor = HEAD_ROWS;
+    key(&mut p, Key::Enter);
+    press(&mut p, "j");
+    assert!(
+        frame_rows(&mut p).join("\n").contains("two\u{b7}lines"),
+        "the screen shows it safely"
+    );
+    press(&mut p, "y");
+    assert_eq!(p.peek_yank().expect("yank").text, "two\nlines\n");
+}
+
+#[test]
+fn y_on_an_empty_field_says_so_rather_than_copying_nothing() {
+    let mut p = csv_pager("a,b\n1,\n", 60, ROWS);
+    p.cursor = HEAD_ROWS;
+    key(&mut p, Key::Enter);
+    press(&mut p, "j");
+    press(&mut p, "y");
+    assert!(p.peek_yank().is_none(), "nothing queued");
+    assert_eq!(p.message.as_deref(), Some("b is empty"));
+}
+
+/// A border row has no record, and a CSV has no sections either, so `Enter`
+/// must say so rather than answering with markdown's "no heading here".
+#[test]
+fn enter_where_there_is_no_row_says_so() {
+    let mut p = csv_pager(&csv_body(), 60, ROWS);
+    p.cursor = 0; // the top border
+    key(&mut p, Key::Enter);
+    assert_eq!(p.mode, Mode::Normal);
+    assert_eq!(p.message.as_deref(), Some("nothing to open here"));
+}

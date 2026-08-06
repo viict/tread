@@ -141,17 +141,23 @@ impl CsvSource {
     }
 
     fn new(mut store: RowStore, want: Option<u8>) -> CsvSource {
-        let delim = match want {
-            Some(d) => d,
-            None => {
-                let sample = store.reader.chunk(0, SNIFF_BYTES).to_vec();
-                delim::sniff(&sample)
-            }
+        let sample = store.reader.chunk(0, SNIFF_BYTES).to_vec();
+        // `sep=;` on the first line is Excel's way of naming the delimiter. It
+        // is a directive rather than data, so it decides the delimiter *and*
+        // moves where the document starts — leaving it in place would make it
+        // the header row.
+        let directive = delim::sep_line(parse::strip_bom(&sample));
+        let delim = match (want, directive) {
+            // An explicit --delim still wins: the file may be lying.
+            (Some(d), _) => d,
+            (None, Some((d, _))) => d,
+            (None, None) => delim::sniff(&sample),
         };
         // The index was created for whatever delimiter the caller passed in;
         // the sniff may disagree, so rebuild it before a single row is
         // recorded rather than trust offsets taken under another grammar.
-        let store = with_delim(store, delim);
+        let skip = directive.map(|(_, len)| len as u64).unwrap_or(0);
+        let store = with_delim(store, delim, skip);
         CsvSource {
             store: RefCell::new(store),
             delim,
@@ -249,12 +255,12 @@ impl CsvSource {
     fn row_line(&self, row: usize) -> Option<Line> {
         Some(match self.kind(row)? {
             Kind::Top => render::border(&self.grid, Edge::Top, 0),
-            Kind::Header => render::header(&self.grid),
+            Kind::Header => render::header(&self.grid, self.col),
             Kind::Sep => render::border(&self.grid, Edge::Mid, 1),
             Kind::Bottom => render::border(&self.grid, Edge::Bottom, self.known() + 1),
             Kind::Data(d) => {
                 let fields = self.fields(d).unwrap_or_default();
-                render::data(&self.grid, &fields, d + 2)
+                render::data(&self.grid, &fields, d + 2, self.col)
             }
         })
     }
@@ -361,8 +367,13 @@ impl CsvSource {
 
 /// Adopt a delimiter: a fresh index over the same open file, because offsets
 /// recorded under one delimiter cannot be trusted under another.
-fn with_delim(store: RowStore, delim: u8) -> RowStore {
+/// Rebuild the index for `delim`, starting `skip` bytes further in.
+///
+/// `skip` is how much of the head is not the document: a `sep=` directive.
+/// Rolling it into the index's origin means every offset after it is right by
+/// construction, rather than every reader having to remember to step over it.
+fn with_delim(store: RowStore, delim: u8, skip: u64) -> RowStore {
     let RowStore { reader, index } = store;
-    let index = crate::csv::index::RowIndex::new(index.origin(), delim);
+    let index = crate::csv::index::RowIndex::new(index.origin() + skip, delim);
     RowStore { reader, index }
 }

@@ -518,11 +518,18 @@ fn every_row_opens_not_just_ragged_ones() {
     assert_eq!(s.detail(1).expect("header row").title, "Header");
 }
 
+/// The model keeps the bytes; only painting makes them safe. That split is
+/// what lets `y` in the form copy the real value rather than the dotted one.
 #[test]
-fn a_detail_shows_control_characters_rather_than_emitting_them() {
+fn a_detail_keeps_the_raw_value_and_the_painter_makes_it_visible() {
     let s = src_from("a,b\n1,\"two\nlines\"\n");
     let d = s.detail(3).expect("detail");
-    assert_eq!(d.fields[1].1, "two\u{b7}lines", "newline must not be raw");
+    assert_eq!(d.fields[1].1, "two\nlines", "the model is verbatim");
+    assert_eq!(
+        crate::render::visible(&d.fields[1].1),
+        "two\u{b7}lines",
+        "and is safe once painted"
+    );
 }
 
 #[test]
@@ -531,4 +538,42 @@ fn borders_and_separators_have_no_detail() {
     for row in [0, 2] {
         assert!(s.detail(row).is_none(), "row {row} is not a record");
     }
+}
+
+// -- the `sep=` directive -----------------------------------------------------
+
+/// Excel writes `sep=;` ahead of the header. It names the delimiter, and it is
+/// not a row: leaving it in place would make it the header.
+#[test]
+fn a_sep_directive_sets_the_delimiter_and_is_not_a_row() {
+    let mut s = src_from("sep=;\nid;name\n1;alice\n2;bo\n");
+    assert_eq!(s.delim, b';');
+    let rows = all(&mut s);
+    assert!(rows[1].contains("id") && rows[1].contains("name"), "{:?}", rows[1]);
+    assert!(!rows.iter().any(|r| r.contains("sep=")), "the directive is not shown");
+    // Two data rows, correctly split by the declared delimiter.
+    assert_eq!(s.detail(3).expect("row 1").fields[1].1, "alice");
+    assert_eq!(s.detail(4).expect("row 2").fields[1].1, "bo");
+}
+
+#[test]
+fn a_sep_directive_survives_a_bom_and_crlf() {
+    let s = src_from("\u{feff}sep=;\r\nid;name\r\n1;alice\r\n");
+    assert_eq!(s.delim, b';');
+    assert_eq!(s.detail(3).expect("row 1").fields[1].1, "alice");
+}
+
+/// `--delim` is the reader's override and beats what the file claims.
+#[test]
+fn an_explicit_delimiter_beats_the_directive() {
+    let s = CsvSource::from_bytes(b"sep=;\na,b\n1,2\n".to_vec(), Some(b','));
+    assert_eq!(s.delim, b',');
+}
+
+/// A column genuinely called `separator`, or a `sep=` with nothing after it,
+/// is data and must be treated as such.
+#[test]
+fn a_row_that_merely_looks_like_a_directive_is_data() {
+    let mut s = src_from("separator,x\n1,2\n");
+    assert!(all(&mut s)[1].contains("separator"), "still the header");
 }

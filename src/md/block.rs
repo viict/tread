@@ -3,7 +3,7 @@
 //! `md::inline::parse_inlines`; line scanners live in `md::scan`.
 #![deny(unsafe_code)]
 
-use super::ast::{inline_text, Block, Document, Inline, LinkRefs, SlugSet};
+use super::ast::{inline_text, Block, Document, Field, FieldValue, Inline, LinkRefs, SlugSet};
 use super::inline::parse_inlines;
 use super::scan::{
     atx, closes_fence, collect_refs, fence_at, footnote_def_at, html_start, indent_of,
@@ -22,9 +22,12 @@ pub fn parse_document(src: &str) -> Document {
     if src.ends_with('\n') {
         lines.pop();
     }
-    let body = strip_frontmatter(&lines);
+    let (front, body) = split_frontmatter(&lines);
     let link_refs = collect_refs(body);
     let mut blocks = parse_blocks(body, &link_refs);
+    if let Some(front) = front {
+        blocks.insert(0, front);
+    }
     let mut slugs = SlugSet::new();
     assign_ids(&mut blocks, &mut slugs);
     Document { blocks, link_refs }
@@ -32,17 +35,121 @@ pub fn parse_document(src: &str) -> Document {
 
 /// Skip a leading `---` … `---` YAML frontmatter block. The codex corpus puts
 /// status/owner metadata there; it is metadata, not document content.
-fn strip_frontmatter(lines: &[Ln]) -> &[Ln] {
+fn split_frontmatter(lines: &[Ln]) -> (Option<Block>, &[Ln]) {
     if lines.first().map(|l| l.text.trim_end()) != Some("---") {
-        return lines;
+        return (None, lines);
     }
     for (i, l) in lines.iter().enumerate().skip(1) {
         let t = l.text.trim_end();
         if t == "---" || t == "..." {
-            return &lines[i + 1..];
+            let fields = parse_fields(&lines[1..i]);
+            let block = match fields.is_empty() {
+                true => None,
+                false => Some(Block::FrontMatter {
+                    fields,
+                    source_line: 1,
+                }),
+            };
+            return (block, &lines[i + 1..]);
         }
     }
-    lines
+    // An unterminated `---` is not frontmatter at all: it is a thematic break
+    // and whatever follows is the document. Reading to EOF looking for a
+    // closing fence would swallow the file.
+    (None, lines)
+}
+
+/// The subset of YAML the corpus actually uses: `key: value`, and `key:`
+/// followed by `- item` lines. A deeper-indented line with no `-` continues
+/// the item above it, which is how a long `notes:` entry is written.
+///
+/// Anything it does not recognise is left alone rather than guessed at — this
+/// is a reader, and a metadata block it cannot parse should still not lose the
+/// document behind it.
+fn parse_fields(lines: &[Ln]) -> Vec<Field> {
+    let mut out: Vec<Field> = Vec::new();
+    for l in lines {
+        let text = l.text.trim_end();
+        if text.trim().is_empty() || text.trim_start().starts_with('#') {
+            continue;
+        }
+        let indented = text.starts_with(' ') || text.starts_with('\t');
+        let item = text.trim_start().strip_prefix("- ").map(str::trim);
+        match (indented, item, out.last_mut()) {
+            // `  - item` under the most recent key.
+            (_, Some(item), Some(field)) => push_item(field, item),
+            // A continuation of the item above: join with a space.
+            (true, None, Some(field)) => continue_item(field, text.trim()),
+            _ => {
+                if let Some((k, v)) = split_key(text) {
+                    out.push(new_field(k, v));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// `key: value` -> `(key, value)`. The key must look like one: a bare word,
+/// so a prose line holding a colon is not mistaken for a field.
+fn split_key(text: &str) -> Option<(&str, &str)> {
+    let (k, v) = text.split_once(':')?;
+    let key = k.trim();
+    let ok = !key.is_empty()
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    ok.then(|| (key, v.trim()))
+}
+
+fn new_field(key: &str, value: &str) -> Field {
+    let value = match value.is_empty() {
+        // `key:` with nothing after it introduces a list; if no items follow,
+        // it stays an empty list rather than becoming an empty string.
+        true => FieldValue::List(Vec::new()),
+        false => FieldValue::Scalar(strip_quotes(value).to_string()),
+    };
+    Field {
+        key: key.to_string(),
+        value,
+    }
+}
+
+fn push_item(field: &mut Field, item: &str) {
+    let item = strip_quotes(item).to_string();
+    match &mut field.value {
+        FieldValue::List(items) => items.push(item),
+        // `key: value` that then sprouts `- items`: keep both.
+        FieldValue::Scalar(s) => {
+            field.value = FieldValue::List(vec![std::mem::take(s), item]);
+        }
+    }
+}
+
+fn continue_item(field: &mut Field, more: &str) {
+    match &mut field.value {
+        FieldValue::List(items) => match items.last_mut() {
+            Some(last) => {
+                last.push(' ');
+                last.push_str(more);
+            }
+            None => items.push(more.to_string()),
+        },
+        FieldValue::Scalar(s) => {
+            s.push(' ');
+            s.push_str(more);
+        }
+    }
+}
+
+/// YAML quoting is optional and the corpus mostly omits it; strip a matched
+/// pair so a quoted value does not read as though the quotes were data.
+fn strip_quotes(s: &str) -> &str {
+    let bytes = s.as_bytes();
+    if s.len() >= 2 && (bytes[0] == b'"' || bytes[0] == b'\'') && bytes[0] == bytes[s.len() - 1] {
+        return &s[1..s.len() - 1];
+    }
+    s
 }
 
 /// Assign document-unique GitHub-style slugs in document order.

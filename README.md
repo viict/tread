@@ -21,6 +21,13 @@ $ tread README.md
 - **Real tables.** Column widths are computed from content, `:---`/`:---:`/
   `---:` alignment is honored, and a table wider than the terminal scrolls
   horizontally with `h`/`l` instead of being mangled.
+- **Frontmatter is content, not noise.** A leading `---` block folds to one
+  summary line — `Active · viict · 2026-07-07 · 5 related` — so the status is
+  always in view without a long `related:` list pushing the document off the
+  screen. `za` opens it into an aligned key/value block where `status` is
+  coloured by whether the doc is live, in flight or historical, every `related:`
+  path is a link you reach with `n` and follow with `Enter`, and `y` copies the
+  field under the cursor.
 - **A document tree.** Relative links resolve against the current file.
   `Enter` follows one, `Backspace` goes back, `i` opens the corpus index
   grouped by the section each link appeared under.
@@ -190,13 +197,18 @@ tick, so `q` returns immediately whatever the file size, and the status bar says
   scanned is kept, so pressing `G` again resumes. `q` still exits at once.
 - **`Enter` opens the row as a form** — one field per line, label beside value.
   It is the answer to a table wider than the terminal: rather than scrolling
-  sideways hunting for a column, read the whole record at once. `j`/`k` scroll
-  it, `Esc` closes it.
+  sideways hunting for a column, read the whole record at once. `j`/`k` move
+  between fields, `y` copies the one under the cursor verbatim, `Esc` closes it.
+  On a border row, where there is no record, it says so rather than doing
+  nothing quietly.
 - **A `+` in place of the left border means the row has more fields than the
   header named.** Nothing is thrown away — those values are past the right edge
   of a header-shaped grid, and `Enter` shows them, labelled `[4]`, `[5]` … by
   position. The marker replaces the border rather than adding a column, so a
   ragged row still lines up with every other one.
+- **`sep=;` on the first line is honoured** — Excel writes it when exporting
+  with a non-default delimiter. It names the delimiter and is not shown as a
+  row; `--delim` still overrides it, because a file can be wrong about itself.
 - Parsing is RFC 4180: quoted fields, embedded newlines and delimiters, `""`
   escapes, BOM, CRLF, short rows padded to the header's arity. Malformed input
   degrades to something readable and never panics; a control character in a

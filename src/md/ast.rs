@@ -43,9 +43,36 @@ pub struct ListItem {
 // `CodeBlock` deliberately keeps the markdown term of art even though it ends
 // with the enum name; `Block::Code` would collide conceptually with
 // `Inline::Code`, which is a different thing.
+/// One `key: value` of a metadata block.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Field {
+    pub key: String,
+    pub value: FieldValue,
+}
+
+/// A metadata value: one string, or a `-` list of them.
+///
+/// Deliberately not a YAML tree. The corpus this serves uses scalars and flat
+/// lists of strings, and guessing at anchors, nested maps or block scalars
+/// would be a parser pretending to a generality it does not have.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FieldValue {
+    Scalar(String),
+    List(Vec<String>),
+}
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Block {
+    /// A leading `---` … `---` metadata block.
+    ///
+    /// Kept rather than skipped: in a documentation corpus this is where the
+    /// status, the owner and the cross-references live, and dropping it hides
+    /// most of what a reader wants to know before reading anything.
+    FrontMatter {
+        fields: Vec<Field>,
+        source_line: usize,
+    },
     Heading {
         level: u8,
         content: Vec<Inline>,
@@ -97,7 +124,8 @@ impl Block {
     /// 1-based line in the source file where this block starts.
     pub fn source_line(&self) -> usize {
         match self {
-            Block::Heading { source_line, .. }
+            Block::FrontMatter { source_line, .. }
+            | Block::Heading { source_line, .. }
             | Block::Paragraph { source_line, .. }
             | Block::CodeBlock { source_line, .. }
             | Block::List { source_line, .. }

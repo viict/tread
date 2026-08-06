@@ -42,12 +42,24 @@ impl MarkdownSource {
     /// Wrap a parsed document. Nothing is laid out until [`Source::set_width`],
     /// which the pager calls before the first paint.
     pub fn new(doc: Document) -> MarkdownSource {
+        // Metadata starts folded. Open, a `related:` list of seven entries
+        // pushes the document's own first paragraph off the screen; closed, its
+        // one summary row still says the status, the owner and how much is
+        // behind it. `za` on that row opens it.
+        let collapsed = match doc
+            .blocks
+            .first()
+            .is_some_and(|b| matches!(b, crate::md::ast::Block::FrontMatter { .. }))
+        {
+            true => vec![crate::render::METADATA_ID.to_string()],
+            false => Vec::new(),
+        };
         MarkdownSource {
             doc,
             lines: Vec::new(),
             visible: Vec::new(),
             counts: Vec::new(),
-            collapsed: Vec::new(),
+            collapsed,
             outline: Vec::new(),
             links: Vec::new(),
             query: String::new(),
@@ -313,6 +325,31 @@ impl Source for MarkdownSource {
     fn yank_rows(&self, rows: Range<usize>) -> Option<Yank> {
         let picked = self.line_rows(rows);
         select::selection_yank(&self.doc, &self.lines, &picked)
+    }
+
+    /// `y` with nothing selected, on a metadata row: that field's value.
+    ///
+    /// The same shape as a CSV cell yank, for the same reason — a metadata row
+    /// is a `key: value`, and what you want from it is the value, not the whole
+    /// block. `Y` still copies the block as pasteable YAML. Everywhere else in
+    /// a markdown document there is no "smallest thing worth copying", so this
+    /// returns `None` and the pager falls back to the focused link.
+    fn yank_point(&self, row: usize) -> Option<Yank> {
+        let line = self.lines.get(self.at(row)?)?;
+        if !matches!(
+            self.doc.blocks.get(line.block),
+            Some(crate::md::ast::Block::FrontMatter { .. })
+        ) {
+            return None;
+        }
+        // The value is the last span; the first is the dim label. A rule row
+        // has one span and no value, so it yields nothing to copy.
+        let value = line.spans.last().filter(|_| line.spans.len() > 1)?;
+        let text = value.text.trim();
+        (!text.is_empty()).then(|| Yank {
+            text: format!("{text}\n"),
+            what: format!("metadata \u{b7} {text}"),
+        })
     }
 
     fn yank_section(&self, row: usize) -> Option<Yank> {

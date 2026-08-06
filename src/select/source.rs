@@ -6,7 +6,7 @@
 //! is still a list (SPEC.md §Keybindings, `y`/`Y`/`c`).
 #![deny(unsafe_code)]
 
-use crate::md::ast::{Align, Block, Inline, ListItem, ListKind};
+use crate::md::ast::{Align, Block, Field, FieldValue, Inline, ListItem, ListKind};
 
 /// Markdown for a run of blocks, blank-line separated, newline terminated.
 pub fn blocks_markdown(blocks: &[Block]) -> String {
@@ -23,9 +23,42 @@ pub fn blocks_markdown(blocks: &[Block]) -> String {
     }
 }
 
+/// The `---` block, back as the YAML it was.
+///
+/// Yanking it must give something that could be pasted at the top of another
+/// document, so the fences come back too and a list is written the way it was
+/// read. A scalar holding a `:` is quoted, or it would parse as a new key.
+fn frontmatter_markdown(fields: &[Field]) -> String {
+    let mut out = String::from("---\n");
+    for f in fields {
+        match &f.value {
+            FieldValue::Scalar(v) => {
+                out.push_str(&format!("{}: {}\n", f.key, quote_if_needed(v)));
+            }
+            FieldValue::List(items) => {
+                out.push_str(&format!("{}:\n", f.key));
+                for item in items {
+                    out.push_str(&format!("  - {}\n", quote_if_needed(item)));
+                }
+            }
+        }
+    }
+    out.push_str("---");
+    out
+}
+
+fn quote_if_needed(v: &str) -> String {
+    let needs = v.contains(':') || v.starts_with('-') || v.starts_with('#');
+    match needs && !v.starts_with('"') {
+        true => format!("{v:?}"),
+        false => v.to_string(),
+    }
+}
+
 /// Markdown for one block, without a trailing newline.
 pub fn block_markdown(b: &Block) -> String {
     match b {
+        Block::FrontMatter { fields, .. } => frontmatter_markdown(fields),
         Block::Heading { level, content, .. } => {
             format!("{} {}", "#".repeat(*level as usize), inline_markdown(content))
         }

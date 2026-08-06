@@ -98,12 +98,24 @@ fn close_fd_ignores_the_standard_descriptors() {
     assert!(write_all(super::super::STDOUT, b"").is_ok());
 }
 
+/// The signal flags are process-wide and consuming, so these tests cannot run
+/// beside one another: one raising SIGWINCH while another asserts the flag is
+/// clear is a race, and it failed a run at random before this lock existed.
+/// The test harness threads them in parallel by default, so serialise the ones
+/// that touch the flags. Poisoning is irrelevant here — a panicking test has
+/// already failed, and the next one still wants the lock.
+static SIGNALS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn signals_locked() -> std::sync::MutexGuard<'static, ()> {
+    SIGNALS.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[test]
 fn signal_handlers_install_and_flags_start_clear() {
+    let _guard = signals_locked();
     install_signal_handlers();
-    // Nothing has been raised in-process, so both must read false.
-    // (`terminate_pending` is deliberately not asserted here: another
-    // test raises SIGTERM, and the flag is process-wide.)
+    // Nothing has been raised while we hold the lock, so both must read false.
+    let _ = super::super::terminate_pending();
     assert!(!super::super::winch_pending());
     assert!(!super::super::interrupt_pending());
 }
@@ -116,6 +128,7 @@ fn a_termination_signal_sets_the_flag_and_does_not_kill_us() {
     extern "C" {
         fn raise(sig: c_int) -> c_int;
     }
+    let _guard = signals_locked();
     install_signal_handlers();
     let _ = super::super::terminate_pending();
     // SAFETY: `raise` delivers a signal to this process only; the
@@ -132,6 +145,7 @@ fn sigwinch_sets_the_resize_flag() {
     extern "C" {
         fn raise(sig: c_int) -> c_int;
     }
+    let _guard = signals_locked();
     install_signal_handlers();
     let _ = super::super::winch_pending();
     // SAFETY: as above — in-process delivery to an atomic-only handler.

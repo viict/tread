@@ -175,6 +175,9 @@ pub(crate) fn render_blocks(ctx: &mut Ctx, blocks: &[Block], pfx: &Pfx, spaced: 
 
 pub(crate) fn render_block(ctx: &mut Ctx, b: &Block, pfx: &Pfx) {
     match b {
+        Block::FrontMatter { fields, source_line } => {
+            super::frontmatter::render(ctx, fields, *source_line, pfx)
+        }
         Block::Heading { level, content, id, source_line } => {
             heading(ctx, *level, content, id, *source_line, pfx)
         }
@@ -205,7 +208,7 @@ pub(crate) fn render_block(ctx: &mut Ctx, b: &Block, pfx: &Pfx) {
 
 fn heading(ctx: &mut Ctx, level: u8, content: &[Inline], id: &str, src: usize, pfx: &Pfx) {
     let text = inline_text(content);
-    let info = HeadingLine { level, id: id.to_string(), text: text.clone() };
+    let info = HeadingLine { level, id: id.to_string(), text: text.clone(), summarised: false };
     let indent = theme::heading_indent(level);
     let hp = pfx.nest(&[spaces(indent)]);
     let avail = ctx.width.saturating_sub(hp.first_width());

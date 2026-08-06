@@ -193,3 +193,37 @@ mod tests {
         assert_eq!(repeat('-', 3), "---");
     }
 }
+
+/// Text safe to paint: every control character replaced by a visible dot.
+///
+/// Data can legitimately hold control bytes — a quoted CSV field may contain a
+/// newline, and a JSON string may contain a tab — but none of them can be sent
+/// to a terminal, where they would move the cursor and tear the frame. The
+/// substitution lives here, once, so a format decides *what* it shows and never
+/// how to make it safe. Yanked text keeps the original bytes: this is a display
+/// transform, not a change to the data.
+pub fn visible(raw: &str) -> String {
+    match raw.chars().any(char::is_control) {
+        false => raw.to_string(),
+        true => raw
+            .chars()
+            .map(|c| if c.is_control() { CONTROL } else { c })
+            .collect(),
+    }
+}
+
+/// Stands in for a control character on screen.
+pub const CONTROL: char = '\u{b7}';
+
+#[cfg(test)]
+mod visible_tests {
+    use super::*;
+
+    #[test]
+    fn control_characters_become_dots_and_the_rest_is_untouched() {
+        assert_eq!(visible("plain"), "plain");
+        assert_eq!(visible("two\nlines"), "two\u{b7}lines");
+        assert_eq!(visible("a\tb\rc\0d"), "a\u{b7}b\u{b7}c\u{b7}d");
+        assert_eq!(visible("\u{4e2d}\u{6587}"), "\u{4e2d}\u{6587}");
+    }
+}

@@ -20,9 +20,6 @@ use crate::theme;
 /// Shown in place of the tail of a value too wide for its column.
 pub const ELLIPSIS: char = '\u{2026}';
 
-/// Control bytes are data in a CSV cell (a quoted field may hold a newline) but
-/// can never be sent to a terminal, so they are drawn as one visible dot each.
-pub const CONTROL: char = '\u{b7}';
 
 const BAR: &str = "\u{2502}";
 const DASH: char = '\u{2500}';
@@ -45,18 +42,12 @@ impl Edge {
     }
 }
 
-/// One cell's text, with control characters made visible.
+/// One cell's text, safe to paint.
 ///
-/// Returns the input unchanged (and unallocated in the common case is not
-/// worth the API noise) when there is nothing to replace.
+/// The rule lives in [`crate::render::visible`] so a CSV cell, a JSON string
+/// and anything else a future format shows all sanitise identically.
 pub fn clean(raw: &str) -> String {
-    match raw.chars().any(char::is_control) {
-        false => raw.to_string(),
-        true => raw
-            .chars()
-            .map(|c| if c.is_control() { CONTROL } else { c })
-            .collect(),
-    }
+    crate::render::visible(raw)
 }
 
 /// A horizontal rule across the whole grid.
@@ -74,16 +65,16 @@ pub fn border(grid: &Grid, edge: Edge, source_line: usize) -> Line {
 }
 
 /// The header row, in the markdown table's header style.
-pub fn header(grid: &Grid) -> Line {
+pub fn header(grid: &Grid, focus: usize) -> Line {
     let names: Vec<String> = grid.cols.iter().map(|c| c.name.clone()).collect();
-    row(grid, &names, theme::table_head(), 1)
+    row(grid, &names, theme::table_head(), 1, focus)
 }
 
 /// One data row. `fields` is padded or truncated to the grid's arity by the
 /// caller (`parse::fit`); anything beyond it is not drawn, though a yank still
 /// carries it.
-pub fn data(grid: &Grid, fields: &[String], source_line: usize) -> Line {
-    row(grid, fields, Style::new(), source_line)
+pub fn data(grid: &Grid, fields: &[String], source_line: usize, focus: usize) -> Line {
+    row(grid, fields, Style::new(), source_line, focus)
 }
 
 /// One row of cells.
@@ -92,7 +83,7 @@ pub fn data(grid: &Grid, fields: &[String], source_line: usize) -> Line {
 /// columns is a row with 10k spans rather than 40k, and the spans a frame
 /// allocates is what a wide CSV's paint time is made of. Nothing is lost —
 /// the pads carry no background in either style used here.
-fn row(grid: &Grid, fields: &[String], base: Style, source_line: usize) -> Line {
+fn row(grid: &Grid, fields: &[String], base: Style, source_line: usize, focus: usize) -> Line {
     let bar = || Span::new(BAR, theme::table_border());
     // A row with more fields than the header named keeps them — they are simply
     // past the right edge of a header-shaped grid. Say so where the eye already
@@ -105,7 +96,15 @@ fn row(grid: &Grid, fields: &[String], base: Style, source_line: usize) -> Line 
     let mut spans = vec![lead];
     for (i, col) in grid.cols.iter().enumerate() {
         let text = clean(fields.get(i).map_or("", String::as_str));
-        cell(&mut spans, &text, col.width, base);
+        // The focused column is tinted down its whole height, header included.
+        // `h`/`l` move by a column, and without this the only sign of which one
+        // you are on is the name in the status bar — so a press that scrolls
+        // past a narrow column looks like it did nothing at all.
+        let style = match i == focus {
+            true => base.bg(theme::COLUMN_BG),
+            false => base,
+        };
+        cell(&mut spans, &text, col.width, style);
         spans.push(bar());
     }
     line(spans, source_line)
@@ -147,6 +146,10 @@ fn line(spans: Vec<Span>, source_line: usize) -> Line {
 mod tests {
     use super::*;
 
+    /// A focus index no column has, for the tests that are about layout rather
+    /// than about the highlight.
+    const NONE: usize = usize::MAX;
+
     fn strs(v: &[&str]) -> Vec<String> {
         v.iter().map(|s| s.to_string()).collect()
     }
@@ -161,9 +164,9 @@ mod tests {
     #[test]
     fn a_row_looks_like_a_markdown_table_row() {
         let g = g();
-        assert_eq!(header(&g).text(), "\u{2502} id \u{2502} name  \u{2502}");
+        assert_eq!(header(&g, NONE).text(), "\u{2502} id \u{2502} name  \u{2502}");
         assert_eq!(
-            data(&g, &strs(&["7", "bo"]), 2).text(),
+            data(&g, &strs(&["7", "bo"]), 2, NONE).text(),
             "\u{2502} 7  \u{2502} bo    \u{2502}"
         );
         assert_eq!(border(&g, Edge::Top, 0).text(), "\u{250c}\u{2500}\u{2500}\u{2500}\u{2500}\u{252c}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2510}");
@@ -174,12 +177,12 @@ mod tests {
     fn every_row_is_exactly_the_grid_width() {
         let g = g();
         let rows = [
-            header(&g),
+            header(&g, NONE),
             border(&g, Edge::Mid, 0),
-            data(&g, &strs(&["7", "bo"]), 2),
-            data(&g, &strs(&[]), 3),
-            data(&g, &strs(&["overlong", "overlong too"]), 4),
-            data(&g, &strs(&["\u{4e2d}\u{6587}\u{4e2d}", "\u{4e2d}"]), 5),
+            data(&g, &strs(&["7", "bo"]), 2, NONE),
+            data(&g, &strs(&[]), 3, NONE),
+            data(&g, &strs(&["overlong", "overlong too"]), 4, NONE),
+            data(&g, &strs(&["\u{4e2d}\u{6587}\u{4e2d}", "\u{4e2d}"]), 5, NONE),
         ];
         for r in rows {
             assert_eq!(r.width(), g.total(), "{:?}", r.text());
@@ -189,7 +192,7 @@ mod tests {
     #[test]
     fn an_overlong_value_is_marked_not_silently_cut() {
         let g = g();
-        let text = data(&g, &strs(&["1", "alexandra"]), 2).text();
+        let text = data(&g, &strs(&["1", "alexandra"]), 2, NONE).text();
         assert!(text.contains(&format!("alex{ELLIPSIS}")), "{text}");
         assert_eq!(str_width(&text), g.total());
     }
@@ -200,7 +203,7 @@ mod tests {
         g.sample(&strs(&["abcd"]));
         g.fit(100);
         // Cutting "中中" to 3 columns keeps one wide char and pads the gap.
-        let l = data(&g, &strs(&["\u{4e2d}\u{4e2d}\u{4e2d}"]), 2);
+        let l = data(&g, &strs(&["\u{4e2d}\u{4e2d}\u{4e2d}"]), 2, NONE);
         assert_eq!(l.width(), g.total());
         assert!(l.text().ends_with(&format!("{ELLIPSIS} \u{2502}")));
     }
@@ -210,28 +213,65 @@ mod tests {
         assert_eq!(clean("a\nb\tc\0"), "a\u{b7}b\u{b7}c\u{b7}");
         assert_eq!(clean("plain"), "plain");
         let g = g();
-        let l = data(&g, &strs(&["1", "a\nb"]), 2);
+        let l = data(&g, &strs(&["1", "a\nb"]), 2, NONE);
         assert!(!l.text().contains('\n'));
     }
 
     #[test]
     fn ragged_rows_do_not_break_the_grid() {
         let g = g();
-        assert_eq!(data(&g, &strs(&["only"]), 2).width(), g.total());
-        assert_eq!(data(&g, &strs(&["a", "b", "c", "d"]), 2).width(), g.total());
+        assert_eq!(data(&g, &strs(&["only"]), 2, NONE).width(), g.total());
+        assert_eq!(data(&g, &strs(&["a", "b", "c", "d"]), 2, NONE).width(), g.total());
+    }
+
+    /// The focused column is tinted, and only it: a background that leaked into
+    /// the bar or the next cell would read as two columns being focused.
+    #[test]
+    fn only_the_focused_column_is_tinted() {
+        let g = g();
+        let line = data(&g, &strs(&["7", "bo"]), 2, 1);
+        let tinted: Vec<&str> = line
+            .spans
+            .iter()
+            .filter(|s| s.style.bg == Some(theme::COLUMN_BG))
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(tinted, vec![" bo    "], "just the one cell");
+
+        // Column 0 focused instead.
+        let line = data(&g, &strs(&["7", "bo"]), 2, 0);
+        let tinted: Vec<&str> = line
+            .spans
+            .iter()
+            .filter(|s| s.style.bg == Some(theme::COLUMN_BG))
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(tinted, vec![" 7  "]);
+    }
+
+    /// The header is tinted with the body, or the highlight would stop at the
+    /// one row that names the column.
+    #[test]
+    fn the_header_shares_the_column_highlight() {
+        let g = g();
+        let h = header(&g, 1);
+        assert!(h
+            .spans
+            .iter()
+            .any(|s| s.style.bg == Some(theme::COLUMN_BG) && s.text.contains("name")));
     }
 
     #[test]
     fn a_row_with_more_fields_than_the_header_is_marked() {
         let g = g();
-        let over = data(&g, &strs(&["a", "b", "c", "d"]), 2);
+        let over = data(&g, &strs(&["a", "b", "c", "d"]), 2, NONE);
         assert_eq!(over.spans[0].text, theme::MARKER_MORE.to_string());
         // The marker stands in for the border, so the grid does not shift.
         assert_eq!(over.width(), g.total());
 
-        let exact = data(&g, &strs(&["a", "b"]), 2);
+        let exact = data(&g, &strs(&["a", "b"]), 2, NONE);
         assert_eq!(exact.spans[0].text, BAR);
-        let short = data(&g, &strs(&["a"]), 2);
+        let short = data(&g, &strs(&["a"]), 2, NONE);
         assert_eq!(short.spans[0].text, BAR, "a short row lost nothing");
     }
 }

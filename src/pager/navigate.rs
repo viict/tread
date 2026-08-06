@@ -139,13 +139,20 @@ impl Pager {
     /// did, a record format has no folds and opens the row. Neither knows the
     /// other exists.
     fn activate(&mut self) {
-        match self.src.detail(self.cursor) {
-            Some(d) => {
-                self.detail = Some(d);
-                self.detail_sel = 0;
-                self.mode = Mode::Detail;
-            }
-            None => self.fold(None),
+        if let Some(d) = self.src.detail(self.cursor) {
+            self.detail = Some(d);
+            self.detail_sel = 0;
+            self.mode = Mode::Detail;
+            return;
+        }
+        // Nothing to open here, and nothing to fold either: a format with no
+        // sections at all would otherwise answer with `fold`'s "no heading
+        // here", which is true but reads as nonsense in a file that has no
+        // headings anywhere. Asking the source how it is shaped keeps the
+        // pager format-blind while still saying something the reader believes.
+        match self.src.outline().is_empty() {
+            true => self.notify("nothing to open here"),
+            false => self.fold(None),
         }
     }
 

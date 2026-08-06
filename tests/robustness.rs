@@ -252,3 +252,17 @@ fn pseudo_random_documents_never_crash_the_renderer() {
         let _ = std::fs::remove_file(&path);
     }
 }
+
+/// A dump is not a viewport: metadata starts folded for a reader, and a folded
+/// block in a pipe is simply missing output. `tread doc.md > out.txt` must
+/// contain every field.
+#[test]
+fn a_dump_shows_metadata_that_a_reader_would_have_to_unfold() {
+    let body = b"---\nstatus: Active\nrelated:\n  - models/A.md\n---\n\n# Title\n\nbody\n";
+    let path = temp_doc("metadata", body);
+    let out = strip(&render(&path, &["--width", "80"]));
+    assert!(out.contains("status"), "{out}");
+    assert!(out.contains("models/A.md"), "the folded field is in the dump: {out}");
+    // The H1 is a block-glyph banner, so assert on the prose instead.
+    assert!(out.contains("body"), "{out}");
+}

@@ -87,3 +87,57 @@ pub fn parse_delim(spec: &str) -> Option<u8> {
 #[cfg(test)]
 #[path = "delim_tests.rs"]
 mod tests;
+
+/// A leading `sep=;` line, as Excel writes when it exports with a delimiter
+/// that is not the locale's default.
+///
+/// It is a directive, not data: it names the delimiter for the rest of the
+/// file and must not become the header row. Returns the delimiter and the
+/// length of the line *including* its terminator, so the caller can start the
+/// document after it.
+///
+/// `bytes` must already be past any BOM. Only a single-byte delimiter is
+/// accepted — the convention has no way to express more, and `sep=,,` is far
+/// likelier to be data than a directive.
+pub fn sep_line(bytes: &[u8]) -> Option<(u8, usize)> {
+    const TAG: &[u8] = b"sep=";
+    // Excel writes it lowercase; other tools have been seen shouting it.
+    let head = bytes.get(..TAG.len())?;
+    if !head.eq_ignore_ascii_case(TAG) {
+        return None;
+    }
+    let delim = *bytes.get(TAG.len())?;
+    if delim == b'\n' || delim == b'\r' {
+        return None; // `sep=` with nothing after it names nothing
+    }
+    match bytes.get(TAG.len() + 1)? {
+        b'\n' => Some((delim, TAG.len() + 2)),
+        b'\r' if bytes.get(TAG.len() + 2) == Some(&b'\n') => Some((delim, TAG.len() + 3)),
+        // A lone CR still ends a line elsewhere in this parser, so honour it.
+        b'\r' => Some((delim, TAG.len() + 2)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod sep_tests {
+    use super::*;
+
+    #[test]
+    fn a_sep_directive_names_the_delimiter_and_its_own_length() {
+        assert_eq!(sep_line(b"sep=;\na;b\n"), Some((b';', 6)));
+        assert_eq!(sep_line(b"sep=,\r\na,b\r\n"), Some((b',', 7)));
+        assert_eq!(sep_line(b"sep=\t\na\tb\n"), Some((b'\t', 6)));
+        assert_eq!(sep_line(b"SEP=|\na|b\n"), Some((b'|', 6)));
+    }
+
+    #[test]
+    fn anything_that_is_not_the_directive_is_data() {
+        assert_eq!(sep_line(b"a,b\n"), None);
+        assert_eq!(sep_line(b"sep=\n"), None, "names nothing");
+        assert_eq!(sep_line(b"sep=;;\n"), None, "not a single byte");
+        assert_eq!(sep_line(b"separator,x\n"), None, "a real column called separator");
+        assert_eq!(sep_line(b"sep=;"), None, "no terminator: it is the only row");
+        assert_eq!(sep_line(b""), None);
+    }
+}

@@ -6,7 +6,7 @@
 #![deny(unsafe_code)]
 
 use super::{keys, search, Mode, Pager};
-use crate::render::{slice_spans, str_width, truncate_width, Line, Span};
+use crate::render::{slice_spans, str_width, truncate_width, visible, Line, Span};
 use crate::term::{Frame, Style};
 use crate::theme;
 
@@ -119,6 +119,11 @@ fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
         if first.text.starts_with(theme::MARKER_OPEN) {
             first.text = format!("{} ", theme::MARKER_CLOSED);
         }
+    }
+    // A row that summarises its own contents says the count better than this
+    // can; appending to it would be redundant.
+    if line.heading.as_ref().is_some_and(|h| h.summarised) {
+        return Some(spans);
     }
     let unit = if hidden == 1 { "line" } else { "lines" };
     spans.push(Span::new(format!("  ({hidden} {unit})"), theme::muted()));
@@ -266,7 +271,7 @@ fn detail(p: &Pager, frame: &mut Frame) {
                 true => theme::muted(),
                 false => theme::text(),
             };
-            (format!(" {k}{pad}   {v}"), style)
+            (format!(" {k}{pad}   {}", visible(v)), style)
         })
         .collect();
     overlay(p, frame, &d.title, READ, &rows, p.detail_sel);

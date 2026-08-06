@@ -44,6 +44,11 @@ pub const TASK_DONE_FG: u8 = 114;
 /// The `+` on a row carrying fields past the header. Amber: it is a notice,
 /// not an error — the data is there, it is just not in the grid.
 pub const MORE_FG: u8 = 214;
+/// Document status: live, still in flight, historical.
+/// Background of the CSV column the cursor is on.
+pub const COLUMN_BG: u8 = 237;
+pub const STATUS_LIVE: u8 = 114;
+pub const STATUS_OPEN: u8 = 214;
 
 // ---------------------------------------------------------------------------
 // Element styles
@@ -76,6 +81,33 @@ pub const fn quote_bar() -> Style {
 pub const fn table_border() -> Style {
     Style::new().fg(TABLE_BORDER_FG)
 }
+/// The status of a document, coloured by what it says.
+///
+/// Opinionated on purpose, and matched on the first word so a status carrying
+/// a trailing explanation (`Superseded — co-location abandoned`) still reads
+/// as superseded. Three states are worth distinguishing at a glance: live,
+/// in flight, and historical. Anything unrecognised is left plain rather than
+/// mis-coloured.
+pub fn status_of(value: &str) -> Style {
+    let first = value
+        .split(|c: char| c.is_whitespace() || c == '|' || c == '\u{2014}')
+        .find(|w| !w.is_empty())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match first.as_str() {
+        "active" | "accepted" | "implemented" | "done" => Style::new().fg(STATUS_LIVE).bold(),
+        "draft" | "proposed" | "executing" | "in" | "partially" => {
+            Style::new().fg(STATUS_OPEN).bold()
+        }
+        "superseded" | "archived" | "cancelled" | "rejected" => Style::new().fg(MUTED_FG).dim(),
+        _ => Style::new(),
+    }
+}
+
+pub const fn link() -> Style {
+    Style::new().fg(LINK).underline()
+}
+
 pub const fn more() -> Style {
     Style::new().fg(MORE_FG).bold()
 }

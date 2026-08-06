@@ -487,3 +487,54 @@ fn real_codex_root_is_discovered_by_walking_up() {
         Target::Broken { .. }
     ));
 }
+
+// -- a corpus that names itself ----------------------------------------------
+
+/// `corpus/models/A.md`, written *inside* `/corpus`. The leading segment is
+/// the corpus's own name, so the path only resolves from the root's parent —
+/// which is how such a reference gets written in the first place.
+#[test]
+fn a_path_prefixed_with_the_root_name_resolves_from_the_root() {
+    assert_eq!(
+        resolve("corpus/models/A.md", "/corpus/decisions"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/models/A.md"),
+            anchor: None
+        }
+    );
+    // And with an anchor, from the root itself.
+    assert_eq!(
+        resolve("corpus/models/A.md#deep-heading", "/corpus"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/models/A.md"),
+            anchor: Some("deep-heading".into())
+        }
+    );
+}
+
+/// The fallback must not invent a file. A path that is wrong in the ordinary
+/// way stays wrong rather than being retried into something that exists.
+#[test]
+fn the_root_name_fallback_never_conjures_a_target() {
+    assert!(matches!(
+        resolve("corpus/models/NOPE.md", "/corpus/decisions"),
+        Target::Broken { .. }
+    ));
+    assert!(matches!(
+        resolve("models/NOPE.md", "/corpus"),
+        Target::Broken { .. }
+    ));
+}
+
+/// A real relative path wins: the fallback only runs when nothing was found,
+/// so it cannot shadow a directory that genuinely sits inside the corpus.
+#[test]
+fn a_real_relative_path_is_preferred_to_the_fallback() {
+    assert_eq!(
+        resolve("models/A.md", "/corpus"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/models/A.md"),
+            anchor: None
+        }
+    );
+}

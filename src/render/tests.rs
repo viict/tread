@@ -283,3 +283,76 @@ fn plain_text_round_trips_without_escape_sequences() {
         assert!(!l.text().contains('\u{1b}'));
     }
 }
+
+// -- frontmatter --------------------------------------------------------------
+
+const FM: &str = concat!(
+    "---\n",
+    "status: Active\n",
+    "owner: alice\n",
+    "deciders:\n",
+    "  - alice\n",
+    "related:\n",
+    "  - models/DNS.md\n",
+    "  - models/PULSE.md\n",
+    "---\n\n# Title\n"
+);
+
+/// The fold handle: the status, the short scalars, and a count per list.
+#[test]
+fn the_metadata_summary_says_the_status_and_counts_the_lists() {
+    let out = texts(FM, 70);
+    assert_eq!(
+        out[0],
+        "\u{25be} Active  \u{b7}  alice  \u{b7}  1 decider  \u{b7}  2 related",
+        "singular for one, the key verbatim for many"
+    );
+}
+
+#[test]
+fn the_fields_are_an_aligned_key_value_block_under_the_summary() {
+    let out = texts(FM, 70);
+    assert_eq!(out[1], "  status    Active");
+    assert_eq!(out[2], "  owner     alice");
+    assert_eq!(out[3], "  deciders  alice");
+    assert_eq!(out[4], "  related   models/DNS.md");
+    // A list's later values align under the first, with no repeated key.
+    assert_eq!(out[5], "            models/PULSE.md");
+    assert!(out[6].trim_start().starts_with('\u{2500}'), "closed by a rule");
+}
+
+#[test]
+fn a_document_path_in_the_metadata_is_a_link() {
+    let out = lines(FM, 70);
+    let links: Vec<(usize, &str)> = out[4].links();
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].1, "models/DNS.md");
+    assert!(out[2].links().is_empty(), "a plain value is not a link");
+}
+
+#[test]
+fn the_status_is_coloured_by_what_it_says() {
+    let style = |src: &str| {
+        let l = lines(src, 40);
+        l[1].spans.last().unwrap().style
+    };
+    let live = style("---\nstatus: Accepted\n---\n\nx\n");
+    let open = style("---\nstatus: Draft\n---\n\nx\n");
+    let old = style("---\nstatus: Superseded \u{2014} by ADR 12\n---\n\nx\n");
+    assert_ne!(live, open, "live differs from in-flight");
+    assert_ne!(live, old, "live differs from historical");
+    // A trailing explanation must not stop it reading as superseded.
+    assert_eq!(old, crate::theme::status_of("Superseded"));
+}
+
+/// The summary row is the fold handle, and it counts its own contents — so the
+/// painter must not also append `(N lines)`.
+#[test]
+fn the_metadata_block_is_a_self_summarising_foldable_section() {
+    let out = lines(FM, 70);
+    let head = out[0].heading.as_ref().expect("the summary is the handle");
+    assert_eq!(head.level, 1);
+    assert_eq!(head.id, crate::render::METADATA_ID);
+    assert!(head.summarised);
+    assert!(out[1].heading.is_none(), "only the summary is a heading");
+}

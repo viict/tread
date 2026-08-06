@@ -140,6 +140,11 @@ pub struct Detail {
     pub title: String,
     /// `(label, value)`, in the format's own order. A field the format has no
     /// name for still appears — labelled positionally rather than dropped.
+    ///
+    /// Values are **raw**: exactly the bytes the document holds, control
+    /// characters and all. Painting them is what makes them safe
+    /// ([`crate::render::visible`]), so that copying one yields the real value
+    /// rather than the dotted display form.
     pub fields: Vec<(String, String)>,
 }
 

@@ -87,6 +87,35 @@ src/select.rs      visual/line selection state + yank text extraction
 - Bold, italic, bold-italic, strikethrough. Nesting must work.
 - Escapes (`\*`) and entity-ish literals handled.
 
+### Frontmatter
+
+A leading `---` … `---` block is **rendered, not skipped**: in a documentation
+corpus it holds the status, the owner and the cross-references, which is most
+of what a reader wants before reading anything. It **starts folded**, to one summary
+line: the status, the short scalars, and a count for each list
+(`Active · viict · 5 related`). Open, it is an aligned key/value column closed
+by a rule — dim labels, list values stacked under their key without repeating
+it. The summary row is the fold handle and counts its own contents, so the
+painter's usual `(N lines)` is suppressed there. `y` on a field row copies that
+value, as it copies a cell in a CSV.
+
+A dump is not a viewport: `--plain`, `--no-alt` and a piped render unfold
+everything first, since a folded block in a pipe is missing output rather than
+something the reader can open.
+
+Two values mean more than text. `status` is coloured by its first word (live /
+in flight / historical), so a trailing explanation does not stop it reading as
+superseded. A value that is a path ending `.md`, with no whitespace, becomes a
+real link and so is reachable with `n` and `Enter`; prose that merely mentions
+a filename is not. Parsing covers what such corpora use — scalars, `-` lists,
+and wrapped continuation lines — and nothing more: guessing at anchors or
+nested maps would be a parser pretending to a generality it does not have. An
+unterminated `---` is a thematic break, not a block that swallows the file.
+
+A link whose first segment is the index root's own folder name
+(`codex/models/X.md`, written inside `codex/`) resolves from the root when
+that finds a real file. Only as a fallback, and only when the target exists.
+
 ### Blocks
 - Paragraphs: word-wrapped to terminal width minus gutter, never mid-word
   unless a single word exceeds the width.
@@ -229,6 +258,8 @@ path, and `q` must never wait on a scan.
   visible marker rather than breaking the layout; `w` widens the column under
   the cursor on demand. Layout may shift as sampling proves wrong — that is the
   accepted trade for instant open.
+- **`sep=<char>` on the first line** is Excel's delimiter directive: it names
+  the delimiter and is consumed, never shown as a row. `--delim` overrides it.
 - **Parsing** is RFC 4180: quoted fields, embedded newlines and delimiters,
   doubled quotes as escapes, BOM, CRLF, ragged rows padded or truncated to the
   header's arity. Delimiter sniffed among `,` `\t` `;` `|`, overridable.
@@ -241,6 +272,9 @@ path, and `q` must never wait on a scan.
   row by standing a `+` in for its left border (never an extra column, which
   would misalign it), and the form lists the surplus labelled by position.
   Padding a short row is display; dropping a long one would be data loss.
+  In the form, `y` copies the field under the cursor — the value verbatim, not
+  the sanitised form on screen and not re-quoted, because there you are reading
+  a value rather than exporting a record.
 - **Yank**: `y` the cell, `Y` the row as valid CSV, `c` the column. Always
   source-faithful — re-quoted correctly, never the padded display form.
 

@@ -406,3 +406,38 @@ fn collapsing_everything_clamps_the_viewport_before_it_jumps() {
     press(&mut p, "zM");
     assert_eq!((p.cursor, p.top), (12, 9));
 }
+
+// -- metadata (frontmatter) ---------------------------------------------------
+
+const META: &str = concat!(
+    "---\nstatus: Active\nrelated:\n  - models/A.md\n  - models/B.md\n---\n\n",
+    "# Title\n\nbody\n"
+);
+
+/// Closed on open, and `za` on the summary row opens it.
+#[test]
+fn metadata_starts_folded_and_za_opens_it() {
+    let mut p = pager(META, 60, 12);
+    let shut = p.visible_text();
+    assert!(shut[0].contains("Active"), "{:?}", shut[0]);
+    assert!(shut[0].contains("2 related"), "counts what it hides");
+    assert!(!shut.iter().any(|t| t.contains("models/A.md")), "fields hidden");
+
+    p.cursor = 0;
+    press(&mut p, "za");
+    let open = p.visible_text();
+    assert!(open.iter().any(|t| t.contains("models/A.md")), "fields shown");
+}
+
+/// `y` on a metadata row copies that field's value, the way it copies a cell
+/// in a CSV. Elsewhere in a markdown document it still falls back to the link.
+#[test]
+fn y_on_a_metadata_row_copies_the_field() {
+    let mut p = pager(META, 60, 12);
+    p.cursor = 0;
+    press(&mut p, "za"); // open it
+    p.cursor = 2; // the `related` row
+    press(&mut p, "y");
+    let y = p.peek_yank().expect("a field yank");
+    assert_eq!(y.text, "models/A.md\n");
+}

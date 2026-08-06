@@ -178,7 +178,29 @@ pub fn resolve(raw: &str, doc_dir: &Path, root: &Path, fs: &dyn Fs) -> Target {
     if !within_root(&joined, root) {
         return broken(raw, "link escapes the index root");
     }
+    let joined = match fs.is_file(&joined) || fs.is_dir(&joined) {
+        true => joined,
+        false => root_named(rel, root, fs).unwrap_or(joined),
+    };
     classify_path(raw, joined, anchor, fs)
+}
+
+/// A corpus that names itself: `codex/foundations/X.md`, written *inside* the
+/// codex.
+///
+/// Such a path is relative to the corpus's parent — how a document refers to
+/// itself from the outside, which is what you get when the path was copied
+/// from somewhere else in the tree. Read from inside, the leading segment is
+/// redundant and the link resolves to nothing. When it matches the root's own
+/// folder name and dropping it finds a real file, that is what was meant.
+///
+/// Only ever a fallback, and only when the target exists: it must not shadow a
+/// genuine `codex/` directory that happens to sit inside the corpus.
+fn root_named(rel: &str, root: &Path, fs: &dyn Fs) -> Option<PathBuf> {
+    let name = root.file_name()?.to_str()?;
+    let rest = rel.strip_prefix(name)?.strip_prefix('/')?;
+    let path = normalize(root, rest)?;
+    (fs.is_file(&path) || fs.is_dir(&path)).then_some(path)
 }
 
 /// Decide what an existing (or almost-existing) path is.
