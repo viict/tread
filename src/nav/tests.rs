@@ -280,6 +280,30 @@ fn absolutize_normalizes_relative_paths() {
     );
 }
 
+/// The nav layer is platform-agnostic because it delegates to `plat::path`,
+/// whose Windows rules are proved in `plat::path_tests` from any host. What is
+/// checked here is the *wiring*: that these entry points speak this platform's
+/// dialect rather than a hardcoded `/` one.
+#[test]
+fn path_handling_speaks_this_platforms_dialect() {
+    use crate::plat::{path as ppath, Platform};
+    let sep = ppath::sep(Platform::HOST);
+    let root = PathBuf::from(ppath::join(Platform::HOST, "/corpus", "").unwrap());
+    let deep = PathBuf::from(ppath::join(Platform::HOST, "/corpus", "models/a.md").unwrap());
+    // Joining speaks the native dialect...
+    assert!(deep.to_string_lossy().contains(&format!("models{}a.md", ppath::sep(Platform::HOST))));
+    // ...but the corpus-relative name a user sees and yanks is always `/`.
+    assert_eq!(link::rel_to(&deep, &root), "models/a.md");
+    assert!(link::within_root(&deep, &root));
+    assert!(!link::within_root(Path::new("/elsewhere/a.md"), &root));
+    // Identity survives a `.` and a redundant separator.
+    let noisy = PathBuf::from(format!("{}{sep}.{sep}models{sep}a.md", root.display()));
+    assert!(link::same_path(&deep, &noisy));
+    assert!(!link::same_path(&deep, &root));
+    // A link that walks above the root is still an escape, not a fold to `/`.
+    assert_eq!(link::normalize(&root, "../../etc/passwd"), None);
+}
+
 // -- index parsing -----------------------------------------------------------
 
 const INDEX_SRC: &str = "\

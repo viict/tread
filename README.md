@@ -59,6 +59,7 @@ $ ldd target/x86_64-unknown-linux-musl/release/mdr
 | Linux | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` | fully static |
 | Linux | `x86_64-unknown-linux-gnu` | dynamic (glibc) |
 | macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | dynamic, `libSystem` only |
+| Windows 10 1703+ | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc`, `x86_64-pc-windows-gnu` | dynamic, `kernel32` only |
 
 Build for a platform on that platform. The musl binary is a Linux ELF and will
 not run on macOS; macOS cannot be statically linked at all, because Apple does
@@ -66,9 +67,13 @@ not ship a static libc. Any unix that is neither Linux nor Darwin is refused at
 compile time with a message naming the work, rather than served a `termios`
 layout that is probably wrong.
 
-The macOS backend is type-checked on every build and its ABI tables are
-unit-tested, but it has not yet run on real hardware. Windows is not supported
-yet; [`WINDOWS.md`](WINDOWS.md) describes what a backend would have to do.
+Every target in that table is built *and* tested on its own architecture by CI
+on each release, so the macOS and Windows backends run for real rather than
+merely type-checking. What no CI run covers is interactive behaviour — that a
+console host restores its mode on exit, that drag-select still works while the
+pager is up — because none of it happens without a terminal attached.
+[`WINDOWS.md`](WINDOWS.md) records what the console backend does and what is
+still only inferred.
 
 ## Usage
 

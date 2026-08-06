@@ -2,13 +2,16 @@
 //! cache-file fallback, and the status-bar wording for both.
 //!
 //! OSC 52 is the only clipboard channel a zero-dependency reader has, and it is
-//! refused by plenty of terminals. Every yank is therefore *also* written to
-//! `~/.cache/mdr/last-yank.txt` and the status bar says so, so a copy is never
-//! silently lost.
+//! refused by plenty of terminals. Every yank is therefore *also* written to a
+//! cache file and the status bar says so, so a copy is never silently lost.
+//! *Where* that file goes is a per-platform convention and lives in
+//! [`crate::plat::dirs`] (`~/.cache` on Linux, `~/Library/Caches` on macOS,
+//! `%LOCALAPPDATA%` on Windows), tested for all three from any host.
 #![deny(unsafe_code)]
 
 use std::path::{Path, PathBuf};
 
+use crate::plat::{dirs, Platform};
 use crate::term::{base64, osc52_sequence, ClipReport, MAX_CLIPBOARD_BYTES};
 
 /// Terminal multiplexer wrapping required around an OSC 52 sequence.
@@ -82,38 +85,36 @@ fn screen_sequence(text: &str) -> (String, ClipReport) {
 // Fallback file
 // ---------------------------------------------------------------------------
 
-/// `$XDG_CACHE_HOME/mdr/last-yank.txt`, else `$HOME/.cache/mdr/last-yank.txt`.
-pub fn fallback_path(xdg_cache: Option<&Path>, home: Option<&Path>) -> Option<PathBuf> {
-    let base = match (xdg_cache, home) {
-        (Some(x), _) if !x.as_os_str().is_empty() => x.to_path_buf(),
-        (_, Some(h)) if !h.as_os_str().is_empty() => h.join(".cache"),
-        _ => return None,
-    };
-    Some(base.join("mdr").join("last-yank.txt"))
-}
-
-fn env_path(key: &str) -> Option<PathBuf> {
-    std::env::var_os(key).map(PathBuf::from)
+/// Where this platform's yank fallback file lives, given an environment.
+pub fn fallback_path(env: &dirs::Env) -> Option<PathBuf> {
+    dirs::yank_fallback(Platform::HOST, env)
 }
 
 /// Write the full (never truncated) text to the cache file. Returns the path on
 /// success; a failure is not fatal, the clipboard may still have worked.
+///
+/// The bytes are the yanked text exactly: LF-terminated lines, because the
+/// parser has already folded every `\r\n` and lone `\r` to `\n`
+/// (`md::sanitize::clean`). The file is a copy buffer, not a document, so it
+/// stays LF on every platform — Notepad has read LF since 2018, and rewriting
+/// to CRLF would make the file differ from the clipboard payload and from the
+/// source document a user might diff it against.
 pub fn write_fallback(text: &str) -> Option<PathBuf> {
-    let path = fallback_path(env_path("XDG_CACHE_HOME").as_deref(), env_path("HOME").as_deref())?;
+    let path = fallback_path(&dirs::Env::from_process())?;
     let dir = path.parent()?;
     std::fs::create_dir_all(dir).ok()?;
     std::fs::write(&path, text.as_bytes()).ok()?;
     Some(path)
 }
 
-/// Shorten a path under `$HOME` to `~/...` for the status bar.
+/// Shorten a path under the home directory for the status bar (unix `~/...`;
+/// see [`crate::plat::dirs::display_path`] for why Windows keeps the full path).
 pub fn display_path(path: &Path, home: Option<&Path>) -> String {
-    if let Some(h) = home {
-        if let Ok(rest) = path.strip_prefix(h) {
-            return format!("~/{}", rest.display());
-        }
-    }
-    path.display().to_string()
+    dirs::display_path(
+        Platform::HOST,
+        &path.to_string_lossy(),
+        home.map(|h| h.to_string_lossy()).as_deref(),
+    )
 }
 
 // ---------------------------------------------------------------------------

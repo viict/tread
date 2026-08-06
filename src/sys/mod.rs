@@ -71,6 +71,15 @@ use core::sync::atomic::{AtomicBool, Ordering};
 pub mod abi;
 pub mod layout;
 
+// The Windows console ABI gets the same treatment as the Darwin tables above:
+// declared on *every* target, never behind `cfg(windows)`, so its constants,
+// its console-mode arithmetic and its C struct sizes are compile-asserted and
+// `cargo test`-ed on the Linux host. `windows.rs` itself is only the FFI.
+#[path = "windows/abi.rs"]
+pub mod win_abi;
+#[path = "windows/layout.rs"]
+pub mod win_layout;
+
 // ---------------------------------------------------------------------------
 // Types shared by every backend
 // ---------------------------------------------------------------------------
@@ -136,10 +145,30 @@ pub fn terminate_pending() -> bool {
 #[path = "unix.rs"]
 mod backend;
 
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod backend;
+
 // No real backend for this target yet: a placeholder with the same surface and
 // no `unsafe`, so the crate still compiles. See WINDOWS.md.
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 #[path = "stub.rs"]
 mod backend;
 
 pub use self::backend::*;
+
+/// Can the terminal interpret ANSI escape sequences?
+///
+/// Part of the contract, but portable rather than per-backend: on unix a
+/// terminal that speaks no VT is not a case this reader has ever handled, so the
+/// answer is a constant `true`. Windows is the one platform where a *real*
+/// console can refuse `ENABLE_VIRTUAL_TERMINAL_PROCESSING` (conhost before
+/// Windows 10 1703), and this is how that is signalled upward: the safe layer
+/// can consult it and fall back to plain, uncoloured output instead of printing
+/// escape codes at the user. The Windows backend additionally refuses raw mode
+/// outright in that case, so the reader degrades to the non-interactive dump.
+#[cfg(not(windows))]
+#[allow(dead_code)]
+pub fn vt_output_supported() -> bool {
+    true
+}

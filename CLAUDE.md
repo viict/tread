@@ -11,15 +11,21 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 - **Zero dependencies.** `[dependencies]` and `[dev-dependencies]` stay empty
   forever — no `libc`, no `crossterm`. Syscalls are hand-written `extern "C"`
   declarations. Tests use the built-in `#[test]` harness only.
-- **All `unsafe` lives in the backend modules under `src/sys/`** — today
-  `unix.rs` and its two per-OS halves `unix_linux.rs` / `unix_darwin.rs`. Every
-  other module, including `src/sys/mod.rs`, `src/sys/abi.rs` and
-  `src/sys/layout.rs`, carries `#![deny(unsafe_code)]` or contains none.
+- **All `unsafe` lives in the backend modules under `src/sys/`** — `unix.rs`
+  with its two per-OS halves `unix_linux.rs` / `unix_darwin.rs`, and
+  `windows/ffi.rs`. Every other module, including `src/sys/mod.rs`,
+  `src/sys/windows.rs`, `src/sys/windows/io.rs` and the four pure
+  `abi.rs`/`layout.rs` files, carries `#![deny(unsafe_code)]` or contains none.
 - **Must build for `x86_64-unknown-linux-musl`** (static) **and check clean for
-  `{x86_64,aarch64}-apple-darwin`.** No glibc-only APIs, and no Linux constant
-  reused for Darwin without being verified against the `xnu` headers first.
+  `{x86_64,aarch64}-apple-darwin` and `x86_64-pc-windows-{msvc,gnu}`.** No
+  glibc-only APIs, no Linux constant reused for Darwin without being verified
+  against the `xnu` headers first, and no Win32 constant that is not re-derived
+  from the SDK headers and pinned by a host test.
 - **The mouse is never captured** (no `?1000h`/`?1002h`/`?1006h`), so
-  terminal-native drag-select keeps working. Product requirement.
+  terminal-native drag-select keeps working. Product requirement. On Windows
+  that also means never setting `ENABLE_MOUSE_INPUT` and never clearing
+  `ENABLE_QUICK_EDIT_MODE` — quick edit *is* console drag-select, and it is only
+  honoured while `ENABLE_EXTENDED_FLAGS` is set.
 - Files < 500 lines, functions < 50 lines — split modules instead of growing.
 - No `println!`/`eprintln!` for UI; frames go through `Term`. `eprintln!` is
   allowed only for fatal startup errors, as `mdr: <message>`.
@@ -36,7 +42,13 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 | `src/sys/layout.rs` | pure `#[repr(C)]` struct layouts for every unix, asserted at compile time on all targets — no `unsafe`, host-tested |
 | `src/sys/unix.rs` | the only `unsafe` on unix: termios, `TIOCGWINSZ`, read/write, signals, isatty; shared by Linux and Darwin |
 | `src/sys/unix_linux.rs`, `src/sys/unix_darwin.rs` | per-OS halves: the `struct termios` alias and the errno accessor, nothing else |
-| `src/sys/stub.rs` | non-unix placeholder backend, same surface, no `unsafe` |
+| `src/sys/windows.rs` | the Windows contract: handles, raw mode, size, restore, `SetConsoleCtrlHandler` |
+| `src/sys/windows/ffi.rs` | the only `unsafe` on Windows: hand-written `kernel32` declarations and the `Fd` → `HANDLE` table |
+| `src/sys/windows/io.rs` | `read_input` (wait + peek + `ReadFile`), `write_all`, resize polling |
+| `src/sys/windows/abi.rs` | pure console ABI: mode arithmetic, `srWindow` geometry, record/error classification, `CTRL_*` mapping — declared on *every* target, host-tested |
+| `src/sys/windows/layout.rs` | pure `COORD` / `SMALL_RECT` / `CONSOLE_SCREEN_BUFFER_INFO` / `INPUT_RECORD`, compile-asserted on every target |
+| `src/sys/stub.rs` | fallback backend for targets that are neither unix nor windows, same surface, no `unsafe` |
+| `src/plat/` | pure platform *conventions* above `sys`: native path syntax (`path.rs`) and per-OS file locations (`dirs.rs`), both functions of an explicit `Platform`, host-tested for Linux, macOS and Windows at once |
 | `src/term/` | raw-mode guard, alt screen, ANSI, frame buffer, OSC 52 |
 | `src/key/` | byte stream to `Key` decoder |
 | `src/md/` | `mod.rs` (`parse`), `block.rs`, `inline.rs`, `ast.rs`, `sanitize.rs` |
@@ -47,7 +59,9 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 | `src/select/` | visual selection, yank text |
 
 Keep platform FFI inside a backend under `src/sys/`; everything above `sys` is
-platform-agnostic. Adding an OS is a new file next to `unix.rs`, its constants
+platform-agnostic, and every `cfg(target_os)`-shaped *convention* (path syntax,
+cache locations) is a pure function of `plat::Platform` rather than a `cfg`, so
+the other OSes' rules are covered by `cargo test` on the Linux builder. Adding an OS is a new file next to `unix.rs`, its constants
 added to `abi.rs` and its C struct layouts to `layout.rs` (both with host
 tests), and one arm in the dispatch in `mod.rs`. Anything a backend could
 compute without the OS belongs in `abi.rs` or `layout.rs`, where it is tested on
@@ -64,7 +78,8 @@ cargo run -- README.md      # native run
 cargo musl                  # static release (alias in .cargo/config.toml)
 cargo test                  # unit + integration tests, must be green
 cargo test --lib cli        # one module
-cargo check --target aarch64-apple-darwin   # and x86_64-apple-darwin
+cargo check --target aarch64-apple-darwin      # and x86_64-apple-darwin
+cargo check --target x86_64-pc-windows-msvc    # and x86_64-pc-windows-gnu
 cargo build --release --target aarch64-apple-darwin   # needs a Mac / Apple SDK
 
 # against the target corpus (106 files, table-heavy, README.md index)
@@ -86,5 +101,8 @@ tools/soak.sh target/x86_64-unknown-linux-musl/release/mdr ~/rmarktui/codex
 tools/soak_pty.py target/x86_64-unknown-linux-musl/release/mdr ~/rmarktui/codex
 ```
 
-`WINDOWS.md` is the contract for a second `sys` backend. If a change would make
-that document wrong, the change is above `sys` and belongs somewhere else.
+`WINDOWS.md` documents what the console backend does, and — importantly — what
+about it is *not* verified: it type-checks for both Windows targets and its pure
+logic is host-tested, but it has never been executed on Windows hardware. Never
+claim it works; claim only what a command in this repo printed. If a change would
+make that document wrong, the change is above `sys` and belongs somewhere else.

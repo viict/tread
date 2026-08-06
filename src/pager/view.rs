@@ -199,7 +199,7 @@ fn index_rows(p: &Pager) -> Vec<(String, Style)> {
         .into_iter()
         .filter_map(|i| nav.entries().get(i))
         .map(|e| {
-            let here = e.path == nav.current();
+            let here = nav.is_current(&e.path);
             let style = if here { theme::heading(3) } else { theme::text() };
             (e.row(), style)
         })

@@ -7,14 +7,22 @@
 //! root is rejected as an escape instead of silently following a symlink out
 //! of the corpus.
 //!
+//! A link destination is a *URL-ish* path — `models/SAMPLE_MODEL.md`, always
+//! spelled with `/` — while the thing it resolves to is a *native* path, which
+//! on Windows carries a volume prefix, `\` separators and case-insensitive
+//! comparison. The join, the containment check and the relative form for the
+//! status bar therefore all go through [`crate::plat::path`], which knows both
+//! dialects and is tested for both from any host.
+//!
 //! Filesystem access goes through the [`Fs`] trait so resolution is unit
 //! testable without touching a disk.
 #![deny(unsafe_code)]
 
 use std::ffi::OsString;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::md::ast::slugify;
+use crate::plat::{path as ppath, Platform};
 
 /// The filesystem seam. `RealFs` is the only implementation outside tests.
 pub trait Fs {
@@ -89,11 +97,43 @@ impl Target {
 }
 
 /// `path` shown relative to `root`, falling back to the full path.
+///
+/// Always `/`, on every platform. What comes back is relative to the *corpus
+/// root*, not to the working directory, so it is not a path you could hand to
+/// the shell on any OS — it is the corpus's own address for a document, and the
+/// corpus addresses its documents the way its links do. Every consumer wants it
+/// that way: the status bar names the link the document wrote, and `y` puts
+/// this string on the clipboard, where `models\A.md` would be a broken markdown
+/// link the moment it was pasted.
 pub fn rel_to(path: &Path, root: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .into_owned()
+    let rel = ppath::rel_to(
+        Platform::HOST,
+        &root.to_string_lossy(),
+        &path.to_string_lossy(),
+    );
+    match ppath::sep(Platform::HOST) {
+        '/' => rel,
+        native => rel.replace(native, "/"),
+    }
+}
+
+/// Is `path` inside the corpus `root` (or the root itself)?
+///
+/// Component-wise, and ASCII case-insensitive on Windows: `c:\corpus\..` and
+/// `C:\Corpus\..` are the same directory there, and a check that missed that
+/// would call half the corpus an escape.
+pub fn within_root(path: &Path, root: &Path) -> bool {
+    ppath::contains(
+        Platform::HOST,
+        &root.to_string_lossy(),
+        &path.to_string_lossy(),
+    )
+}
+
+/// Do these two paths name the same document? Used wherever the corpus index,
+/// the history stack and the open document are compared.
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    ppath::same(Platform::HOST, &a.to_string_lossy(), &b.to_string_lossy())
 }
 
 fn broken(raw: &str, why: &str) -> Target {
@@ -127,13 +167,15 @@ pub fn resolve(raw: &str, doc_dir: &Path, root: &Path, fs: &dyn Fs) -> Target {
         };
     }
     let decoded = percent_decode(path_part);
-    let absolute = decoded.starts_with('/');
+    // A leading `/` in a link means the corpus root, not the filesystem root.
+    let absolute = ppath::markdown_is_rooted(Platform::HOST, &decoded);
     let base = if absolute { root } else { doc_dir };
-    let joined = match normalize(base, decoded.trim_start_matches('/')) {
+    let rel = ppath::markdown_trim_root(Platform::HOST, &decoded);
+    let joined = match normalize(base, rel) {
         Some(p) => p,
         None => return broken(raw, "link escapes the index root"),
     };
-    if !joined.starts_with(root) {
+    if !within_root(&joined, root) {
         return broken(raw, "link escapes the index root");
     }
     classify_path(raw, joined, anchor, fs)
@@ -207,43 +249,15 @@ pub fn scheme_of(raw: &str) -> Option<&str> {
     }
 }
 
-/// Lexically join `rel` onto `base`, folding `.` and `..`. Returns `None` when
-/// `..` walks past the start of the path.
+/// Lexically join the link destination `rel` onto the native directory `base`,
+/// folding `.` and `..`. Returns `None` when `..` walks past the start, which
+/// the caller reports as an escape from the corpus root.
+///
+/// `base` keeps whatever volume prefix it has (`C:`, `\\server\share`), which
+/// the old `Component`-based fold silently dropped: every Windows link would
+/// otherwise have resolved to a path rooted on the current drive.
 pub fn normalize(base: &Path, rel: &str) -> Option<PathBuf> {
-    let mut parts: Vec<OsString> = Vec::new();
-    let mut rooted = false;
-    for c in base.components() {
-        match c {
-            Component::RootDir => {
-                rooted = true;
-                parts.clear();
-            }
-            Component::CurDir => {}
-            Component::ParentDir => {
-                parts.pop()?;
-            }
-            Component::Normal(s) => parts.push(s.to_os_string()),
-            Component::Prefix(_) => {}
-        }
-    }
-    for part in rel.split('/') {
-        match part {
-            "" | "." => {}
-            ".." => {
-                parts.pop()?;
-            }
-            p => parts.push(OsString::from(p)),
-        }
-    }
-    let mut out = if rooted {
-        PathBuf::from("/")
-    } else {
-        PathBuf::new()
-    };
-    for p in parts {
-        out.push(p);
-    }
-    Some(out)
+    ppath::join(Platform::HOST, &base.to_string_lossy(), rel).map(PathBuf::from)
 }
 
 /// Decode `%xx` escapes; anything malformed is left verbatim.

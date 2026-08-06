@@ -17,6 +17,7 @@ mod tests;
 use std::path::{Path, PathBuf};
 
 use crate::md::{self, Document};
+use crate::plat::{path as ppath, Platform};
 use history::{History, Snapshot};
 use index::Entry;
 use link::{Fs, RealFs, Target};
@@ -87,6 +88,19 @@ impl Navigator {
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
+    /// Index-order position of `path`, compared the way the platform compares
+    /// paths (see [`same_path`]).
+    pub fn position_of(&self, path: &Path) -> Option<usize> {
+        self.entries.iter().position(|e| same_path(&e.path, path))
+    }
+    /// Is `path` the index document itself?
+    pub fn is_index(&self, path: &Path) -> bool {
+        self.index_path().is_some_and(|i| same_path(i, path))
+    }
+    /// Is `path` the document currently open?
+    pub fn is_current(&self, path: &Path) -> bool {
+        same_path(&self.current, path)
+    }
     pub fn depth(&self) -> usize {
         self.history.depth()
     }
@@ -133,9 +147,9 @@ impl Navigator {
         if self.entries.is_empty() {
             return None;
         }
-        let at = match self.entries.iter().position(|e| e.path == self.current) {
+        let at = match self.position_of(&self.current) {
             Some(i) => i as isize,
-            None if Some(self.current.as_path()) == self.index_path() => -1,
+            None if self.is_index(&self.current) => -1,
             None => return None,
         };
         let next = at + delta;
@@ -150,12 +164,24 @@ impl Navigator {
 }
 
 /// Make `path` absolute and lexically normal.
+///
+/// The path here is a *native* one (argv, `--index`, the working directory),
+/// not a link destination, so it goes through [`crate::plat::path`]: on Windows
+/// `\` separates too, `C:` and `\\server\share` are volume prefixes that must
+/// survive, and `\dir` / `C:dir` are rooted in ways `/`-splitting cannot see.
 pub fn absolutize(path: &Path, cwd: &Path) -> PathBuf {
-    let joined = match path.is_absolute() {
-        true => link::normalize(Path::new("/"), &path.to_string_lossy()),
-        false => link::normalize(cwd, &path.to_string_lossy()),
-    };
-    joined.unwrap_or_else(|| path.to_path_buf())
+    PathBuf::from(ppath::absolutize(
+        Platform::HOST,
+        &cwd.to_string_lossy(),
+        &path.to_string_lossy(),
+    ))
+}
+
+/// Do two paths name the same document? Re-exported so the pager compares
+/// documents the way the platform does rather than with `==` on `PathBuf`,
+/// which is byte-exact and would treat `C:\c\a.md` and `c:\c\A.md` as two.
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    link::same_path(a, b)
 }
 
 fn parent_of(path: &Path) -> PathBuf {
@@ -191,7 +217,7 @@ pub fn discover(fs: &dyn Fs, file: &Path, explicit: Option<&Path>) -> (PathBuf, 
     let mut dir = start.clone();
     for _ in 0..MAX_ASCENT {
         let readme = dir.join("README.md");
-        if readme != file && fs.is_file(&readme) && links_to(fs, &readme, file, &dir) {
+        if !same_path(&readme, file) && fs.is_file(&readme) && links_to(fs, &readme, file, &dir) {
             return (dir.clone(), Some(readme));
         }
         match dir.parent() {
@@ -217,7 +243,7 @@ fn links_to(fs: &dyn Fs, readme: &Path, file: &Path, dir: &Path) -> bool {
     index::raw_links(&doc).iter().any(|raw| {
         matches!(
             link::resolve(raw, dir, dir, fs),
-            Target::Doc { ref path, .. } if path == file
+            Target::Doc { ref path, .. } if same_path(path, file)
         )
     })
 }

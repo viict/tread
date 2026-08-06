@@ -18,6 +18,7 @@ mod key;
 mod md;
 mod nav;
 mod pager;
+mod plat;
 mod render;
 mod select;
 mod term;
@@ -144,6 +145,20 @@ enum PagerExit {
     Fatal(Fail),
 }
 
+/// Is this terminal error "there is nothing interactive here", i.e. should the
+/// reader quietly dump the document instead of failing?
+///
+/// Both variants mean that: `NoTty` is no console at all, and `RawMode` is a
+/// console that will not enter raw mode — on unix a `tcsetattr` refusal, on
+/// Windows a pre-1703 conhost that cannot do
+/// `ENABLE_VIRTUAL_TERMINAL_PROCESSING`, which the backend reports by returning
+/// `None` from `set_raw` after undoing everything it changed. Painting ANSI at a
+/// console that would print it literally is worse than not painting, and
+/// `sys/mod.rs` documents `set_raw`'s `None` as exactly this fallback.
+fn is_non_interactive(e: &term::TermError) -> bool {
+    matches!(e, term::TermError::NoTty | term::TermError::RawMode)
+}
+
 /// Enter raw mode and run the event loop until the pager asks to quit.
 fn interactive(args: &cli::Args, input: &Input, doc: md::Document) -> Result<(), PagerExit> {
     // One NO_COLOR rule for both paths: `Term` reads no environment itself.
@@ -153,7 +168,7 @@ fn interactive(args: &cli::Args, input: &Input, doc: md::Document) -> Result<(),
     };
     let mut term = match term::Term::new(opts) {
         Ok(t) => t,
-        Err(term::TermError::NoTty) => return Err(PagerExit::NoTty(doc)),
+        Err(ref e) if is_non_interactive(e) => return Err(PagerExit::NoTty(doc)),
         Err(e) => return Err(PagerExit::Fatal(Fail::runtime(format!("terminal: {e:?}")))),
     };
     let (cols, rows) = term.size();
@@ -216,11 +231,15 @@ fn event_loop(term: &mut term::Term, pager: &mut pager::Pager) -> Result<(), Fai
 /// for the status bar.
 ///
 /// OSC 52 is wrapped for whichever multiplexer is in the way, and the full text
-/// always goes to `~/.cache/mdr/last-yank.txt` as well, so a terminal that
-/// refuses the escape never loses the copy silently (SPEC.md §Keybindings).
+/// always goes to this platform's cache file as well (`~/.cache` on Linux,
+/// `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows — see
+/// `plat::dirs`), so a terminal that refuses the escape never loses the copy
+/// silently (SPEC.md §Keybindings).
 fn deliver_yank(term: &mut term::Term, yank: &select::Yank) -> String {
     let saved = select::clip::write_fallback(&yank.text);
-    let home = env::var_os("HOME").map(PathBuf::from);
+    // `$HOME` does not exist on Windows; `plat::dirs` knows what does.
+    let home = plat::dirs::home(plat::Platform::HOST, &plat::dirs::Env::from_process())
+        .map(PathBuf::from);
     let shown = saved
         .as_ref()
         .map(|p| select::clip::display_path(p, home.as_deref()));

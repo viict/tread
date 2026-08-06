@@ -1,197 +1,267 @@
-# Porting `mdr` to Windows
+# `mdr` on Windows
 
-This is a specification for a backend that does not exist yet. Nothing here is
-implemented. It is written down so the seam stays honest: if a change above
-`src/sys/` would break this document, the change is in the wrong place.
+This described a backend that did not exist. It now describes one that does:
+`src/sys/windows.rs` plus the four files under `src/sys/windows/`, hand-written
+`extern "system"` bindings to `kernel32` with no `windows-sys`, no `winapi` and
+no `libc`.
+
+**Read this caveat first.** The backend has never run on Windows. There is no
+Windows machine, no Wine and no mingw linker in this project's loop. Everything
+below is *implemented and type-checked* for `x86_64-pc-windows-msvc` and
+`x86_64-pc-windows-gnu`, and every part of it that is arithmetic rather than a
+syscall is unit-tested on the Linux builder — but "compiles and its pure logic
+passes tests" is not "works". The first execution on real hardware is the first
+real test. §"What is and is not verified" is precise about the line.
 
 ## The seam
 
-Every platform call in the crate lives under `src/sys/`, and the backend
-modules there are the only ones containing `unsafe`. Everything above — `term`,
-`key`, the parser, the renderer, the pager, `nav`, `select` — is portable safe
-Rust that talks to the platform exclusively through the names below.
+Every platform call lives under `src/sys/`, and the backend modules there are
+the only ones containing `unsafe`. Everything above — `term`, `key`, the parser,
+the renderer, the pager, `nav`, `select` — is portable safe Rust that reaches the
+platform only through the surface in `src/sys/mod.rs`.
 
 ```
-main.rs / term/ / key/            safe, portable, no #[cfg(windows)] anywhere
+main.rs / term/ / key/ / plat/    safe, portable, no #[cfg(windows)] anywhere
 ──────────────────────────────────────────────────────────────────────────────
-sys/mod.rs     public surface + backend dispatch        (no unsafe)
-sys/abi.rs     pure ABI arithmetic, host-tested         (no unsafe)
-sys/layout.rs  pure C struct layouts, host-tested       (no unsafe)
+sys/mod.rs        public surface + backend dispatch       (no unsafe)
+sys/abi.rs        pure unix ABI arithmetic, host-tested   (no unsafe)
+sys/layout.rs     pure unix C struct layouts, host-tested (no unsafe)
+sys/windows/abi.rs     pure console constants + arithmetic, host-tested
+sys/windows/layout.rs  pure console C struct layouts, host-tested
 ──────────────────────────────────────────────────────────────────────────────
-sys/unix.rs (termios + ioctl)      │ sys/windows.rs (Console API)   <- to write
-  + unix_linux.rs / unix_darwin.rs │ sys/stub.rs  (today's fallback)
+sys/unix.rs (termios + ioctl)      │ sys/windows.rs (Console API)
+  + unix_linux.rs / unix_darwin.rs │   + windows/ffi.rs, windows/io.rs
+                                   │ sys/stub.rs (neither: no console at all)
 ```
+
+The dispatch in `src/sys/mod.rs` is exhaustive by construction — `cfg(unix)`,
+`cfg(windows)`, `cfg(not(any(unix, windows)))` — so the stub can never be
+selected on a platform that has a real backend. `stub.rs` is kept, not deleted:
+`wasm32`, `redox` and friends are neither unix nor windows, and it is what keeps
+`cargo build` honest for them (no console, straight to the dump path).
 
 Verify the seam holds at any time:
 
 ```sh
 grep -rn 'unsafe' src --include='*.rs' | grep -v '^src/sys/'   # must be empty
 grep -rn 'target_os\|cfg(windows)' src --include='*.rs' | grep -v '^src/sys/'
+# ^ only src/plat/mod.rs, which turns the cfg into a Platform value once
 ```
 
-## The contract a backend must satisfy
+## The contract
 
-`src/sys/mod.rs` documents and exports exactly this surface, and is the
-authoritative copy of the contract. A Windows backend must provide the same
-names with the same signatures and the same semantics; nothing else changes.
-Anything it can compute without calling the OS belongs in `src/sys/abi.rs`
-(constants and arithmetic) or `src/sys/layout.rs` (C struct layouts, declared
-for every OS regardless of target and asserted with `const _: () = assert!(…)`
-so a wrong one fails the build on the Linux host too). The unix backend is the
-worked example: it serves both Linux and Darwin, and the only per-OS files are
-the two-item `unix_linux.rs` / `unix_darwin.rs`.
+`src/sys/mod.rs` is the authoritative copy. The Windows backend provides exactly
+those names with those signatures:
 
-| Item | Signature | Meaning |
-| --- | --- | --- |
-| `Fd` | `type Fd = i32` | Opaque handle. On Windows this becomes a small index into a table of `HANDLE`s, or `HANDLE as i32` — callers never inspect it. |
-| `STDIN` / `STDOUT` | `const Fd` | The two standard handles. |
-| `SavedTermios` | opaque `Copy` struct | Whatever must be restored on exit. On Windows: the two saved console mode `DWORD`s. |
-| `ReadOutcome` | `Bytes(usize) \| Timeout \| Eof \| Error(i32)` | Result of one input read. `Timeout` is required: the event loop uses it as its tick. |
-| `install_signal_handlers()` | `fn()` | Arrange for `winch_pending()` / `interrupt_pending()` to become true. |
-| `winch_pending()` | `fn() -> bool` | Resize seen since the last call; clears the flag. Already implemented portably over an `AtomicBool` in `sys/mod.rs`, shared by every backend. |
-| `interrupt_pending()` | `fn() -> bool` | Ctrl-C seen since the last call; clears the flag. |
-| `is_tty(Fd)` | `fn(Fd) -> bool` | Handle refers to a console. |
-| `open_tty()` | `fn() -> Option<Fd>` | A read/write handle to the controlling terminal even when stdin is a pipe. |
-| `tty_fd()` | `fn() -> Option<(Fd, bool)>` | Handle to read keys from; the `bool` is "caller owns it and must close". |
-| `close_fd(Fd)` | `fn(Fd)` | Close a handle from `open_tty`. |
-| `winsize()` / `winsize_of(Fd)` | `fn(..) -> Option<(u16, u16)>` | Terminal size as `(cols, rows)`. |
-| `set_raw(Fd)` | `fn(Fd) -> Option<SavedTermios>` | Enter raw mode; return the previous state. |
-| `restore(Fd, &SavedTermios)` | `fn(..) -> bool` | Put the terminal back exactly as found. |
-| `read_input(Fd, &mut [u8])` | `fn(..) -> ReadOutcome` | Up to `buf.len()` bytes of **UTF-8 encoded terminal input**, retrying on interruption. Must return `Timeout` after roughly 100 ms of silence. |
-| `read_byte(Fd)` | `fn(Fd) -> ReadOutcome` | One byte, same semantics. |
-| `write_all(Fd, &[u8])` | `fn(..) -> Result<(), i32>` | Write the whole buffer, looping over short writes. `Err` carries the platform error code. |
-
-## What the Windows implementation has to do
-
-### 1. Console mode
-
-Raw mode is `SetConsoleMode` on both handles, saved first with
-`GetConsoleMode` so `restore` can put the exact original values back.
-
-Input handle (`STD_INPUT_HANDLE`) — clear:
-
-| Flag | Why |
+| Item | On Windows |
 | --- | --- |
-| `ENABLE_LINE_INPUT` (0x0002) | keys must arrive unbuffered, not per line |
-| `ENABLE_ECHO_INPUT` (0x0004) | the pager draws its own screen |
-| `ENABLE_PROCESSED_INPUT` (0x0001) | deliver Ctrl-C as a key, matching the `ISIG` clear on Linux |
-| `ENABLE_MOUSE_INPUT` (0x0010) | **must stay off** — see §Mouse |
-| `ENABLE_QUICK_EDIT_MODE` (0x0040) | **must stay on**; this is what preserves native drag-select |
+| `Fd` (`i32`) | 0/1/2 keep their unix meaning; 3.. index a four-slot table of `(CONIN$, CONOUT$)` `HANDLE` pairs in `windows/ffi.rs`. A `HANDLE` does not fit in an `i32`, so it is never cast into one. |
+| `SavedTermios` | both console modes, both code pages, and the two handles they belong to — `restore` must work after the handle table has been torn down. |
+| `install_signal_handlers()` | `SetConsoleCtrlHandler`, idempotent. |
+| `is_tty(Fd)` | `GetConsoleMode` succeeding. Stronger than `GetFileType == FILE_TYPE_CHAR`, which is also true of `NUL` and of a serial port. |
+| `open_tty()` | `CreateFileW("CONIN$")` + `CreateFileW("CONOUT$")`, read+write, shared. |
+| `tty_fd()` | stdin when it is a console, else `open_tty()` with "you own this". |
+| `close_fd(Fd)` | closes both handles of a slot; ignores 0/1/2. |
+| `winsize()` / `winsize_of(Fd)` | `GetConsoleScreenBufferInfo`, `srWindow`. |
+| `set_raw(Fd)` / `restore(..)` | `SetConsoleMode` on both handles + `SetConsoleCP`/`SetConsoleOutputCP`. |
+| `read_input(..)` | `WaitForSingleObject(100ms)` + peek + `ReadFile`. |
+| `write_all(..)` | `WriteFile`, looping over short writes. |
+| `vt_output_supported()` | false until `set_raw` has enabled VT output. Every other platform gets a constant `true` from `sys/mod.rs`. |
 
-Input handle — set `ENABLE_VIRTUAL_TERMINAL_INPUT` (0x0200). That makes the
-console deliver arrow keys, Home/End, function keys and bracketed paste as the
-same ANSI escape sequences `src/key.rs` already decodes, so `key.rs` needs no
-Windows branch at all. This is the single most important flag in this document.
+`read_byte` appeared in an earlier draft of this table and does not exist: the
+decoder reads into a buffer.
 
-Output handle (`STD_OUTPUT_HANDLE`) — set:
+## What the backend does
 
-| Flag | Why |
+### 1. Console mode — `src/sys/windows/abi.rs`
+
+Raw mode is `SetConsoleMode` on both handles, after `GetConsoleMode` saves the
+exact original values. The transformation is two `const fn`s, so it is arithmetic
+the Linux host both asserts and tests.
+
+`raw_input_mode(cur)` clears `ENABLE_LINE_INPUT` (0x0002), `ENABLE_ECHO_INPUT`
+(0x0004), `ENABLE_PROCESSED_INPUT` (0x0001 — Ctrl-C must arrive as `\x03`, the
+`ISIG` clear on unix) and `ENABLE_MOUSE_INPUT` (0x0010); sets
+`ENABLE_VIRTUAL_TERMINAL_INPUT` (0x0200); and leaves every other bit exactly as
+found.
+
+`raw_output_mode(cur)` sets `ENABLE_VIRTUAL_TERMINAL_PROCESSING` (0x0004),
+`ENABLE_PROCESSED_OUTPUT` (0x0001) and `DISABLE_NEWLINE_AUTO_RETURN` (0x0008),
+and clears `ENABLE_WRAP_AT_EOL_OUTPUT` (0x0002) so painting the last cell of a
+row does not scroll — together, clearing `OPOST`.
+
+`ENABLE_VIRTUAL_TERMINAL_INPUT` is the load-bearing flag: it makes the console
+deliver arrows, Home/End, function keys and bracketed paste as the same ANSI
+escape sequences `src/key/` already decodes, so the decoder has no Windows
+branch and stays fully host-tested.
+
+If `ENABLE_VIRTUAL_TERMINAL_PROCESSING` cannot be set (a pre-1703 conhost),
+`set_raw` puts back the input mode and code pages it already changed and returns
+`None`. `main.rs` treats that — like `NoTty` — as "nothing interactive here" and
+dumps the document instead of painting escapes the console would print
+literally.
+
+### 2. Mouse and quick edit — the product requirement
+
+`ENABLE_MOUSE_INPUT` is never set and `ENABLE_QUICK_EDIT_MODE` is never cleared.
+Quick edit *is* how console users drag-select, so taking it away is the Windows
+spelling of emitting `?1000h` (SPEC.md §"Hard constraints" #5), and enabling
+mouse input turns it off as a side effect.
+
+The trap is `ENABLE_EXTENDED_FLAGS` (0x0080): quick edit is only honoured while
+it is set, and a `SetConsoleMode` that sets extended flags *without* quick edit
+silently disables selection. `raw_input_mode` therefore re-asserts **both** bits
+whenever the incoming mode reported quick edit, rather than trusting the
+read-modify-write round trip — and never sets extended flags on its own, so a
+user who had quick edit off keeps it off. Four `const _: () = assert!(…)` pins in
+`windows/abi.rs` and five tests in `windows/abi_tests.rs` hold that in place on
+every build, on every target.
+
+No `?1000h`/`?1002h`/`?1003h`/`?1006h` appears anywhere in the crate. The one
+escape sequence the backend itself emits is the control-handler teardown
+(§4), and its bytes are asserted to contain none of them.
+
+### 3. Input — `src/sys/windows/io.rs`
+
+`read_input` must behave like `VMIN=0 / VTIME=1`: come back within ~100 ms even
+in silence, because that return is the event loop's resize tick.
+
+```
+WaitForSingleObject(hIn, 100)  ->  WAIT_TIMEOUT   => ReadOutcome::Timeout
+                                   WAIT_FAILED    => ReadOutcome::Error
+PeekConsoleInputW(hIn, 32)     ->  any record that will become bytes?
+                                     no  => discard the batch, Timeout
+                                     yes => ReadFile
+ReadFile(hIn, buf)             ->  UTF-8 bytes, because SetConsoleCP(CP_UTF8)
+```
+
+Plain `ReadFile`, not `ReadConsoleInputW`, is what produces bytes: with VT input
+enabled the console does the record-to-escape-sequence translation itself, and
+`SetConsoleCP(CP_UTF8)` makes the result UTF-8 rather than the OEM code page. So
+there is no hand-rolled UTF-16 decoding and no surrogate-pair buffering — an
+earlier draft of this document specified both, and the VT path deletes the whole
+problem.
+
+The peek exists because `WaitForSingleObject` signals for *any* input record
+while `ReadFile` only returns once one of them translates to bytes: holding
+Shift would otherwise block the loop and stall the resize tick. Key-ups, bare
+modifiers, focus and menu events are classified as "no bytes" and consumed.
+`key_record_yields_bytes` is a pure function, tested on Linux.
+
+A successful zero-byte `ReadFile` on a **console** is `Timeout`, not `Eof` — a
+record can be consumed and translate to nothing, and calling that EOF would quit
+the pager because the user clicked another window. Off a console it is a real
+EOF, which is what finally makes `ReadOutcome::Eof` reachable.
+
+### 4. Exit paths — every one of them restores the console
+
+| Exit | Path |
 | --- | --- |
-| `ENABLE_VIRTUAL_TERMINAL_PROCESSING` (0x0004) | the frame buffer emits ANSI SGR/CUP; the console must interpret them |
-| `ENABLE_PROCESSED_OUTPUT` (0x0001) | keep |
+| `q` / normal quit | `event_loop` returns → `term.restore()` → `sys::restore` |
+| Ctrl-C keystroke | arrives as `\x03` (processed input is off) → `key.rs` → quit → as above |
+| Ctrl-C / Ctrl-Break out of band | `ctrl_handler` sets `INTR` → event loop quits → as above |
+| Close / logoff / shutdown | `ctrl_handler` restores *inside the handler*: the process dies moments later, so the loop never gets a turn |
+| Panic | `main`'s panic hook → `term::emergency_restore()` → `sys::restore` (release is `panic = "abort"`, so `Drop` never runs) |
+| `Term` dropped | `Drop` → `restore`, idempotent |
 
-and clear `ENABLE_WRAP_AT_EOL_OUTPUT` (0x0002) so a full-width row does not
-scroll the screen, which is the equivalent of clearing `OPOST` on Linux.
+`restore` works from the handles inside `SavedTermios`, never from an `Fd`, so it
+is correct after the handle table has been emptied; it allocates nothing and
+cannot panic. The control handler is the one place the backend emits an escape
+sequence — `\x1b[?1049l\x1b[?25h\x1b[0m`, to leave the alternate screen, show the
+cursor and reset SGR — because calling back up into `term.rs`, which allocates
+and takes a mutex, from an injected handler thread is not worth the deadlock.
+Those bytes live in `windows/abi.rs` so the Linux host can assert what is *not*
+in them. They are written only when the output handle is a console the backend
+configured, never into a redirected file.
 
-If `ENABLE_VIRTUAL_TERMINAL_PROCESSING` cannot be set (pre-1703 console),
-`set_raw` should return `None`; `main.rs` already treats that as "no tty" and
-falls back to the non-interactive dump path.
-
-### 2. Input: `ReadConsoleInput`
-
-`read_input` must behave like a `VMIN=0 / VTIME=1` read: return promptly with
-zero bytes when nothing arrives, because the event loop uses `Timeout` to poll
-`winch_pending()`.
-
-```
-WaitForSingleObject(hIn, 100)          -> WAIT_TIMEOUT  => ReadOutcome::Timeout
-ReadConsoleInputW(hIn, records, n)
-  for each record:
-    KEY_EVENT (bKeyDown only)          -> UTF-16 UnicodeChar; encode as UTF-8
-                                          into the caller's buffer. With
-                                          ENABLE_VIRTUAL_TERMINAL_INPUT set,
-                                          navigation keys already arrive as
-                                          ESC-sequence characters.
-    WINDOW_BUFFER_SIZE_EVENT           -> WINCH.store(true); do not emit bytes
-    MOUSE_EVENT / FOCUS / MENU         -> ignore entirely
-```
-
-Surrogate pairs must be buffered across records before being encoded, or a
-non-BMP character will be split. `key.rs` assumes well-formed UTF-8 on the way
-in and will otherwise wait for continuation bytes that never come.
-
-Ctrl-C: with `ENABLE_PROCESSED_INPUT` cleared it arrives as a normal key event
-(`\x03`) and `key.rs` decodes it. Also install a `SetConsoleCtrlHandler` that
-sets the interrupt flag, so a Ctrl-C delivered out of band still exits cleanly.
-
-### 3. Size: `GetConsoleScreenBufferInfo`
-
-`winsize_of` is `GetConsoleScreenBufferInfo(h, &csbi)` and then
+### 5. Size — `GetConsoleScreenBufferInfo`
 
 ```
-cols = csbi.srWindow.Right  - csbi.srWindow.Left + 1
-rows = csbi.srWindow.Bottom - csbi.srWindow.Top  + 1
+cols = srWindow.Right  - srWindow.Left + 1
+rows = srWindow.Bottom - srWindow.Top  + 1
 ```
 
-Use `srWindow`, **not** `dwSize`: `dwSize` is the scrollback buffer, which is
-usually far taller than the visible window and would make the pager lay out
-frames the user cannot see. Return `None` on failure or on a zero dimension —
-`term.rs` already substitutes 80x24.
+`srWindow`, **not** `dwSize`: `dwSize` is the scrollback buffer, routinely
+thousands of rows tall, and laying frames out to it would paint most of the
+pager where the user cannot see it. A failed call, a zero dimension or an
+inverted rectangle is `None`, and `term.rs` substitutes 80x24.
 
-There is no `SIGWINCH`. The resize signal is the
-`WINDOW_BUFFER_SIZE_EVENT` record above, which is why the resize flag is a
-plain atomic rather than anything signal-shaped.
+There is no `SIGWINCH`. Resize is detected two ways, both feeding the same
+portable `AtomicBool`: a `WINDOW_BUFFER_SIZE_EVENT` seen while peeking, and a
+poll of `srWindow` on every `read_input` (at most once per 100 ms, one syscall).
+The comparison — including "a failed query is not a resize" — is
+`abi::size_changed`, tested on Linux.
 
-### 4. `/dev/tty` equivalent
+### 6. `/dev/tty` equivalent
 
-`open_tty()` becomes `CreateFileW("CONIN$", GENERIC_READ | GENERIC_WRITE,
-FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL)`. This is what
-makes `type x.md | mdr` work: stdin is a pipe, so keys come from `CONIN$`
-instead. `is_tty` is `GetConsoleMode(h, &mode) != 0`.
+`open_tty()` is `CreateFileW("CONIN$" | "CONOUT$", GENERIC_READ | GENERIC_WRITE,
+FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL)`. Opening
+*both* is what lets `type x.md | mdr` work with keys from `CONIN$`, and keeps a
+writable handle when stdout is redirected too.
 
-### 5. Mouse
+## What changed above `sys`
 
-Do not enable `ENABLE_MOUSE_INPUT`, and do not emit `?1000h`, `?1002h`,
-`?1003h` or `?1006h`. Leave `ENABLE_QUICK_EDIT_MODE` set. This is a product
-requirement (SPEC.md §Hard constraints #5), not a detail: the reader must never
-take the mouse away from the terminal's own click-drag selection. Both soak
-harnesses (`tools/soak.sh`, `tools/soak_pty.py`) fail the build if any of those
-sequences ever appear in the output stream.
+Not the terminal layer, the key decoder, the parser, the renderer or the pager:
+none of them has a `cfg` and none of them needed one. Two *conventions* did move,
+into `src/plat/`, as pure functions of an explicit `Platform` — so the Windows
+rules are exercised by `cargo test` on Linux rather than by hope:
 
-## What changes above `sys`
+- **`plat::path`** — native path arithmetic. Volume prefixes (`C:`,
+  `\\server\share`, `\\?\C:`), `\` as a separator, ASCII-case-insensitive
+  comparison, and the `\dir` / `C:dir` shapes that are neither absolute nor
+  plainly relative. `nav/` uses it for the join, the corpus-containment check and
+  the status-bar relative path. A link destination stays URL-ish
+  (`models/SAMPLE_MODEL.md`); only the native path it resolves to is Windows-shaped.
+  The old `Component`-based fold dropped the volume prefix, which would have
+  re-rooted every Windows link onto the current drive.
+- **`plat::dirs`** — where files live. `%LOCALAPPDATA%\mdr\last-yank.txt`, then
+  `%TEMP%`, then `%USERPROFILE%\AppData\Local`; `$HOME` is never read on Windows,
+  `%USERPROFILE%` is. `~`-shortening is a unix shell convention and is not
+  applied to a Windows path a user could not paste back.
 
-Nothing. Concretely, the dispatch at the bottom of `src/sys/mod.rs` gains one
-arm:
+`main.rs` gained one thing: a terminal that cannot enter raw mode falls back to
+the dump path instead of failing, which is what `sys/mod.rs` always documented
+`set_raw`'s `None` to mean and what the pre-1703 conhost case depends on.
 
-```rust
-#[cfg(windows)]
-#[path = "windows.rs"]
-mod backend;
-```
+## What is and is not verified
 
-and the `#[cfg(not(unix))]` stub arm narrows to `not(any(unix, windows))` — or
-goes away entirely once every supported target has a real backend. `main.rs`
-does not change at all.
+Verified, on every `cargo test` run on the Linux builder:
 
-Everything else is already portable and must stay that way:
+- **Type-checks** for `x86_64-pc-windows-msvc` and `x86_64-pc-windows-gnu`.
+  `extern "system"` is `stdcall` on `i686` and the C convention on `x86_64` /
+  `aarch64`, which is what makes one source correct for both toolchains.
+- **Constants**, re-derived from the SDK headers and pinned by tests:
+  `STD_INPUT/OUTPUT/ERROR_HANDLE` = `(DWORD)-10/-11/-12`; `INVALID_HANDLE_VALUE`
+  = `(HANDLE)-1`; the ten input and five output mode bits; `WAIT_OBJECT_0` /
+  `WAIT_ABANDONED` (0x80) / `WAIT_TIMEOUT` (0x102) / `WAIT_FAILED`;
+  `ERROR_INVALID_HANDLE` 6, `ERROR_HANDLE_EOF` 38, `ERROR_BROKEN_PIPE` 109,
+  `ERROR_NO_DATA` 232, `ERROR_OPERATION_ABORTED` 995; `KEY_EVENT` 1,
+  `MOUSE_EVENT` 2, `WINDOW_BUFFER_SIZE_EVENT` 4, `MENU_EVENT` 8, `FOCUS_EVENT`
+  0x10; `CTRL_C` 0, `CTRL_BREAK` 1, `CTRL_CLOSE` 2, `CTRL_LOGOFF` 5,
+  `CTRL_SHUTDOWN` 6; `CP_UTF8` 65001.
+- **Struct layouts**, `const _: () = assert!(…)` on every target: `COORD` 4/2,
+  `SMALL_RECT` 8/2, `CONSOLE_SCREEN_BUFFER_INFO` 22/2, `INPUT_RECORD` 20/4
+  (`WORD` + 2 bytes of padding + a 16-byte union; `KEY_EVENT_RECORD` and
+  `MOUSE_EVENT_RECORD` are both 16). The `KEY_EVENT_RECORD` field offsets are
+  decoded by `u16::from_le_bytes` arithmetic, tested on Linux, legitimate because
+  Windows is little-endian on every architecture it supports.
+- **Behaviour that is arithmetic**: mode transformations, quick-edit
+  preservation, `srWindow` geometry including saturation and inverted rectangles,
+  resize comparison, read/write classification, record classification, control
+  event mapping, teardown-sequence contents.
 
-- `term.rs` writes ANSI only, and every sequence it emits is supported by the
-  VT-processing console.
-- `key.rs` decodes an ANSI byte stream, which is what
-  `ENABLE_VIRTUAL_TERMINAL_INPUT` produces.
-- `nav.rs` uses `std::path`, so drive letters and `\` separators work already;
-  link resolution is `Path::join` plus a root-escape check, not string surgery.
-- `select/clip.rs` writes OSC 52, which Windows Terminal supports; the
-  `~/.cache/mdr/last-yank.txt` fallback uses `std::env::var_os("HOME")` and
-  should gain a `USERPROFILE` fallback — that is the one genuine change outside
-  `sys`, and it is a two-line `or_else`.
+**Not** verified, and unverifiable from here:
 
-## Testing a backend
-
-`cargo test` is platform-independent: the whole parser, renderer and pager
-suite runs anywhere, because none of it touches `sys`. What needs a real
-console is the raw-mode round trip. The Linux equivalent lives in
-`tools/soak_pty.py`; a Windows version wants a pseudoconsole
-(`CreatePseudoConsole`) driving the same key script and asserting the same
-invariants: clean exit, no panic, alternate screen exited, cursor restored, no
-mouse-tracking sequence, no stray escape.
+- That any of the syscalls behave as documented — that `ReadFile` on a
+  VT-input console really yields UTF-8 ANSI, that `WaitForSingleObject` really
+  signals when it should, that `CONOUT$` opens under every shell.
+- Linking. No mingw linker and no MSVC toolchain here; `cargo check` is as far as
+  it goes for both Windows targets.
+- Anything about a real console host's rendering: line wrapping at the last
+  column, the code-page switch surviving, how conhost handles a wide CJK cell.
+- The soak harnesses. `tools/soak.sh` and `tools/soak_pty.py` are Linux-only and
+  are run against the musl binary; the Windows equivalent wants a pseudoconsole
+  (`CreatePseudoConsole`) driving the same key script and asserting the same
+  invariants — clean exit, no panic, alternate screen exited, cursor restored, no
+  mouse-tracking sequence, quick edit still on afterwards. That harness does not
+  exist.

@@ -17,7 +17,7 @@ use crate::md;
 use crate::pager::Pager;
 use crate::render::{render_document, RenderOpts};
 use crate::term::{base64, ClipReport};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 fn doc_and_lines(src: &str, width: usize) -> (md::Document, Vec<Line>) {
     let doc = md::parse(src);

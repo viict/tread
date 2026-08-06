@@ -98,7 +98,9 @@ impl Default for TermOptions {
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum TermError {
-    /// No controlling terminal: neither stdin nor `/dev/tty` is usable.
+    /// No controlling terminal: neither stdin nor the console `sys::open_tty`
+    /// would open is usable. What that console *is* — `/dev/tty`, `CONIN$` —
+    /// is `sys`'s business; no name for it appears above this layer.
     NoTty,
     /// `tcgetattr`/`tcsetattr` failed.
     RawMode,

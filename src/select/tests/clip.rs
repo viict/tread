@@ -103,27 +103,49 @@ fn no_clipboard_path_ever_emits_mouse_tracking() {
 
 // -- fallback file and wording ----------------------------------------------
 
+/// The per-platform rules live in `plat::dirs` and are tested there for all
+/// three at once; this checks the wiring — that `fallback_path` reads the
+/// environment through that table and lands on *this* platform's answer.
 #[test]
-fn fallback_path_follows_xdg_then_home() {
-    let xdg = PathBuf::from("/x/cache");
-    let home = PathBuf::from("/home/u");
-    assert_eq!(
-        fallback_path(Some(&xdg), Some(&home)),
-        Some(PathBuf::from("/x/cache/mdr/last-yank.txt"))
-    );
-    assert_eq!(
-        fallback_path(None, Some(&home)),
-        Some(PathBuf::from("/home/u/.cache/mdr/last-yank.txt"))
-    );
-    assert_eq!(fallback_path(None, None), None);
-    assert_eq!(fallback_path(Some(Path::new("")), None), None);
+fn fallback_path_uses_this_platforms_cache_location() {
+    use crate::plat::dirs::Env;
+    use crate::plat::Platform;
+    let env = Env::of(&[
+        ("HOME", "/home/u"),
+        ("USERPROFILE", "C:\\Users\\u"),
+        ("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local"),
+    ]);
+    let want = match Platform::HOST {
+        Platform::Linux => "/home/u/.cache/mdr/last-yank.txt",
+        Platform::Macos => "/home/u/Library/Caches/mdr/last-yank.txt",
+        Platform::Windows => "C:\\Users\\u\\AppData\\Local\\mdr\\last-yank.txt",
+    };
+    assert_eq!(fallback_path(&env), Some(PathBuf::from(want)));
+    assert_eq!(fallback_path(&Env::default()), None);
+}
+
+/// The full text is written verbatim, LF-only: `md::sanitize::clean` has
+/// already folded every CRLF and lone CR, so the cache file cannot pick up a
+/// stray `\r` on any platform, and nothing here adds one.
+#[test]
+fn the_fallback_file_content_is_lf_only() {
+    let doc = crate::md::parse("a\r\n\r\nb\rc\r\n\r\n```\r\nx\r\ny\r\n```\r\n");
+    let text = crate::select::source::blocks_markdown(&doc.blocks);
+    assert!(!text.contains('\r'), "{text:?}");
+    assert!(text.contains("x\ny"), "{text:?}");
 }
 
 #[test]
-fn paths_under_home_are_shown_with_a_tilde() {
+fn paths_under_home_are_shown_the_way_this_platform_writes_them() {
+    use crate::plat::Platform;
     let home = PathBuf::from("/home/u");
     let p = PathBuf::from("/home/u/.cache/mdr/last-yank.txt");
-    assert_eq!(display_path(&p, Some(&home)), "~/.cache/mdr/last-yank.txt");
+    let shortened = match Platform::HOST.is_windows() {
+        // No `~` on Windows: nothing there expands it (see plat::dirs).
+        true => "/home/u/.cache/mdr/last-yank.txt",
+        false => "~/.cache/mdr/last-yank.txt",
+    };
+    assert_eq!(display_path(&p, Some(&home)), shortened);
     assert_eq!(display_path(&p, None), "/home/u/.cache/mdr/last-yank.txt");
     let other = PathBuf::from("/tmp/x.txt");
     assert_eq!(display_path(&other, Some(&home)), "/tmp/x.txt");

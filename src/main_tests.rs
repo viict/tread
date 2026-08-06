@@ -130,3 +130,13 @@ fn index_path_errors_are_usage_errors() {
     assert_eq!(err.code, EXIT_USAGE);
     assert!(err.msg.contains("index not found"));
 }
+
+#[test]
+fn a_terminal_that_cannot_go_raw_dumps_instead_of_failing() {
+    // `sys::set_raw` returning None is documented in sys/mod.rs as "main treats
+    // it as no tty and dumps instead" — the path a pre-1703 Windows conhost
+    // takes, where the console cannot do VT output. Only a write error is fatal.
+    assert!(is_non_interactive(&term::TermError::NoTty));
+    assert!(is_non_interactive(&term::TermError::RawMode));
+    assert!(!is_non_interactive(&term::TermError::Io(5)));
+}

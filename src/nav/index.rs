@@ -201,7 +201,9 @@ fn trailing(items: &[Inline]) -> String {
 /// One row per *document*: a second link to the same file (with or without an
 /// anchor) is the same entry as far as the list view and `]`/`[` are concerned.
 fn push_unique(out: &mut Vec<Entry>, e: Entry) {
-    if out.iter().any(|x| x.path == e.path) {
+    // `same_path`, not `==`: on Windows two links that differ only in case or
+    // separator flavour point at one file and must not become two rows.
+    if out.iter().any(|x| link::same_path(&x.path, &e.path)) {
         return;
     }
     out.push(e);

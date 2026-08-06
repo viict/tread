@@ -218,7 +218,7 @@ impl Pager {
         let same = self
             .nav
             .as_ref()
-            .map(|n| n.current() == s.path)
+            .map(|n| n.is_current(&s.path))
             .unwrap_or(true);
         if !same {
             let doc = match self.nav.as_ref().map(|n| n.load(&s.path)) {
@@ -239,7 +239,7 @@ impl Pager {
     // -- opening documents ---------------------------------------------------
 
     pub(super) fn open_doc(&mut self, path: PathBuf, anchor: Option<String>, push: bool) {
-        if self.nav.as_ref().map(|n| n.current() == path).unwrap_or(false) {
+        if self.nav.as_ref().map(|n| n.is_current(&path)).unwrap_or(false) {
             if let Some(a) = anchor {
                 self.goto_anchor(&a);
             }
@@ -303,7 +303,7 @@ impl Pager {
         let (empty, at) = match &self.nav {
             Some(n) => (
                 n.entries().is_empty(),
-                n.entries().iter().position(|e| e.path == n.current()),
+                n.position_of(n.current()),
             ),
             None => (true, None),
         };
