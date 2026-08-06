@@ -1,0 +1,177 @@
+name: release
+
+# Build, test and publish mdr for every supported platform.
+#
+#   * push a tag `v*`  -> build, test, and publish a GitHub Release
+#   * Run workflow     -> build and test only; artifacts land on the run page
+#
+# This is the only place the macOS and Windows backends actually execute.
+# Everything before this point is cross-compilation type-checking.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    # A wedged test hangs until the six-hour default expires, one runner-hour
+    # at a time. Nothing here legitimately takes ten minutes.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every entry is a native runner for its target, so every artifact is
+        # built and tested on the architecture it ships for. Runner OS and
+        # target architecture are independent: windows-latest is x64 and
+        # produces the exe an ordinary Windows 11 machine runs, while
+        # windows-11-arm produces the arm64 build for Snapdragon hardware.
+        include:
+          - os: ubuntu-latest # Ubuntu 24.04, x64
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm # arm64 Linux; was cross-built and untested before
+            target: aarch64-unknown-linux-musl
+          - os: macos-latest # macOS 26, Apple Silicon
+            target: aarch64-apple-darwin
+          - os: macos-15-intel # the x64 Mac runner; macos-13 is gone, macos-14 deprecated
+            target: x86_64-apple-darwin
+          - os: windows-latest # Windows Server 2025, x64
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm # arm64 Windows
+            target: aarch64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+          rustc -vV
+        shell: bash
+
+      # The crate has no dependencies, so there is nothing to fetch and nothing
+      # to cache but the target dir. Not worth the cache round-trip.
+
+      - name: Test
+        run: cargo test --locked --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Build
+        run: cargo build --locked --release --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Prove the linux artifact is static
+        if: endsWith(matrix.target, '-linux-musl')
+        run: |
+          BIN=target/${{ matrix.target }}/release/mdr
+          file "$BIN" | tee /tmp/linkage.txt
+          # x86_64 links static-pie and aarch64 plain static, so both spellings
+          # count. file(1) is the check and ldd is only ever informational:
+          # ldd is absent from the arm64 image, which left an empty file and
+          # failed a build whose every test had passed.
+          grep -qE 'statically linked|static-pie linked' /tmp/linkage.txt
+          ldd "$BIN" 2>&1 || true
+        shell: bash
+
+      # First real execution of the backend on this OS. A binary that compiles
+      # but cannot open a console would pass every earlier gate and die here.
+      - name: Smoke test
+        run: |
+          BIN=target/${{ matrix.target }}/release/mdr
+          [ "${{ runner.os }}" = "Windows" ] && BIN="$BIN.exe"
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+          "$BIN" --toc README.md
+          "$BIN" --plain --width 80 tests/fixtures/kitchen-sink.md > /dev/null
+          "$BIN" --plain --width 40 tests/fixtures/unicode.md      > /dev/null
+          "$BIN" --plain --width 200 tests/fixtures/hostile.md     > /dev/null
+          cat README.md | "$BIN" --plain --width 100 > /dev/null
+          echo "smoke ok on ${{ matrix.target }}"
+        shell: bash
+
+      - name: Package
+        id: package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF_TYPE" in
+            tag) ;;
+            *)   VERSION="$(git rev-parse --short HEAD)" ;;
+          esac
+          NAME="mdr-${VERSION}-${{ matrix.target }}"
+          mkdir -p "dist/$NAME"
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/release/mdr.exe" "dist/$NAME/"
+          else
+            cp "target/${{ matrix.target }}/release/mdr" "dist/$NAME/"
+          fi
+          cp README.md WINDOWS.md "dist/$NAME/" 2>/dev/null || cp README.md "dist/$NAME/"
+          cd dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            7z a -tzip "${NAME}.zip" "$NAME" > /dev/null
+            ARCHIVE="${NAME}.zip"
+          else
+            tar czf "${NAME}.tar.gz" "$NAME"
+            ARCHIVE="${NAME}.tar.gz"
+          fi
+          # Linux has sha256sum, macOS has shasum, Git Bash has both. Picking
+          # one and hoping would fail on the very last step of a release.
+          if command -v sha256sum > /dev/null; then
+            sha256sum "$ARCHIVE" > "${ARCHIVE}.sha256"
+          else
+            shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          fi
+          echo "archive=$ARCHIVE" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: |
+            dist/${{ steps.package.outputs.archive }}
+            dist/${{ steps.package.outputs.archive }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: publish release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect checksums
+        run: |
+          cd artifacts
+          ls -la
+          cat *.sha256 > SHA256SUMS
+          rm -f *.sha256
+          cat SHA256SUMS
+
+      # gh is preinstalled on the runner, so no third-party action is needed
+      # to cut the release — which keeps the zero-dependency spirit intact.
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/*
