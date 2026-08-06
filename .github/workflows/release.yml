@@ -1,6 +1,6 @@
 name: release
 
-# Build, test and publish mdr for every supported platform.
+# Build, test and publish tread for every supported platform.
 #
 #   * push a tag `v*`  -> build, test, and publish a GitHub Release
 #   * Run workflow     -> build and test only; artifacts land on the run page
@@ -74,7 +74,7 @@ jobs:
       - name: Prove the linux artifact is static
         if: endsWith(matrix.target, '-linux-musl')
         run: |
-          BIN=target/${{ matrix.target }}/release/mdr
+          BIN=target/${{ matrix.target }}/release/tread
           file "$BIN" | tee /tmp/linkage.txt
           # x86_64 links static-pie and aarch64 plain static, so both spellings
           # count. file(1) is the check and ldd is only ever informational:
@@ -88,7 +88,7 @@ jobs:
       # but cannot open a console would pass every earlier gate and die here.
       - name: Smoke test
         run: |
-          BIN=target/${{ matrix.target }}/release/mdr
+          BIN=target/${{ matrix.target }}/release/tread
           [ "${{ runner.os }}" = "Windows" ] && BIN="$BIN.exe"
           "$BIN" --version
           "$BIN" --help > /dev/null
@@ -100,6 +100,16 @@ jobs:
           echo "smoke ok on ${{ matrix.target }}"
         shell: bash
 
+      # The one thing the test suite and the smoke run cannot reach: the pager
+      # driven through a real terminal. Covers raw mode, teardown on every exit
+      # path including signals, and that no mouse-tracking sequence is ever
+      # emitted. Windows is skipped because it has no pty — ConPTY would need
+      # its own harness, so that platform stays hand-verified for now.
+      - name: Interactive soak through a pty
+        if: runner.os != 'Windows'
+        run: python3 tools/soak_pty.py target/${{ matrix.target }}/release/tread tests/fixtures
+        shell: bash
+
       - name: Package
         id: package
         run: |
@@ -108,12 +118,12 @@ jobs:
             tag) ;;
             *)   VERSION="$(git rev-parse --short HEAD)" ;;
           esac
-          NAME="mdr-${VERSION}-${{ matrix.target }}"
+          NAME="tread-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/$NAME"
           if [ "${{ runner.os }}" = "Windows" ]; then
-            cp "target/${{ matrix.target }}/release/mdr.exe" "dist/$NAME/"
+            cp "target/${{ matrix.target }}/release/tread.exe" "dist/$NAME/"
           else
-            cp "target/${{ matrix.target }}/release/mdr" "dist/$NAME/"
+            cp "target/${{ matrix.target }}/release/tread" "dist/$NAME/"
           fi
           cp README.md WINDOWS.md "dist/$NAME/" 2>/dev/null || cp README.md "dist/$NAME/"
           cd dist
