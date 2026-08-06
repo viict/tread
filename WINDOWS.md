@@ -2,32 +2,44 @@
 
 This is a specification for a backend that does not exist yet. Nothing here is
 implemented. It is written down so the seam stays honest: if a change above
-`src/sys.rs` would break this document, the change is in the wrong place.
+`src/sys/` would break this document, the change is in the wrong place.
 
 ## The seam
 
-Every platform call in the crate lives in `src/sys.rs`, which is also the only
-module containing `unsafe`. Everything above it — `term.rs`, `key.rs`, the
-parser, the renderer, the pager, `nav`, `select` — is portable safe Rust that
-talks to the platform exclusively through the names below.
+Every platform call in the crate lives under `src/sys/`, and the backend
+modules there are the only ones containing `unsafe`. Everything above — `term`,
+`key`, the parser, the renderer, the pager, `nav`, `select` — is portable safe
+Rust that talks to the platform exclusively through the names below.
 
 ```
-main.rs / term.rs / key.rs        safe, portable, no #[cfg(windows)] anywhere
+main.rs / term/ / key/            safe, portable, no #[cfg(windows)] anywhere
 ──────────────────────────────────────────────────────────────────────────────
-sys.rs   (Linux: termios + ioctl) │ sys_windows.rs (Console API)   <- to write
+sys/mod.rs     public surface + backend dispatch        (no unsafe)
+sys/abi.rs     pure ABI arithmetic, host-tested         (no unsafe)
+sys/layout.rs  pure C struct layouts, host-tested       (no unsafe)
+──────────────────────────────────────────────────────────────────────────────
+sys/unix.rs (termios + ioctl)      │ sys/windows.rs (Console API)   <- to write
+  + unix_linux.rs / unix_darwin.rs │ sys/stub.rs  (today's fallback)
 ```
 
 Verify the seam holds at any time:
 
 ```sh
-grep -rn 'unsafe' src --include='*.rs' | grep -v '^src/sys.rs'   # must be empty
-grep -rn 'target_os\|cfg(windows)' src --include='*.rs' | grep -v '^src/sys.rs'
+grep -rn 'unsafe' src --include='*.rs' | grep -v '^src/sys/'   # must be empty
+grep -rn 'target_os\|cfg(windows)' src --include='*.rs' | grep -v '^src/sys/'
 ```
 
 ## The contract a backend must satisfy
 
-`sys.rs` exports exactly this surface. A Windows module must provide the same
+`src/sys/mod.rs` documents and exports exactly this surface, and is the
+authoritative copy of the contract. A Windows backend must provide the same
 names with the same signatures and the same semantics; nothing else changes.
+Anything it can compute without calling the OS belongs in `src/sys/abi.rs`
+(constants and arithmetic) or `src/sys/layout.rs` (C struct layouts, declared
+for every OS regardless of target and asserted with `const _: () = assert!(…)`
+so a wrong one fails the build on the Linux host too). The unix backend is the
+worked example: it serves both Linux and Darwin, and the only per-OS files are
+the two-item `unix_linux.rs` / `unix_darwin.rs`.
 
 | Item | Signature | Meaning |
 | --- | --- | --- |
@@ -36,7 +48,7 @@ names with the same signatures and the same semantics; nothing else changes.
 | `SavedTermios` | opaque `Copy` struct | Whatever must be restored on exit. On Windows: the two saved console mode `DWORD`s. |
 | `ReadOutcome` | `Bytes(usize) \| Timeout \| Eof \| Error(i32)` | Result of one input read. `Timeout` is required: the event loop uses it as its tick. |
 | `install_signal_handlers()` | `fn()` | Arrange for `winch_pending()` / `interrupt_pending()` to become true. |
-| `winch_pending()` | `fn() -> bool` | Resize seen since the last call; clears the flag. Already implemented portably over an `AtomicBool` in `sys.rs`. |
+| `winch_pending()` | `fn() -> bool` | Resize seen since the last call; clears the flag. Already implemented portably over an `AtomicBool` in `sys/mod.rs`, shared by every backend. |
 | `interrupt_pending()` | `fn() -> bool` | Ctrl-C seen since the last call; clears the flag. |
 | `is_tty(Fd)` | `fn(Fd) -> bool` | Handle refers to a console. |
 | `open_tty()` | `fn() -> Option<Fd>` | A read/write handle to the controlling terminal even when stdin is a pipe. |
@@ -146,17 +158,20 @@ take the mouse away from the terminal's own click-drag selection. Both soak
 harnesses (`tools/soak.sh`, `tools/soak_pty.py`) fail the build if any of those
 sequences ever appear in the output stream.
 
-## What changes above `sys.rs`
+## What changes above `sys`
 
-Ideally nothing. Concretely, exactly one line of `src/main.rs`:
+Nothing. Concretely, the dispatch at the bottom of `src/sys/mod.rs` gains one
+arm:
 
 ```rust
-#[cfg_attr(windows, path = "sys_windows.rs")]
-mod sys;
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod backend;
 ```
 
-and the `#[cfg(not(unix))] mod portable_stub` block at the bottom of
-`src/sys.rs` goes away, since a real backend replaces it.
+and the `#[cfg(not(unix))]` stub arm narrows to `not(any(unix, windows))` — or
+goes away entirely once every supported target has a real backend. `main.rs`
+does not change at all.
 
 Everything else is already portable and must stay that way:
 
@@ -169,7 +184,7 @@ Everything else is already portable and must stay that way:
 - `select/clip.rs` writes OSC 52, which Windows Terminal supports; the
   `~/.cache/mdr/last-yank.txt` fallback uses `std::env::var_os("HOME")` and
   should gain a `USERPROFILE` fallback — that is the one genuine change outside
-  `sys.rs`, and it is a two-line `or_else`.
+  `sys`, and it is a two-line `or_else`.
 
 ## Testing a backend
 

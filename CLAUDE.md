@@ -11,9 +11,13 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 - **Zero dependencies.** `[dependencies]` and `[dev-dependencies]` stay empty
   forever — no `libc`, no `crossterm`. Syscalls are hand-written `extern "C"`
   declarations. Tests use the built-in `#[test]` harness only.
-- **All `unsafe` lives in `src/sys.rs`.** Every other module carries
-  `#![deny(unsafe_code)]`.
-- **Must build for `x86_64-unknown-linux-musl`.** No glibc-only APIs.
+- **All `unsafe` lives in the backend modules under `src/sys/`** — today
+  `unix.rs` and its two per-OS halves `unix_linux.rs` / `unix_darwin.rs`. Every
+  other module, including `src/sys/mod.rs`, `src/sys/abi.rs` and
+  `src/sys/layout.rs`, carries `#![deny(unsafe_code)]` or contains none.
+- **Must build for `x86_64-unknown-linux-musl`** (static) **and check clean for
+  `{x86_64,aarch64}-apple-darwin`.** No glibc-only APIs, and no Linux constant
+  reused for Darwin without being verified against the `xnu` headers first.
 - **The mouse is never captured** (no `?1000h`/`?1002h`/`?1006h`), so
   terminal-native drag-select keeps working. Product requirement.
 - Files < 500 lines, functions < 50 lines — split modules instead of growing.
@@ -27,7 +31,12 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 | --- | --- |
 | `src/main.rs` | entry, wiring, panic guard, exit codes |
 | `src/cli.rs` | hand-rolled arg parser, `--help`/`--version` text |
-| `src/sys.rs` | the only `unsafe`: termios, `TIOCGWINSZ`, read/write, signals, isatty |
+| `src/sys/mod.rs` | the platform seam: public surface, signal flags, backend dispatch, the contract |
+| `src/sys/abi.rs` | pure ABI core: raw-mode flag arithmetic, `_IOR`/`_IOW` encoding, read/write classification, per-OS constant tables — no `unsafe`, host-tested |
+| `src/sys/layout.rs` | pure `#[repr(C)]` struct layouts for every unix, asserted at compile time on all targets — no `unsafe`, host-tested |
+| `src/sys/unix.rs` | the only `unsafe` on unix: termios, `TIOCGWINSZ`, read/write, signals, isatty; shared by Linux and Darwin |
+| `src/sys/unix_linux.rs`, `src/sys/unix_darwin.rs` | per-OS halves: the `struct termios` alias and the errno accessor, nothing else |
+| `src/sys/stub.rs` | non-unix placeholder backend, same surface, no `unsafe` |
 | `src/term/` | raw-mode guard, alt screen, ANSI, frame buffer, OSC 52 |
 | `src/key/` | byte stream to `Key` decoder |
 | `src/md/` | `mod.rs` (`parse`), `block.rs`, `inline.rs`, `ast.rs`, `sanitize.rs` |
@@ -37,7 +46,15 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
 | `src/nav/` | document stack, index parsing, link resolution |
 | `src/select/` | visual selection, yank text |
 
-Keep platform FFI inside `sys.rs` so a `sys_windows.rs` can drop in later.
+Keep platform FFI inside a backend under `src/sys/`; everything above `sys` is
+platform-agnostic. Adding an OS is a new file next to `unix.rs`, its constants
+added to `abi.rs` and its C struct layouts to `layout.rs` (both with host
+tests), and one arm in the dispatch in `mod.rs`. Anything a backend could
+compute without the OS belongs in `abi.rs` or `layout.rs`, where it is tested on
+whatever host CI runs — including for OSes that host is not. A struct layout in
+particular must carry `const _: () = assert!(size_of::<T>() == N);`: there is no
+macOS or Windows machine in this loop, and a wrong layout otherwise compiles
+cleanly and corrupts memory.
 
 ## Build, run, test
 
@@ -47,6 +64,8 @@ cargo run -- README.md      # native run
 cargo musl                  # static release (alias in .cargo/config.toml)
 cargo test                  # unit + integration tests, must be green
 cargo test --lib cli        # one module
+cargo check --target aarch64-apple-darwin   # and x86_64-apple-darwin
+cargo build --release --target aarch64-apple-darwin   # needs a Mac / Apple SDK
 
 # against the target corpus (106 files, table-heavy, README.md index)
 cargo run -- --index ~/rmarktui/codex
@@ -68,4 +87,4 @@ tools/soak_pty.py target/x86_64-unknown-linux-musl/release/mdr ~/rmarktui/codex
 ```
 
 `WINDOWS.md` is the contract for a second `sys` backend. If a change would make
-that document wrong, the change is above `sys.rs` and belongs somewhere else.
+that document wrong, the change is above `sys` and belongs somewhere else.

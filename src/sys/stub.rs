@@ -1,12 +1,15 @@
-//! Placeholder `sys` backend for non-unix targets.
+//! Placeholder `sys` backend for targets with no real one yet.
 //!
 //! Keeps the crate compiling — and the public surface of [`crate::sys`]
-//! identical — until `sys_windows.rs` lands (see WINDOWS.md). Contains no
-//! `unsafe` code, which is why it lives outside `sys.rs`.
+//! identical — until a Windows backend lands (see WINDOWS.md). Every entry
+//! point reports "no terminal here", which `main.rs` already handles: it is the
+//! same path taken when stdout is redirected, so the reader degrades to the
+//! non-interactive dump instead of failing. Contains no `unsafe` code.
 #![deny(unsafe_code)]
 
 use super::{Fd, ReadOutcome};
 
+/// Nothing to save, because nothing is ever changed.
 #[derive(Clone, Copy)]
 pub struct SavedTermios;
 

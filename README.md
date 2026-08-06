@@ -58,11 +58,17 @@ $ ldd target/x86_64-unknown-linux-musl/release/mdr
 | --- | --- | --- |
 | Linux | `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl` | fully static |
 | Linux | `x86_64-unknown-linux-gnu` | dynamic (glibc) |
+| macOS | `aarch64-apple-darwin`, `x86_64-apple-darwin` | dynamic, `libSystem` only |
 
-Every unix that is not Linux is refused at compile time with a message naming
-the work, rather than served a `termios` layout that is probably wrong. macOS
-and Windows are not supported yet; [`WINDOWS.md`](WINDOWS.md) describes what a
-Windows backend would have to do.
+Build for a platform on that platform. The musl binary is a Linux ELF and will
+not run on macOS; macOS cannot be statically linked at all, because Apple does
+not ship a static libc. Any unix that is neither Linux nor Darwin is refused at
+compile time with a message naming the work, rather than served a `termios`
+layout that is probably wrong.
+
+The macOS backend is type-checked on every build and its ABI tables are
+unit-tested, but it has not yet run on real hardware. Windows is not supported
+yet; [`WINDOWS.md`](WINDOWS.md) describes what a backend would have to do.
 
 ## Usage
 
@@ -202,7 +208,8 @@ any UI path.
 | [`src/dump.rs`](src/dump.rs) | non-interactive render for pipes and `--no-alt` |
 
 Every file is under 500 lines and every function under 50; modules split rather
-than grow.
+than grow. Adding an OS means a new backend beside the others and one arm in the
+dispatch — nothing above `src/sys/` is platform-specific.
 
 ## Testing
 

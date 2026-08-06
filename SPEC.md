@@ -10,16 +10,20 @@ Binary: `mdr`. Crate: `rmarktui`.
 
 1. **Zero dependencies.** `[dependencies]` in Cargo.toml stays empty. No
    `libc`, no `crossterm`, no `pulldown-cmark`, no dev-dependencies. All
-   syscalls go through hand-written `extern "C"` declarations in `src/sys.rs`.
+   syscalls go through hand-written `extern "C"` declarations under `src/sys/`.
    Tests use the built-in `#[test]` harness only.
 2. **Static musl target.** Must build clean under
    `cargo build --release --target x86_64-unknown-linux-musl`.
    No glibc-only syscalls, no `std::os::unix` APIs unavailable on musl.
-3. **Portability.** Keep all platform-specific FFI isolated in `src/sys.rs`
-   behind a small internal trait/module boundary, so a future
-   `sys_windows.rs` can be dropped in. Everything above `sys.rs` must be
-   platform-agnostic pure Rust.
-4. **No `unsafe` outside `src/sys.rs`.** Add `#![forbid(unsafe_code)]`-level
+3. **Portability.** Keep all platform-specific FFI isolated in a backend under
+   `src/sys/`, behind the surface documented in `src/sys/mod.rs`, so a future
+   `sys/windows.rs` can be dropped in. Everything above `sys` must be
+   platform-agnostic pure Rust. Linux (glibc and musl) and macOS
+   (`x86_64`/`aarch64`) are supported; every ABI fact that is arithmetic or
+   struct layout lives in `abi.rs`/`layout.rs`, is host-tested for *all* of
+   them, and is additionally pinned by `const` assertions so a wrong layout is
+   a build error rather than runtime memory corruption.
+4. **No `unsafe` outside the `src/sys/` backends.** Add `#![forbid(unsafe_code)]`-level
    discipline elsewhere (module-level `#![deny(unsafe_code)]` where possible).
 5. **The mouse is never captured.** Do not emit `?1000h`/`?1002h`/`?1006h`.
    Terminal-native click-drag selection must keep working at all times. This
@@ -34,8 +38,17 @@ Binary: `mdr`. Crate: `rmarktui`.
 ```
 src/main.rs        entry, wiring, top-level error handling, panic guard
 src/cli.rs         hand-rolled arg parser + --help/--version text
-src/sys.rs         ALL unsafe FFI: termios, ioctl(TIOCGWINSZ), read(2),
-                   write(2), signal(SIGWINCH/SIGINT), isatty
+src/sys/mod.rs     public surface + backend dispatch (no unsafe)
+src/sys/abi.rs     pure ABI core: raw-mode flags, ioctl encoding, per-OS
+                   constant tables (no unsafe, host-tested for every OS)
+src/sys/layout.rs  pure #[repr(C)] struct layouts for every OS, with
+                   compile-time size/alignment assertions (no unsafe)
+src/sys/unix.rs    ALL unsafe FFI on unix, shared by Linux and Darwin:
+                   termios, ioctl(TIOCGWINSZ), read(2), write(2),
+                   signal(SIGWINCH/SIGINT/SIGTERM/SIGHUP/SIGQUIT), isatty
+src/sys/unix_linux.rs   Linux half:  struct termios + __errno_location()
+src/sys/unix_darwin.rs  Darwin half: struct termios + __error()
+src/sys/stub.rs    non-unix placeholder backend
 src/term.rs        safe layer over sys: raw mode RAII guard, alt screen,
                    ANSI style codes, frame buffer, OSC 52 clipboard write
 src/key.rs         input byte-stream -> Key enum decoder (escape sequences,
