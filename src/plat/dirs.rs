@@ -1,7 +1,7 @@
 //! Where a user's files live, per platform. Pure: the environment is read once
 //! into [`Env`] and every rule below is a function of that value.
 //!
-//! Two locations matter to `mdr`:
+//! Two locations matter to `tread`:
 //!
 //! * the **home directory**, only ever used to shorten a path for display;
 //! * the **yank fallback file**, which every yank is written to so an OSC 52
@@ -11,9 +11,9 @@
 //!
 //! | Platform | Yank fallback |
 //! | --- | --- |
-//! | Linux | `$XDG_CACHE_HOME/mdr/last-yank.txt`, else `$HOME/.cache/mdr/…` |
-//! | macOS | `$XDG_CACHE_HOME/mdr/…`, else `$HOME/Library/Caches/mdr/…` |
-//! | Windows | `%LOCALAPPDATA%\mdr\…`, else `%TEMP%\mdr\…`, else `%USERPROFILE%\AppData\Local\mdr\…` |
+//! | Linux | `$XDG_CACHE_HOME/tread/last-yank.txt`, else `$HOME/.cache/tread/…` |
+//! | macOS | `$XDG_CACHE_HOME/tread/…`, else `$HOME/Library/Caches/tread/…` |
+//! | Windows | `%LOCALAPPDATA%\tread\…`, else `%TEMP%\tread\…`, else `%USERPROFILE%\AppData\Local\tread\…` |
 //!
 //! macOS uses `~/Library/Caches` rather than `~/.cache`: it is the documented
 //! location, it is what the OS's own cache eviction and every backup exclusion
@@ -33,7 +33,7 @@ use super::path;
 use super::Platform;
 
 /// The cache subdirectory and file the yank fallback is written to.
-pub const YANK_RELATIVE: &str = "mdr/last-yank.txt";
+pub const YANK_RELATIVE: &str = "tread/last-yank.txt";
 
 /// Every environment variable this module consults, read once.
 ///
@@ -102,7 +102,7 @@ pub fn home(p: Platform, env: &Env) -> Option<String> {
     }
 }
 
-/// The directory caches go in, before `mdr/` is appended.
+/// The directory caches go in, before `tread/` is appended.
 fn cache_root(p: Platform, env: &Env) -> Option<String> {
     if let Some(x) = &env.xdg_cache_home {
         return Some(x.clone());

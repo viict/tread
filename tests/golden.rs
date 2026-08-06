@@ -1,7 +1,7 @@
-//! Golden renders driven through the real `mdr` binary.
+//! Golden renders driven through the real `tread` binary.
 //!
 //! Integration tests cannot reach into a binary crate, so these drive the
-//! built executable (`CARGO_BIN_EXE_mdr`) over a temporary fixture. Per
+//! built executable (`CARGO_BIN_EXE_tread`) over a temporary fixture. Per
 //! SPEC.md §Testing every assertion is either on the ANSI-stripped text or on
 //! a specific style span, never on a whole escaped line, so a palette tweak
 //! cannot break the layout assertions.
@@ -31,19 +31,19 @@ echo hi
 
 fn fixture(name: &str, body: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
-    p.push(format!("rmarktui-golden-{}-{}.md", std::process::id(), name));
+    p.push(format!("tread-golden-{}-{}.md", std::process::id(), name));
     let mut f = std::fs::File::create(&p).expect("create fixture");
     f.write_all(body.as_bytes()).expect("write fixture");
     p
 }
 
 fn run(path: &PathBuf, extra: &[&str]) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_mdr"))
+    let out = Command::new(env!("CARGO_BIN_EXE_tread"))
         .args(extra)
         .arg(path)
         .output()
-        .expect("run mdr");
-    assert!(out.status.success(), "mdr exited {:?}", out.status);
+        .expect("run tread");
+    assert!(out.status.success(), "tread exited {:?}", out.status);
     String::from_utf8(out.stdout).expect("utf-8 output")
 }
 
@@ -142,11 +142,11 @@ fn toc_prints_the_outline_and_exits() {
 
 #[test]
 fn unknown_flags_are_usage_errors() {
-    let out = Command::new(env!("CARGO_BIN_EXE_mdr"))
+    let out = Command::new(env!("CARGO_BIN_EXE_tread"))
         .arg("--definitely-not-a-flag")
         .output()
-        .expect("run mdr");
+        .expect("run tread");
     assert_eq!(out.status.code(), Some(2));
     let err = String::from_utf8_lossy(&out.stderr);
-    assert!(err.starts_with("mdr: unknown option"), "{err:?}");
+    assert!(err.starts_with("tread: unknown option"), "{err:?}");
 }

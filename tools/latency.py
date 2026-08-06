@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Measure interactive latency of mdr under a real pty.
+"""Measure interactive latency of tread under a real pty.
 
-Usage: tools/latency.py <mdr-binary> <document.md>
+Usage: tools/latency.py <tread-binary> <document.md>
 
 Prints time-to-first-frame and the response time of each key command. Use it
 to confirm a very large document (10 MB+) still paints and scrolls promptly.

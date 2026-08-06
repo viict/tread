@@ -1,4 +1,4 @@
-# rmarktui build configuration.
+# tread build configuration.
 #
 # The release artifact is a fully static musl binary. No external linker or
 # C toolchain is required: rustc's self-contained musl libc + lld do the work.

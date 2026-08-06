@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "rmarktui"
+name = "tread"
 version = "0.1.0"

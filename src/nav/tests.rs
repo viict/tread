@@ -404,7 +404,7 @@ fn navigator_history_restores_position() {
 /// when it is absent so `cargo test` stays green anywhere.
 fn codex() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
-    let p = PathBuf::from(home).join("rmarktui/codex");
+    let p = PathBuf::from(home).join("notes");
     p.join("README.md").is_file().then_some(p)
 }
 

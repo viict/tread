@@ -2,7 +2,7 @@
 //! buffer instead of driving the pager.
 //!
 //! This is the path used by `--no-alt` on a non-terminal stdout, by
-//! `cat x.md | mdr > file`, and by the golden render tests. It shares the
+//! `cat x.md | tread > file`, and by the golden render tests. It shares the
 //! layout engine and the `Frame` writer with the interactive pager, so what
 //! you see here is exactly what a frame would contain (SPEC.md §7: all
 //! terminal output goes through the frame buffer).

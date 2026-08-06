@@ -180,7 +180,7 @@ pub fn open_tty() -> Option<Fd> {
 }
 
 /// Pick a descriptor suitable for reading keys: stdin when it is a tty,
-/// otherwise `/dev/tty` (so `cat x.md | mdr` still has a keyboard).
+/// otherwise `/dev/tty` (so `cat x.md | tread` still has a keyboard).
 /// The `bool` is `true` when the caller owns the fd and must [`close_fd`].
 pub fn tty_fd() -> Option<(Fd, bool)> {
     if is_tty(super::STDIN) {

@@ -83,7 +83,7 @@ fn the_report_matches_what_was_actually_framed() {
 
 #[test]
 fn a_failed_write_is_reported_as_a_refusal() {
-    let msg = select::clip::yank_message("1 line", None, Some("~/.cache/mdr/last-yank.txt"));
+    let msg = select::clip::yank_message("1 line", None, Some("~/.cache/tread/last-yank.txt"));
     assert!(msg.contains("refused") && msg.contains("last-yank.txt"), "{msg}");
 }
 

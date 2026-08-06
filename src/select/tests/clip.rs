@@ -116,9 +116,9 @@ fn fallback_path_uses_this_platforms_cache_location() {
         ("LOCALAPPDATA", "C:\\Users\\u\\AppData\\Local"),
     ]);
     let want = match Platform::HOST {
-        Platform::Linux => "/home/u/.cache/mdr/last-yank.txt",
-        Platform::Macos => "/home/u/Library/Caches/mdr/last-yank.txt",
-        Platform::Windows => "C:\\Users\\u\\AppData\\Local\\mdr\\last-yank.txt",
+        Platform::Linux => "/home/u/.cache/tread/last-yank.txt",
+        Platform::Macos => "/home/u/Library/Caches/tread/last-yank.txt",
+        Platform::Windows => "C:\\Users\\u\\AppData\\Local\\tread\\last-yank.txt",
     };
     assert_eq!(fallback_path(&env), Some(PathBuf::from(want)));
     assert_eq!(fallback_path(&Env::default()), None);
@@ -139,14 +139,14 @@ fn the_fallback_file_content_is_lf_only() {
 fn paths_under_home_are_shown_the_way_this_platform_writes_them() {
     use crate::plat::Platform;
     let home = PathBuf::from("/home/u");
-    let p = PathBuf::from("/home/u/.cache/mdr/last-yank.txt");
+    let p = PathBuf::from("/home/u/.cache/tread/last-yank.txt");
     let shortened = match Platform::HOST.is_windows() {
         // No `~` on Windows: nothing there expands it (see plat::dirs).
-        true => "/home/u/.cache/mdr/last-yank.txt",
-        false => "~/.cache/mdr/last-yank.txt",
+        true => "/home/u/.cache/tread/last-yank.txt",
+        false => "~/.cache/tread/last-yank.txt",
     };
     assert_eq!(display_path(&p, Some(&home)), shortened);
-    assert_eq!(display_path(&p, None), "/home/u/.cache/mdr/last-yank.txt");
+    assert_eq!(display_path(&p, None), "/home/u/.cache/tread/last-yank.txt");
     let other = PathBuf::from("/tmp/x.txt");
     assert_eq!(display_path(&other, Some(&home)), "/tmp/x.txt");
 }
@@ -155,8 +155,8 @@ fn paths_under_home_are_shown_the_way_this_platform_writes_them() {
 fn messages_say_what_happened() {
     let ok = ClipReport { sent: 12, truncated: false };
     assert_eq!(
-        yank_message("3 lines", Some(ok), Some("~/.cache/mdr/last-yank.txt")),
-        "yanked 3 lines  \u{b7}  saved to ~/.cache/mdr/last-yank.txt"
+        yank_message("3 lines", Some(ok), Some("~/.cache/tread/last-yank.txt")),
+        "yanked 3 lines  \u{b7}  saved to ~/.cache/tread/last-yank.txt"
     );
     assert_eq!(yank_message("1 line", Some(ok), None), "yanked 1 line");
     let cut = ClipReport { sent: 73_000, truncated: true };

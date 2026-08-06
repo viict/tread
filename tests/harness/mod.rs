@@ -1,7 +1,7 @@
 //! Shared helpers for the integration tests.
 //!
 //! Integration tests cannot reach into a binary crate, so everything here
-//! drives the built executable (`CARGO_BIN_EXE_mdr`) as a subprocess.
+//! drives the built executable (`CARGO_BIN_EXE_tread`) as a subprocess.
 
 #![allow(dead_code)]
 
@@ -13,17 +13,17 @@ pub fn fixtures_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
 }
 
-/// Run `mdr <args> <path>` and return stdout. Panics on a non-zero exit.
+/// Run `tread <args> <path>` and return stdout. Panics on a non-zero exit.
 pub fn render(path: &Path, args: &[&str]) -> String {
-    let out = Command::new(env!("CARGO_BIN_EXE_mdr"))
+    let out = Command::new(env!("CARGO_BIN_EXE_tread"))
         .args(args)
         .arg(path)
         .env_remove("NO_COLOR")
         .output()
-        .expect("run mdr");
+        .expect("run tread");
     assert!(
         out.status.success(),
-        "mdr {:?} {} exited {:?}: {}",
+        "tread {:?} {} exited {:?}: {}",
         args,
         path.display(),
         out.status,
@@ -36,21 +36,21 @@ pub fn render(path: &Path, args: &[&str]) -> String {
 
 /// Feed bytes on stdin instead of naming a file.
 pub fn render_stdin(body: &[u8], args: &[&str]) -> String {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_mdr"))
+    let mut child = Command::new(env!("CARGO_BIN_EXE_tread"))
         .args(args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .expect("spawn mdr");
+        .expect("spawn tread");
     child
         .stdin
         .take()
         .expect("stdin")
         .write_all(body)
         .expect("write stdin");
-    let out = child.wait_with_output().expect("wait mdr");
-    assert!(out.status.success(), "mdr exited {:?}", out.status);
+    let out = child.wait_with_output().expect("wait tread");
+    assert!(out.status.success(), "tread exited {:?}", out.status);
     String::from_utf8(out.stdout).expect("render produced invalid UTF-8")
 }
 
@@ -58,7 +58,7 @@ pub fn render_stdin(body: &[u8], args: &[&str]) -> String {
 pub fn temp_doc(name: &str, body: &[u8]) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "rmarktui-{}-{}-{name}.md",
+        "tread-{}-{}-{name}.md",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

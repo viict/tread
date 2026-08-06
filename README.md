@@ -1,4 +1,4 @@
-# rmarktui — `mdr`
+# tread — `tread`
 
 `less`, but it understands markdown.
 
@@ -8,7 +8,7 @@ documents. One static binary, no runtime, no configuration, **no dependencies
 at all** — not even `libc`.
 
 ```
-$ mdr README.md
+$ tread README.md
 ```
 
 ## What it does
@@ -38,7 +38,7 @@ libraries.
 
 ```sh
 cargo build --release
-./target/release/mdr --help
+./target/release/tread --help
 ```
 
 For the shipping artifact, one file that runs on any x86-64 Linux from a
@@ -50,7 +50,7 @@ cargo musl                      # alias for --release --target …-musl
 ```
 
 ```
-$ ldd target/x86_64-unknown-linux-musl/release/mdr
+$ ldd target/x86_64-unknown-linux-musl/release/tread
         statically linked                             # 649 KiB
 ```
 
@@ -78,7 +78,7 @@ still only inferred.
 ## Usage
 
 ```
-mdr [OPTIONS] [FILE]
+tread [OPTIONS] [FILE]
 
   --index <PATH>   Treat PATH as the corpus index. PATH may be a markdown file
                    or a directory containing README.md. Relative links in the
@@ -92,14 +92,14 @@ mdr [OPTIONS] [FILE]
   -V, --version    Show the version.
 ```
 
-With no `FILE`, `mdr` reads piped stdin, or opens the corpus index when stdin
+With no `FILE`, `tread` reads piped stdin, or opens the corpus index when stdin
 is a terminal. `-` forces reading stdin. Piping works because keys are read
 from `/dev/tty` when stdin is busy:
 
 ```sh
-cat notes.md | mdr
-mdr --toc notes.md
-mdr --plain --width 100 notes.md > notes.txt
+cat notes.md | tread
+tread --toc notes.md
+tread --plain --width 100 notes.md > notes.txt
 ```
 
 Exit codes: `0` ok, `1` runtime error, `2` usage error.
@@ -154,8 +154,8 @@ A corpus is any directory of markdown whose `README.md` links out with relative
 paths — notes, a docs tree, a wiki.
 
 ```sh
-mdr --index ~/notes            # start at the index
-mdr ~/notes/guides/setup.md    # start anywhere; `i` finds the index
+tread --index ~/notes            # start at the index
+tread ~/notes/guides/setup.md    # start anywhere; `i` finds the index
 ```
 
 - Relative links resolve against the current document's directory. A link that
@@ -186,7 +186,7 @@ every syscall is a hand-written `extern "C"` declaration.
 
 ```
 $ cargo tree
-rmarktui v0.1.0
+tread v0.1.0
 ```
 
 All `unsafe` lives in the platform backends under [`src/sys/`](src/sys/); every
@@ -234,6 +234,6 @@ Two soak harnesses go beyond `cargo test`, rendering a whole corpus at four
 widths and driving the pager through a real pty:
 
 ```sh
-tools/soak.sh    target/x86_64-unknown-linux-musl/release/mdr ~/notes
-tools/soak_pty.py target/x86_64-unknown-linux-musl/release/mdr ~/notes
+tools/soak.sh    target/x86_64-unknown-linux-musl/release/tread ~/notes
+tools/soak_pty.py target/x86_64-unknown-linux-musl/release/tread ~/notes
 ```

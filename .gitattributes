@@ -5,7 +5,7 @@
 # and what GitHub's windows-latest runner does — turns every one of them into
 # CRLF and every golden test into a failure that reproduces on no other
 # platform. The fixtures they are generated from have the same problem, and
-# `mdr` deliberately handles CRLF *input*, so the fixtures must be able to
+# `tread` deliberately handles CRLF *input*, so the fixtures must be able to
 # carry the exact bytes the test intends rather than whatever the checkout
 # decided.
 #

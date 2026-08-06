@@ -4,7 +4,7 @@
 use std::fmt;
 use std::path::PathBuf;
 
-pub const BIN: &str = "mdr";
+pub const BIN: &str = "tread";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Fully parsed command line. `parse` never reads the environment, so this is
@@ -307,6 +307,6 @@ mod tests {
         for needle in ["--index", "--no-alt", "--plain", "--width", "--toc", "-V"] {
             assert!(h.contains(needle), "help missing {needle}");
         }
-        assert!(version_text().starts_with("mdr "));
+        assert!(version_text().starts_with("tread "));
     }
 }

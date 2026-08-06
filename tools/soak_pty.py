@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Interactive soak: drive mdr through a real pty over a corpus.
+"""Interactive soak: drive tread through a real pty over a corpus.
 
 Unlike tools/soak.sh (which exercises the non-interactive dump path) this runs
 the pager itself, so it covers raw mode, the frame buffer, scrolling, collapse,
@@ -128,11 +128,11 @@ def drive(binary, path, cols=100, rows=40, budget=15.0):
 
 
 def drive_signal(binary, path, sig, cols=100, rows=40):
-    """Start mdr, deliver `sig`, and check the terminal came back.
+    """Start tread, deliver `sig`, and check the terminal came back.
 
     The default disposition of SIGTERM/SIGHUP/SIGQUIT kills the process without
     running Drop or the panic hook (the release profile is panic=abort), which
-    would strand the tty in raw mode on the alternate screen. mdr catches them
+    would strand the tty in raw mode on the alternate screen. tread catches them
     and quits through the normal teardown instead.
     """
     problems = []

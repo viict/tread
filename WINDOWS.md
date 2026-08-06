@@ -1,4 +1,4 @@
-# `mdr` on Windows
+# `tread` on Windows
 
 This described a backend that did not exist. It now describes one that does:
 `src/sys/windows.rs` plus the four files under `src/sys/windows/`, hand-written
@@ -196,7 +196,7 @@ The comparison — including "a failed query is not a resize" — is
 
 `open_tty()` is `CreateFileW("CONIN$" | "CONOUT$", GENERIC_READ | GENERIC_WRITE,
 FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL)`. Opening
-*both* is what lets `type x.md | mdr` work with keys from `CONIN$`, and keeps a
+*both* is what lets `type x.md | tread` work with keys from `CONIN$`, and keeps a
 writable handle when stdout is redirected too.
 
 ## What changed above `sys`
@@ -214,7 +214,7 @@ rules are exercised by `cargo test` on Linux rather than by hope:
   (`models/SAMPLE_MODEL.md`); only the native path it resolves to is Windows-shaped.
   The old `Component`-based fold dropped the volume prefix, which would have
   re-rooted every Windows link onto the current drive.
-- **`plat::dirs`** — where files live. `%LOCALAPPDATA%\mdr\last-yank.txt`, then
+- **`plat::dirs`** — where files live. `%LOCALAPPDATA%\tread\last-yank.txt`, then
   `%TEMP%`, then `%USERPROFILE%\AppData\Local`; `$HOME` is never read on Windows,
   `%USERPROFILE%` is. `~`-shortening is a unix shell convention and is not
   applied to a Windows path a user could not paste back.

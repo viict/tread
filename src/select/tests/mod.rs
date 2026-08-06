@@ -63,8 +63,8 @@ Intro paragraph.
 Run the tool.
 
 ```sh
-mdr README.md
-mdr --index ~/codex
+tread README.md
+tread --index ~/codex
 ```
 
 ## Tables
@@ -112,10 +112,10 @@ fn a_partial_code_selection_is_line_exact() {
     let (doc, lines) = doc_and_lines(DOC, 60);
     let row = lines
         .iter()
-        .position(|l| l.text().contains("mdr --index"))
+        .position(|l| l.text().contains("tread --index"))
         .expect("code row");
     let text = selection_text(&doc, &lines, &[row]);
-    assert_eq!(text, "mdr --index ~/codex\n");
+    assert_eq!(text, "tread --index ~/codex\n");
 }
 
 #[test]
@@ -128,7 +128,7 @@ fn selecting_every_code_row_restores_the_fences() {
         .map(|(i, _)| i)
         .collect();
     let text = selection_text(&doc, &lines, &rows);
-    assert_eq!(text, "```sh\nmdr README.md\nmdr --index ~/codex\n```\n");
+    assert_eq!(text, "```sh\ntread README.md\ntread --index ~/codex\n```\n");
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn c_yanks_the_body_only_with_no_fences_or_padding() {
     let (doc, lines) = doc_and_lines(DOC, 30);
     let top = 0;
     let y = code_yank(&doc, &lines, top).expect("code yank");
-    assert_eq!(y.text, "mdr README.md\nmdr --index ~/codex\n");
+    assert_eq!(y.text, "tread README.md\ntread --index ~/codex\n");
     assert_eq!(y.what, "sh code block (2 lines)");
 }
 
@@ -322,7 +322,7 @@ fn c_yanks_the_code_block_verbatim_from_anywhere_above_it() {
     let mut p = pager(DOC);
     press(&mut p, "c");
     let y = p.peek_yank().expect("code yank");
-    assert_eq!(y.text, "mdr README.md\nmdr --index ~/codex\n");
+    assert_eq!(y.text, "tread README.md\ntread --index ~/codex\n");
 }
 
 #[test]
@@ -342,7 +342,7 @@ fn corpus_code_yanks_match_the_file_byte_for_byte() {
         Ok(h) => h,
         Err(_) => return,
     };
-    let root = PathBuf::from(home).join("rmarktui/codex");
+    let root = PathBuf::from(home).join("notes");
     let mut checked = 0usize;
     for name in ["archive/OLD_AUDIT.md", "decisions/2026-06-13-sample-decision.md"] {
         let src = match std::fs::read_to_string(root.join(name)) {

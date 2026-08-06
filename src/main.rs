@@ -1,4 +1,4 @@
-//! `mdr` — a terminal markdown reader. Entry point and wiring.
+//! `tread` — a terminal markdown reader. Entry point and wiring.
 //!
 //! Argument parsing, input resolution, the panic guard, the interactive event
 //! loop and the non-interactive dump path all hang off here.
@@ -280,7 +280,7 @@ fn status_label(input: &Input) -> String {
 /// stdout is not a terminal.
 ///
 /// This is the *only* NO_COLOR rule in the crate — `Term` reads no environment
-/// of its own — so `mdr doc.md` and `mdr doc.md | cat` can never disagree. An
+/// of its own — so `tread doc.md` and `tread doc.md | cat` can never disagree. An
 /// empty `NO_COLOR=` does not count, per the no-color.org spec.
 fn plain_mode(flag: bool, no_color: Option<String>, stdout_tty: bool) -> bool {
     flag || no_color.map(|v| !v.is_empty()).unwrap_or(false) || !stdout_tty

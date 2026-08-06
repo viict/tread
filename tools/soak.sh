@@ -1,11 +1,11 @@
 #!/bin/sh
-# Corpus + adversarial soak for mdr.
+# Corpus + adversarial soak for tread.
 #
 # Renders every document at several widths, both plain (piped) and styled
 # (forced through the pty path), and fails on: non-zero exit, timeout, panic
 # text on stderr, or an unbalanced / stray escape sequence in the output.
 #
-# Usage: tools/soak.sh <mdr-binary> <corpus-dir> [extra-dir ...]
+# Usage: tools/soak.sh <tread-binary> <corpus-dir> [extra-dir ...]
 set -u
 
 BIN=${1:?usage: soak.sh <binary> <dir> [dir...]}

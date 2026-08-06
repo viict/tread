@@ -1,11 +1,11 @@
 [package]
-name = "rmarktui"
+name = "tread"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
 
 [[bin]]
-name = "mdr"
+name = "tread"
 path = "src/main.rs"
 
 # Hard constraint: this table stays empty. See SPEC.md §Dependencies.

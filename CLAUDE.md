@@ -1,8 +1,8 @@
-# rmarktui
+# tread
 
 A terminal markdown reader — `less`, but it understands markdown: collapsible
 headings, banner H1s, real tables, colored links, and navigation across a
-corpus of linked documents. Crate `rmarktui`, binary `mdr`.
+corpus of linked documents. Crate `tread`, binary `tread`.
 
 `SPEC.md` is the binding contract. Read it before changing behaviour.
 
@@ -28,7 +28,7 @@ corpus of linked documents. Crate `rmarktui`, binary `mdr`.
   honoured while `ENABLE_EXTENDED_FLAGS` is set.
 - Files < 500 lines, functions < 50 lines — split modules instead of growing.
 - No `println!`/`eprintln!` for UI; frames go through `Term`. `eprintln!` is
-  allowed only for fatal startup errors, as `mdr: <message>`.
+  allowed only for fatal startup errors, as `tread: <message>`.
 - Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 ## Module layout
@@ -83,9 +83,9 @@ cargo check --target x86_64-pc-windows-msvc    # and x86_64-pc-windows-gnu
 cargo build --release --target aarch64-apple-darwin   # needs a Mac / Apple SDK
 
 # against the target corpus (106 files, table-heavy, README.md index)
-cargo run -- --index ~/rmarktui/codex
-cargo run -- ~/rmarktui/codex/README.md --toc
-cat ~/rmarktui/codex/README.md | cargo run -- --plain
+cargo run -- --index ~/notes
+cargo run -- ~/notes/README.md --toc
+cat ~/notes/README.md | cargo run -- --plain
 ```
 
 Unit tests live beside the code in `#[cfg(test)]`; golden renders live in
@@ -97,8 +97,8 @@ from fixtures in `tests/fixtures/`; regenerate with
 Two soak harnesses run outside `cargo test` and must stay green before shipping:
 
 ```sh
-tools/soak.sh target/x86_64-unknown-linux-musl/release/mdr ~/rmarktui/codex
-tools/soak_pty.py target/x86_64-unknown-linux-musl/release/mdr ~/rmarktui/codex
+tools/soak.sh target/x86_64-unknown-linux-musl/release/tread ~/notes
+tools/soak_pty.py target/x86_64-unknown-linux-musl/release/tread ~/notes
 ```
 
 `WINDOWS.md` documents what the console backend does, and — importantly — what

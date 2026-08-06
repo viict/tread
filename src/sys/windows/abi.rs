@@ -277,7 +277,7 @@ pub const FOCUS_EVENT: u16 = 0x0010;
 /// and stall the resize tick. Key-ups never produce bytes, modifier keys never
 /// produce bytes, a record carrying a `UnicodeChar` always does, and the
 /// navigation keys VT translates are whitelisted rather than assumed: an
-/// unrecognised zero-`UnicodeChar` key is dropped, which loses a keystroke `mdr`
+/// unrecognised zero-`UnicodeChar` key is dropped, which loses a keystroke `tread`
 /// binds nothing to, instead of hanging on one.
 pub fn key_record_yields_bytes(down: bool, vk: u16, unicode_char: u16) -> bool {
     if !down {

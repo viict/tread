@@ -1,10 +1,10 @@
-# rmarktui — spec
+# tread — spec
 
 A terminal markdown reader. `less`, but it understands markdown: collapsible
 headings, visual heading hierarchy, colored links, and navigation across a
 linked document tree (an "index" doc whose relative links form a corpus).
 
-Binary: `mdr`. Crate: `rmarktui`.
+Binary: `tread`. Crate: `tread`.
 
 ## Hard constraints
 
@@ -134,7 +134,7 @@ q              quit (pops nav stack first if deep)
 ## CLI
 
 ```
-mdr [OPTIONS] [FILE]
+tread [OPTIONS] [FILE]
 
   --index <PATH>     treat PATH (file or dir containing README.md) as the
                      corpus index; opening with no FILE starts here
@@ -145,12 +145,12 @@ mdr [OPTIONS] [FILE]
   -h, --help / -V, --version
 ```
 
-Reading from stdin (`cat x.md | mdr`) must work: open `/dev/tty` for input
+Reading from stdin (`cat x.md | tread`) must work: open `/dev/tty` for input
 when stdin is a pipe.
 
 ## Navigation / the corpus
 
-Primary target corpus: `~/rmarktui/codex` — 106 markdown files, a
+Primary target corpus: `~/notes` — 106 markdown files, a
 `README.md` index whose tables link out with relative paths
 (`models/SAMPLE_MODEL.md`), heavy table usage, ATX headings.
 

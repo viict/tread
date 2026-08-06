@@ -170,7 +170,7 @@ pub fn is_tty(fd: Fd) -> bool {
 
 /// The `/dev/tty` equivalent: `CONIN$` plus `CONOUT$`.
 ///
-/// This is what makes `type x.md | mdr` work — stdin is a pipe, so the keys come
+/// This is what makes `type x.md | tread` work — stdin is a pipe, so the keys come
 /// from `CONIN$` — and the `CONOUT$` half means the pager can still paint when
 /// stdout is redirected too. Both are opened read+write and shared, as the
 /// console documentation requires.
