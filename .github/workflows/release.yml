@@ -182,7 +182,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
-            artifacts/*
+          # Re-tagging an existing version is a normal thing to do while a
+          # project is young, and `create` fails outright when the release is
+          # already there — after all six builds have run. Fall back to
+          # uploading over it so a retag republishes instead of wasting the run.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME exists; replacing its assets"
+            gh release upload "$GITHUB_REF_NAME" artifacts/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --title "$GITHUB_REF_NAME" \
+              --generate-notes \
+              artifacts/*
+          fi

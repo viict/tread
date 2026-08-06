@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="801" height="496" viewBox="0 0 801 496" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13">
+<rect width="801" height="496" rx="8" fill="#12141a"/>
+<rect x="14.0" y="14.0" width="310.8" height="18.0" fill="#444444"/>
+<rect x="669.2" y="266.0" width="42.0" height="18.0" fill="#303030"/>
+<rect x="308.0" y="320.0" width="151.2" height="18.0" fill="#303030"/>
+<rect x="551.6" y="320.0" width="8.4" height="18.0" fill="#303030"/>
+<rect x="350.0" y="338.0" width="8.4" height="18.0" fill="#303030"/>
+<rect x="383.6" y="338.0" width="8.4" height="18.0" fill="#303030"/>
+<rect x="350.0" y="356.0" width="42.0" height="18.0" fill="#303030"/>
+<rect x="719.6" y="356.0" width="42.0" height="18.0" fill="#303030"/>
+<rect x="30.8" y="374.0" width="75.6" height="18.0" fill="#303030"/>
+<rect x="14.0" y="464.0" width="772.8" height="18.0" fill="#444444"/>
+<text x="14.0" y="27.5" fill="#808080" xml:space="preserve">▾</text>
+<text x="30.8" y="27.5" fill="#87d787" font-weight="bold" xml:space="preserve">Active</text>
+<text x="98.0" y="27.5" fill="#585858" xml:space="preserve">·</text>
+<text x="123.2" y="27.5" fill="#8a8a8a" xml:space="preserve">2026-08-06</text>
+<text x="224.0" y="27.5" fill="#585858" xml:space="preserve">·</text>
+<text x="249.2" y="27.5" fill="#8a8a8a" xml:space="preserve">3 related</text>
+<text x="30.8" y="45.5" fill="#8a8a8a" xml:space="preserve">status</text>
+<text x="106.4" y="45.5" fill="#87d787" font-weight="bold" xml:space="preserve">Active</text>
+<text x="30.8" y="63.5" fill="#8a8a8a" xml:space="preserve">updated</text>
+<text x="106.4" y="63.5" fill="#d0d4dc" xml:space="preserve">2026-08-06</text>
+<text x="30.8" y="81.5" fill="#8a8a8a" xml:space="preserve">related</text>
+<text x="106.4" y="81.5" fill="#00afff" text-decoration="underline" xml:space="preserve">layout.md</text>
+<text x="106.4" y="99.5" fill="#00afff" text-decoration="underline" xml:space="preserve">testing.md</text>
+<text x="106.4" y="117.5" fill="#00afff" text-decoration="underline" xml:space="preserve">windows.md</text>
+<text x="30.8" y="135.5" fill="#585858" xml:space="preserve">──────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="14.0" y="171.5" fill="#808080" xml:space="preserve">▾</text>
+<text x="30.8" y="171.5" fill="#00d7ff" font-weight="bold" xml:space="preserve">███ ██  ███  █  ██      ██  ███  ██  ██</text>
+<text x="39.2" y="189.5" fill="#00d7ff" font-weight="bold" xml:space="preserve">█  █ █ █   █ █ █ █     █ █ █ █ █   █</text>
+<text x="39.2" y="207.5" fill="#00d7ff" font-weight="bold" xml:space="preserve">█  ██  ██  ███ █ █     █ █ █ █ █    █</text>
+<text x="39.2" y="225.5" fill="#00d7ff" font-weight="bold" xml:space="preserve">█  █ █ █   █ █ █ █     █ █ █ █ █     █</text>
+<text x="39.2" y="243.5" fill="#00d7ff" font-weight="bold" xml:space="preserve">█  █ █ ███ █ █ ██      ██  ███  ██ ██</text>
+<text x="30.8" y="279.5" fill="#d0d4dc" xml:space="preserve">Everything past the front page. The</text>
+<text x="333.2" y="279.5" fill="#00afff" text-decoration="underline" xml:space="preserve">root README</text>
+<text x="434.0" y="279.5" fill="#d0d4dc" xml:space="preserve">covers installing and using</text>
+<text x="669.2" y="279.5" fill="#ffaf87" xml:space="preserve">tread</text>
+<text x="711.2" y="279.5" fill="#d0d4dc" xml:space="preserve">; this</text>
+<text x="30.8" y="297.5" fill="#d0d4dc" xml:space="preserve">covers how it is built and how it is proven.</text>
+<text x="30.8" y="333.5" fill="#d0d4dc" xml:space="preserve">This folder is itself a corpus —</text>
+<text x="308.0" y="333.5" fill="#ffaf87" xml:space="preserve">tread --index docs</text>
+<text x="467.6" y="333.5" fill="#d0d4dc" xml:space="preserve">walks it,</text>
+<text x="551.6" y="333.5" fill="#ffaf87" xml:space="preserve">i</text>
+<text x="568.4" y="333.5" fill="#d0d4dc" xml:space="preserve">lists these pages grouped</text>
+<text x="30.8" y="351.5" fill="#d0d4dc" xml:space="preserve">by the section they appear under, and</text>
+<text x="350.0" y="351.5" fill="#ffaf87" xml:space="preserve">]</text>
+<text x="366.8" y="351.5" fill="#d0d4dc" xml:space="preserve">/</text>
+<text x="383.6" y="351.5" fill="#ffaf87" xml:space="preserve">[</text>
+<text x="400.4" y="351.5" fill="#d0d4dc" xml:space="preserve">step between them. The two links under</text>
+<text x="30.8" y="369.5" fill="#d0d4dc" xml:space="preserve">"Elsewhere" climb above that root, so</text>
+<text x="350.0" y="369.5" fill="#ffaf87" xml:space="preserve">tread</text>
+<text x="400.4" y="369.5" fill="#d0d4dc" xml:space="preserve">refuses to follow them from here; run</text>
+<text x="719.6" y="369.5" fill="#ffaf87" xml:space="preserve">tread</text>
+<text x="30.8" y="387.5" fill="#ffaf87" xml:space="preserve">--index .</text>
+<text x="114.8" y="387.5" fill="#d0d4dc" xml:space="preserve">from the repository root to walk the whole project instead.</text>
+<text x="14.0" y="423.5" fill="#808080" xml:space="preserve">▾</text>
+<text x="30.8" y="423.5" fill="#ffffff" font-weight="bold" xml:space="preserve">Contributing</text>
+<text x="30.8" y="441.5" fill="#585858" xml:space="preserve">──────────────────────────────────────────────────────────────────────────────────────────</text>
+<text x="14.0" y="477.5" fill="#d0d0d0" xml:space="preserve">docs/README.md  ·  0%  ·  line 1/51</text>
+</svg>

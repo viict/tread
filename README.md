@@ -1,6 +1,6 @@
-# tread — `tread`
+# tread
 
-`less`, but it understands markdown — and CSV.
+`less`, but it understands file types.
 
 A terminal reader with collapsible headings, banner H1s, real box-drawn tables,
 colored links, and navigation across a corpus of linked documents. It also
@@ -9,8 +9,35 @@ scrolling. One static binary, no runtime, no configuration, **no dependencies
 at all** — not even `libc`. Every format is compiled in; nothing is ever loaded
 at runtime.
 
+![tread reading a markdown document](docs/img/markdown.svg)
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/viict/tread/master/install.sh | sh
+```
+
+That puts a verified binary in `~/.local/bin/tread`. It picks the build for
+your platform, checks it against the release's `SHA256SUMS`, and refuses to
+install anything that does not match.
+
+```sh
+# somewhere else on your PATH
+INSTALL_PATH=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/viict/tread/master/install.sh | sh
+
+# a particular release rather than the newest
+VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/viict/tread/master/install.sh | sh
+```
+
+Prefer not to pipe the internet into a shell? Read
+[`install.sh`](install.sh) first, or take a `.tar.gz` from the
+[releases page](https://github.com/viict/tread/releases) — it holds one static
+binary and nothing else. Windows builds are there too, as `.zip`.
+
 ```
 $ tread README.md
+$ tread data.csv
+$ tread --index ~/notes
 ```
 
 ## What it does
@@ -40,7 +67,12 @@ $ tread README.md
   terminal's own click-drag selection keeps working, always. This is a product
   requirement, not an oversight.
 
-## Install
+## Currently supported file-types
+
+- Markdown (Github variation, frontmatter yaml support)
+- CSV (big files supported)
+
+## Build from source
 
 A Rust toolchain (1.75+) is all you need — no C compiler, no linker, no system
 libraries.
@@ -163,6 +195,8 @@ table: the dispatcher, the in-app help overlay and the rows above all come from
 the same `BINDINGS` array.
 
 ## Reading a CSV
+
+![tread reading a CSV, with the focused column highlighted](docs/img/csv.svg)
 
 ```sh
 tread events.csv

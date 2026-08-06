@@ -1,3 +1,12 @@
+---
+status: Active
+updated: 2026-08-06
+related:
+  - layout.md
+  - testing.md
+  - windows.md
+---
+
 # tread docs
 
 Everything past the front page. The [root README](../README.md) covers
@@ -15,6 +24,7 @@ the whole project instead.
 | --- | --- |
 | [layout.md](layout.md) — module map | where every module lives and the one rule it obeys |
 | [testing.md](testing.md) — the suite | unit, golden and integration layers, plus the two soak harnesses |
+| [../install.sh](../install.sh) — the installer | what `curl \| sh` runs: platform detection, checksum verification, atomic install |
 
 ## Platforms
 

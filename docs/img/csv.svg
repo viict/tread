@@ -1,0 +1,283 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="801" height="388" viewBox="0 0 801 388" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13">
+<rect width="801" height="388" rx="8" fill="#12141a"/>
+<rect x="333.2" y="32.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="14.0" y="68.0" width="319.2" height="18.0" fill="#444444"/>
+<rect x="333.2" y="68.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="417.2" y="68.0" width="361.2" height="18.0" fill="#444444"/>
+<rect x="333.2" y="86.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="104.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="122.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="140.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="158.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="176.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="194.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="212.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="230.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="248.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="266.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="284.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="302.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="320.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="333.2" y="338.0" width="84.0" height="18.0" fill="#3a3a3a"/>
+<rect x="14.0" y="356.0" width="772.8" height="18.0" fill="#444444"/>
+<text x="14.0" y="27.5" fill="#585858" xml:space="preserve">┌────┬───────────────────┬───────────┬──────────┬────────────┬────────┬────────────────────</text>
+<text x="778.4" y="27.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">id</text>
+<text x="56.0" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">name</text>
+<text x="224.0" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">city</text>
+<text x="324.8" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">role</text>
+<text x="417.2" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">joined</text>
+<text x="526.4" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">active</text>
+<text x="602.0" y="45.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="45.5" fill="#ffffff" font-weight="bold" xml:space="preserve">notes</text>
+<text x="778.4" y="45.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="63.5" fill="#585858" xml:space="preserve">├────┼───────────────────┼───────────┼──────────┼────────────┼────────┼────────────────────</text>
+<text x="778.4" y="63.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="81.5" fill="#d0d4dc" xml:space="preserve">1</text>
+<text x="56.0" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="81.5" fill="#d0d4dc" xml:space="preserve">Grace Hopper</text>
+<text x="224.0" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="81.5" fill="#d0d4dc" xml:space="preserve">New York</text>
+<text x="324.8" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="81.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="81.5" fill="#d0d4dc" xml:space="preserve">2011-02-11</text>
+<text x="526.4" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="81.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="81.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="81.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="81.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="99.5" fill="#d0d4dc" xml:space="preserve">2</text>
+<text x="56.0" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="99.5" fill="#d0d4dc" xml:space="preserve">Alan Turing</text>
+<text x="224.0" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="99.5" fill="#d0d4dc" xml:space="preserve">São Paulo</text>
+<text x="324.8" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="99.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="99.5" fill="#d0d4dc" xml:space="preserve">2012-03-12</text>
+<text x="526.4" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="99.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="99.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="99.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="99.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="117.5" fill="#d0d4dc" xml:space="preserve">3</text>
+<text x="56.0" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="117.5" fill="#d0d4dc" xml:space="preserve">Katherine Johnson</text>
+<text x="224.0" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="117.5" fill="#d0d4dc" xml:space="preserve">Tokyo</text>
+<text x="324.8" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="117.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="117.5" fill="#d0d4dc" xml:space="preserve">2013-04-13</text>
+<text x="526.4" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="117.5" fill="#d0d4dc" xml:space="preserve">false</text>
+<text x="602.0" y="117.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="117.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="117.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="135.5" fill="#d0d4dc" xml:space="preserve">4</text>
+<text x="56.0" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="135.5" fill="#d0d4dc" xml:space="preserve">Edsger Dijkstra</text>
+<text x="224.0" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="135.5" fill="#d0d4dc" xml:space="preserve">Lisbon</text>
+<text x="324.8" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="135.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="135.5" fill="#d0d4dc" xml:space="preserve">2014-05-14</text>
+<text x="526.4" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="135.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="135.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="135.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="135.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="153.5" fill="#d0d4dc" xml:space="preserve">5</text>
+<text x="56.0" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="153.5" fill="#d0d4dc" xml:space="preserve">Barbara Liskov</text>
+<text x="224.0" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="153.5" fill="#d0d4dc" xml:space="preserve">Berlin</text>
+<text x="324.8" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="153.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="153.5" fill="#d0d4dc" xml:space="preserve">2015-06-15</text>
+<text x="526.4" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="153.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="153.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="153.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="153.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="171.5" fill="#d0d4dc" xml:space="preserve">6</text>
+<text x="56.0" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="171.5" fill="#d0d4dc" xml:space="preserve">Ken Thompson</text>
+<text x="224.0" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="171.5" fill="#d0d4dc" xml:space="preserve">Nairobi</text>
+<text x="324.8" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="171.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="171.5" fill="#d0d4dc" xml:space="preserve">2016-07-16</text>
+<text x="526.4" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="171.5" fill="#d0d4dc" xml:space="preserve">false</text>
+<text x="602.0" y="171.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="171.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="171.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="189.5" fill="#d0d4dc" xml:space="preserve">7</text>
+<text x="56.0" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="189.5" fill="#d0d4dc" xml:space="preserve">Radia Perlman</text>
+<text x="224.0" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="189.5" fill="#d0d4dc" xml:space="preserve">Toronto</text>
+<text x="324.8" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="189.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="189.5" fill="#d0d4dc" xml:space="preserve">2017-08-17</text>
+<text x="526.4" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="189.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="189.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="189.5" fill="#d0d4dc" xml:space="preserve">a long remark that</text>
+<text x="778.4" y="189.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="207.5" fill="#d0d4dc" xml:space="preserve">8</text>
+<text x="56.0" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="207.5" fill="#d0d4dc" xml:space="preserve">Margaret Hamilton</text>
+<text x="224.0" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="207.5" fill="#d0d4dc" xml:space="preserve">London</text>
+<text x="324.8" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="207.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="207.5" fill="#d0d4dc" xml:space="preserve">2018-09-18</text>
+<text x="526.4" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="207.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="207.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="207.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="207.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="225.5" fill="#d0d4dc" xml:space="preserve">9</text>
+<text x="56.0" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="225.5" fill="#d0d4dc" xml:space="preserve">Tony Hoare</text>
+<text x="224.0" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="225.5" fill="#d0d4dc" xml:space="preserve">New York</text>
+<text x="324.8" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="225.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="225.5" fill="#d0d4dc" xml:space="preserve">2019-01-10</text>
+<text x="526.4" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="225.5" fill="#d0d4dc" xml:space="preserve">false</text>
+<text x="602.0" y="225.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="225.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="225.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="243.5" fill="#d0d4dc" xml:space="preserve">10</text>
+<text x="56.0" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="243.5" fill="#d0d4dc" xml:space="preserve">Ada Lovelace</text>
+<text x="224.0" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="243.5" fill="#d0d4dc" xml:space="preserve">São Paulo</text>
+<text x="324.8" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="243.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="243.5" fill="#d0d4dc" xml:space="preserve">2020-02-11</text>
+<text x="526.4" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="243.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="243.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="243.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="243.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="261.5" fill="#d0d4dc" xml:space="preserve">11</text>
+<text x="56.0" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="261.5" fill="#d0d4dc" xml:space="preserve">Grace Hopper</text>
+<text x="224.0" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="261.5" fill="#d0d4dc" xml:space="preserve">Tokyo</text>
+<text x="324.8" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="261.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="261.5" fill="#d0d4dc" xml:space="preserve">2021-03-12</text>
+<text x="526.4" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="261.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="261.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="261.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="261.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="279.5" fill="#d0d4dc" xml:space="preserve">12</text>
+<text x="56.0" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="279.5" fill="#d0d4dc" xml:space="preserve">Alan Turing</text>
+<text x="224.0" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="279.5" fill="#d0d4dc" xml:space="preserve">Lisbon</text>
+<text x="324.8" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="279.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="279.5" fill="#d0d4dc" xml:space="preserve">2022-04-13</text>
+<text x="526.4" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="279.5" fill="#d0d4dc" xml:space="preserve">false</text>
+<text x="602.0" y="279.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="279.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="279.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="297.5" fill="#d0d4dc" xml:space="preserve">13</text>
+<text x="56.0" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="297.5" fill="#d0d4dc" xml:space="preserve">Katherine Johnson</text>
+<text x="224.0" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="297.5" fill="#d0d4dc" xml:space="preserve">Berlin</text>
+<text x="324.8" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="297.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="297.5" fill="#d0d4dc" xml:space="preserve">2023-05-14</text>
+<text x="526.4" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="297.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="297.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="297.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="297.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="315.5" fill="#d0d4dc" xml:space="preserve">14</text>
+<text x="56.0" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="315.5" fill="#d0d4dc" xml:space="preserve">Edsger Dijkstra</text>
+<text x="224.0" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="315.5" fill="#d0d4dc" xml:space="preserve">Nairobi</text>
+<text x="324.8" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="315.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="315.5" fill="#d0d4dc" xml:space="preserve">2024-06-15</text>
+<text x="526.4" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="315.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="315.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="315.5" fill="#d0d4dc" xml:space="preserve">a long remark that</text>
+<text x="778.4" y="315.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="333.5" fill="#d0d4dc" xml:space="preserve">15</text>
+<text x="56.0" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="333.5" fill="#d0d4dc" xml:space="preserve">Barbara Liskov</text>
+<text x="224.0" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="333.5" fill="#d0d4dc" xml:space="preserve">Toronto</text>
+<text x="324.8" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="333.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="333.5" fill="#d0d4dc" xml:space="preserve">2010-07-16</text>
+<text x="526.4" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="333.5" fill="#d0d4dc" xml:space="preserve">false</text>
+<text x="602.0" y="333.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="333.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="333.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="30.8" y="351.5" fill="#d0d4dc" xml:space="preserve">16</text>
+<text x="56.0" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="72.8" y="351.5" fill="#d0d4dc" xml:space="preserve">Ken Thompson</text>
+<text x="224.0" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="240.8" y="351.5" fill="#d0d4dc" xml:space="preserve">London</text>
+<text x="324.8" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="341.6" y="351.5" fill="#d0d4dc" xml:space="preserve">engineer</text>
+<text x="417.2" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="434.0" y="351.5" fill="#d0d4dc" xml:space="preserve">2011-08-17</text>
+<text x="526.4" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="543.2" y="351.5" fill="#d0d4dc" xml:space="preserve">true</text>
+<text x="602.0" y="351.5" fill="#585858" xml:space="preserve">│</text>
+<text x="618.8" y="351.5" fill="#d0d4dc" xml:space="preserve">ok</text>
+<text x="778.4" y="351.5" fill="#8a8a8a" xml:space="preserve">›</text>
+<text x="14.0" y="369.5" fill="#d0d0d0" xml:space="preserve">people.csv  ·  row 1/40  ·  role</text>
+</svg>
