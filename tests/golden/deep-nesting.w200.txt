@@ -1,0 +1,59 @@
+▾ ██  ███ ███ ██      █ █ ███  ██ ███ ███ █ █  ██
+  █ █ █   █   █ █     ███ █   █    █   █  ███ █
+  █ █ ██  ██  ██      ███ ██   █   █   █  ███ █ █
+  █ █ █   █   █       ███ █     █  █   █  ███ █ █
+  ██  ███ ███ █       █ █ ███ ██   █  ███ █ █  ██
+
+  • level 0 text
+    ◦ level 1 text
+      ▪ level 2 text
+        • level 3 text
+          ◦ level 4 text
+            ▪ level 5 text
+              • level 6 text
+                ◦ level 7 text
+                  ▪ level 8 text
+                    • level 9 text
+                      ◦ level 10 text
+                        ▪ level 11 text
+                          • level 12 text
+                            ◦ level 13 text
+                              ▪ level 14 text
+                                • level 15 text
+                                  ◦ level 16 text
+                                    ▪ level 17 text
+                                      • level 18 text
+                                        ◦ level 19 text
+                                          ▪ level 20 text
+                                            • level 21 text
+                                              ◦ level 22 text
+                                                ▪ level 23 text
+                                                  • level 24 text
+                                                    ◦ level 25 text
+                                                      ▪ level 26 text
+                                                        • level 27 text
+                                                          ◦ level 28 text
+                                                            ▪ level 29 text
+
+  ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ quoted forty deep
+
+  ▏ quote depth 1
+
+  ▏ ▏ quote depth 2
+
+  ▏ ▏ ▏ quote depth 3
+
+  ▏ ▏ ▏ ▏ quote depth 4
+
+  ▏ ▏ ▏ ▏ ▏ quote depth 5
+
+  ▏ ▏ ▏ ▏ ▏ ▏ quote depth 6
+
+  ▏ ▏ ▏ ▏ ▏ ▏ ▏ quote depth 7
+
+  ▏ ▏ ▏ ▏ ▏ ▏ ▏ ▏ quote depth 8
+
+  • outer
+    ▏ quote in a list
+
+    ▏ • list in a quote in a list

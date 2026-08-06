@@ -1,0 +1,52 @@
+# Kitchen Sink
+
+An intro paragraph with **bold**, *italic*, ***bold italic***, ~~struck~~,
+`inline code`, an escaped \*star\*, and a [relative link](models/SAMPLE_MODEL.md).
+
+## Lists
+
+- first
+- second with enough words that it has to wrap at a narrow width
+  - nested second level
+    - nested third level
+- [ ] open task
+- [x] done task
+
+3. three
+4. four
+5. five
+
+## Table
+
+| left | center | right |
+| :--- | :----: | ----: |
+| a | b | 1 |
+| longer cell | x | 22 |
+
+## Code
+
+```rust
+fn main() {
+    println!("a line that is quite long and must not be wrapped by the renderer");
+}
+```
+
+## Quote
+
+> A quote.
+>
+> > Nested deeper.
+
+---
+
+### H3 heading
+
+#### H4 heading
+
+##### H5 heading
+
+###### H6 heading
+
+Autolink <https://example.com/a> and a reference [ref link][r].
+
+[r]: https://example.com/b "title"

@@ -1,0 +1,4 @@
+# Build output. Cargo.lock IS checked in: it is the proof of the
+# zero-dependency claim (one package, this one).
+**/__pycache__
+/target

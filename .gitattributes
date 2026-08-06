@@ -1,0 +1,13 @@
+# Git must not rewrite line endings in this repository.
+#
+# The renders under tests/golden/ are compared byte for byte against what the
+# binary prints. A checkout with core.autocrlf=true — the default on Windows,
+# and what GitHub's windows-latest runner does — turns every one of them into
+# CRLF and every golden test into a failure that reproduces on no other
+# platform. The fixtures they are generated from have the same problem, and
+# `mdr` deliberately handles CRLF *input*, so the fixtures must be able to
+# carry the exact bytes the test intends rather than whatever the checkout
+# decided.
+#
+# LF everywhere, on every platform, no exceptions.
+* -text

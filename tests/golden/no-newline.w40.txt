@@ -1,0 +1,1 @@
+  no trailing newline and no heading

@@ -1,0 +1,19 @@
+▾ █ █ ███  ██ ███ ███ █   ███
+  █ █ █ █ █    █   █  █   █
+  ███ █ █  █   █   █  █   ██
+  █ █ █ █   █  █   █  █   █
+  █ █ ███ ██   █  ███ ███ ███
+
+  escape: �[31mred�[0m and osc:
+  �]0;title� done
+
+  bell � backspace � del � c1 �
+
+  crlf below
+
+  • one
+  • two
+
+  lone cr breaks
+
+  nul: � end

@@ -1,0 +1,19 @@
+[package]
+name = "rmarktui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[[bin]]
+name = "mdr"
+path = "src/main.rs"
+
+# Hard constraint: this table stays empty. See SPEC.md §Dependencies.
+[dependencies]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
