@@ -122,11 +122,11 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `b` | page up |
 | `g` | top of document |
 | `G` | bottom of document |
-| `h / ←` | scroll left (code, wide tables; one CSV column) |
-| `l / →` | scroll right (code, wide tables; one CSV column) |
-| `w` | widen the CSV column under the cursor to fit the screen |
+| `h / ←` | scroll left — code, wide tables, one column |
+| `l / →` | scroll right — code, wide tables, one column |
+| `w` | widen the column under the cursor to fit the screen |
 | `za` | toggle the section at the cursor |
-| `Enter` | follow the focused link, else toggle the section |
+| `Enter` | follow the focused link, open the row, else fold |
 | `zo` | open the section at the cursor |
 | `zc` | close the section at the cursor |
 | `zM` | collapse every section |
@@ -188,8 +188,17 @@ tick, so `q` returns immediately whatever the file size, and the status bar says
   it runs the scan a slice at a time, counts up in the status bar
   (`scanning to end of file… 62%`), and stops on any key press. Whatever was
   scanned is kept, so pressing `G` again resumes. `q` still exits at once.
+- **`Enter` opens the row as a form** — one field per line, label beside value.
+  It is the answer to a table wider than the terminal: rather than scrolling
+  sideways hunting for a column, read the whole record at once. `j`/`k` scroll
+  it, `Esc` closes it.
+- **A `+` in place of the left border means the row has more fields than the
+  header named.** Nothing is thrown away — those values are past the right edge
+  of a header-shaped grid, and `Enter` shows them, labelled `[4]`, `[5]` … by
+  position. The marker replaces the border rather than adding a column, so a
+  ragged row still lines up with every other one.
 - Parsing is RFC 4180: quoted fields, embedded newlines and delimiters, `""`
-  escapes, BOM, CRLF, ragged rows padded to the header's arity. Malformed input
+  escapes, BOM, CRLF, short rows padded to the header's arity. Malformed input
   degrades to something readable and never panics; a control character in a
   cell is shown as `·` rather than sent to the terminal.
 - A file that announces itself as UTF-16 or UTF-32 with a byte-order mark is
@@ -200,7 +209,8 @@ tick, so `q` returns immediately whatever the file size, and the status bar says
   the way piped stdin is: there is no size to stat and no offset to seek to.
 
 A CSV has no sections and no links, so `o`, `za`, `Tab` and `n` say so instead
-of pretending.
+of pretending — and `Enter`, which follows a link in markdown and folds a
+section when there is none, opens the row here.
 
 ## Working a corpus
 

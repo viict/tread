@@ -265,6 +265,36 @@ impl Source for CsvSource {
         )
     }
 
+    /// `Enter`: the row under the cursor, one field per line.
+    ///
+    /// Built from the *raw* record, not the display fields, so a row carrying
+    /// more values than the header named shows all of them — the grid is
+    /// header-shaped and cannot, which is the whole reason this exists.
+    fn detail(&self, row: usize) -> Option<Detail> {
+        let (title, fields) = match self.kind(row)? {
+            Kind::Data(d) => (format!("Row {}", d + 1), self.raw_row(d + 1)?),
+            Kind::Header => ("Header".to_string(), self.raw_row(0)?),
+            _ => return None,
+        };
+        let named = fields
+            .into_iter()
+            .enumerate()
+            .map(|(i, value)| {
+                let label = match self.grid.name_of(i) {
+                    Some(n) if !n.is_empty() => n.to_string(),
+                    // Past the header, or a column the header left blank: name
+                    // it by position. An unnamed field is still a field.
+                    _ => format!("[{}]", i + 1),
+                };
+                (label, render::clean(&value))
+            })
+            .collect();
+        Some(Detail {
+            title,
+            fields: named,
+        })
+    }
+
     /// `Y`: the row under the cursor as one valid CSV record.
     fn yank_section(&self, row: usize) -> Option<Yank> {
         let (label, fields) = match self.kind(row)? {

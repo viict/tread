@@ -65,6 +65,8 @@ pub enum Mode {
     Help,
     /// The corpus index list view (`i`).
     Index,
+    /// One row expanded into labelled fields (`Enter`, in a record format).
+    Detail,
     /// Typing a search query; the field remembers the direction.
     Search(Dir),
 }
@@ -85,6 +87,10 @@ pub struct Pager {
     pub(crate) query: String,
     pub(crate) dir: Dir,
     pub(crate) outline_sel: usize,
+    /// The row the detail overlay is showing, and how far it is scrolled. Held
+    /// here rather than re-fetched per frame: the row is a file read.
+    pub(crate) detail: Option<crate::source::Detail>,
+    pub(crate) detail_sel: usize,
     pub(crate) help_top: usize,
     /// The corpus, when one was discovered. `None` for a lone file or stdin.
     pub(crate) nav: Option<Navigator>,
@@ -134,6 +140,8 @@ impl Pager {
             query: String::new(),
             dir: Dir::Forward,
             outline_sel: 0,
+            detail: None,
+            detail_sel: 0,
             help_top: 0,
             nav: None,
             link_cursor: None,

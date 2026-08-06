@@ -114,7 +114,7 @@ impl Pager {
     pub(super) fn follow(&mut self) {
         let url = match self.focused_link() {
             Some(s) => s.url.clone(),
-            None => return self.fold(None),
+            None => return self.activate(),
         };
         let nav = match &self.nav {
             Some(n) => n,
@@ -129,6 +129,23 @@ impl Pager {
                 self.notify(format!("not markdown: {rel}"))
             }
             Target::Broken { raw, why } => self.notify(format!("{raw}: {why}")),
+        }
+    }
+
+    /// `Enter` with no link under the cursor.
+    ///
+    /// Ask the format for a row detail first and fall back to folding. The
+    /// pager stays format-blind: markdown has no detail and folds as it always
+    /// did, a record format has no folds and opens the row. Neither knows the
+    /// other exists.
+    fn activate(&mut self) {
+        match self.src.detail(self.cursor) {
+            Some(d) => {
+                self.detail = Some(d);
+                self.detail_sel = 0;
+                self.mode = Mode::Detail;
+            }
+            None => self.fold(None),
         }
     }
 

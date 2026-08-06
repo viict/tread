@@ -366,3 +366,57 @@ fn width_wider_than_the_terminal_still_scrolls_by_column() {
     assert_eq!(p.hoff, 0);
     assert_eq!(frame_rows(&mut p)[1], before[1], "h came back");
 }
+
+// -- the row detail (Enter) ---------------------------------------------------
+
+/// `Enter` on a record row opens it as a form. The pager does not know what a
+/// CSV is: it asks the source for a detail and shows whatever comes back.
+#[test]
+fn enter_opens_the_row_under_the_cursor_as_a_form() {
+    let mut p = csv_pager(&csv_body(), 60, ROWS);
+    p.cursor = HEAD_ROWS; // the first data row
+    key(&mut p, Key::Enter);
+    assert_eq!(p.mode, Mode::Detail);
+
+    let rows = frame_rows(&mut p);
+    assert!(rows[0].contains("Row 1"), "{:?}", rows[0]);
+    assert!(rows[0].contains("Esc close"), "{:?}", rows[0]);
+    // One field per line, label beside value.
+    assert!(rows[1].contains("id") && rows[1].contains('1'), "{:?}", rows[1]);
+    assert!(rows[2].contains("name") && rows[2].contains("person1"), "{:?}", rows[2]);
+    assert!(rows[3].contains("city") && rows[3].contains("town1"), "{:?}", rows[3]);
+
+    key(&mut p, Key::Esc);
+    assert_eq!(p.mode, Mode::Normal, "Esc closes it");
+}
+
+/// The fields a header-shaped grid cannot show are exactly what the form is
+/// for: they must be in it, and the grid must say so with the marker.
+#[test]
+fn a_ragged_row_shows_its_hidden_fields_in_the_form() {
+    let body = "id,name\n1,alice\n2,bo,hidden one,hidden two\n";
+    let mut p = csv_pager(body, 60, ROWS);
+    let ragged = HEAD_ROWS + 1;
+    assert!(
+        frame_rows(&mut p)[ragged].starts_with(crate::theme::MARKER_MORE),
+        "the grid marks the row"
+    );
+
+    p.cursor = ragged;
+    key(&mut p, Key::Enter);
+    let rows = frame_rows(&mut p);
+    let form = rows.join("\n");
+    assert!(form.contains("hidden one"), "{form}");
+    assert!(form.contains("hidden two"), "{form}");
+    assert!(form.contains("[3]") && form.contains("[4]"), "named by position: {form}");
+}
+
+/// Markdown has no row detail, so `Enter` there must still fold.
+#[test]
+fn enter_still_folds_in_a_format_without_row_detail() {
+    let mut p = pager("# One\n\nbody\n\n# Two\n\nmore\n", 40, ROWS);
+    p.cursor = 0;
+    key(&mut p, Key::Enter);
+    assert_eq!(p.mode, Mode::Normal, "no overlay in markdown");
+    assert!(p.src.hidden_at(0).is_some(), "the section folded");
+}

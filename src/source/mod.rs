@@ -127,6 +127,22 @@ pub struct Hit {
     pub wrapped: bool,
 }
 
+/// One row expanded into labelled fields.
+///
+/// A grid shows as many columns as fit and no more, which is exactly wrong for
+/// the row you actually care about: a wide CSV hides most of it off-screen, and
+/// a ragged row can carry fields the header never named. This is that row read
+/// the other way round — one field per line, label beside value, nothing
+/// hidden. A future tree format would return a node's children the same way.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Detail {
+    /// What the overlay is titled, e.g. `Row 41`.
+    pub title: String,
+    /// `(label, value)`, in the format's own order. A field the format has no
+    /// name for still appears — labelled positionally rather than dropped.
+    pub fields: Vec<(String, String)>,
+}
+
 /// A document behind the format seam.
 ///
 /// Implement this and a second format is complete: the pager, the painter, the
@@ -365,4 +381,16 @@ pub trait Source {
     /// `c`: the verbatim block under (or nearest below) `row` — a code block in
     /// markdown, a column in a table format.
     fn yank_block(&self, row: usize) -> Option<Yank>;
+
+    // -- row detail -----------------------------------------------------------
+
+    /// `Enter` on `row`: that row expanded into labelled fields, for formats
+    /// where a row is a record rather than prose.
+    ///
+    /// `None` — the default — means the format has no such thing, and `Enter`
+    /// keeps whatever else it means there (follow a link, toggle a fold).
+    fn detail(&self, row: usize) -> Option<Detail> {
+        let _ = row;
+        None
+    }
 }

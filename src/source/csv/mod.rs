@@ -43,7 +43,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use super::search::{self, Dir};
-use super::{Anchor, End, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan, Source};
+use super::{Anchor, Detail, End, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan, Source};
 use crate::csv::index::RowStore;
 use crate::csv::{delim, parse, read};
 use crate::render::Line;

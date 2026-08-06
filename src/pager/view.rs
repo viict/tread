@@ -17,13 +17,19 @@ use cells::Cells;
 const CUT_LEFT: char = '\u{2039}';
 const CUT_RIGHT: char = '\u{203a}';
 
+/// Hint shown by the list overlays that jump somewhere on Enter.
+const JUMP: &str = "j/k move, Enter jump, Esc close";
+/// The detail overlay goes nowhere; it is a read-only expansion of one row.
+const READ: &str = "j/k scroll, Esc close";
+
 pub fn paint(p: &mut Pager, frame: &mut Frame) {
     frame.reset();
     let body = p.body_rows();
     match p.mode {
-        Mode::Outline => overlay(p, frame, "Outline", &outline_rows(p), p.outline_sel),
-        Mode::Help => overlay(p, frame, "Keys", &help_rows(), p.help_top),
-        Mode::Index => overlay(p, frame, &index_title(p), &index_rows(p), p.index_row_pos()),
+        Mode::Outline => overlay(p, frame, "Outline", JUMP, &outline_rows(p), p.outline_sel),
+        Mode::Help => overlay(p, frame, "Keys", JUMP, &help_rows(), p.help_top),
+        Mode::Index => overlay(p, frame, &index_title(p), JUMP, &index_rows(p), p.index_row_pos()),
+        Mode::Detail => detail(p, frame),
         _ => document(p, frame, body),
     }
     if p.rows > 0 {
@@ -238,14 +244,49 @@ fn help_rows() -> Vec<(String, Style)> {
 }
 
 /// A full-body list overlay with a title row and a scroll window on `sel`.
-fn overlay(p: &Pager, frame: &mut Frame, title: &str, rows: &[(String, Style)], sel: usize) {
+/// One row, read the other way round: a field per line, label beside value.
+///
+/// Labels are padded to the widest, so values line up into a column the eye can
+/// run down — the point of the view is that a record is easier to read as a
+/// form than as a row that runs off the screen.
+fn detail(p: &Pager, frame: &mut Frame) {
+    let Some(d) = &p.detail else { return };
+    let label_w = d
+        .fields
+        .iter()
+        .map(|(k, _)| str_width(k))
+        .max()
+        .unwrap_or(0);
+    let rows: Vec<(String, Style)> = d
+        .fields
+        .iter()
+        .map(|(k, v)| {
+            let pad = " ".repeat(label_w.saturating_sub(str_width(k)));
+            let style = match v.is_empty() {
+                true => theme::muted(),
+                false => theme::text(),
+            };
+            (format!(" {k}{pad}   {v}"), style)
+        })
+        .collect();
+    overlay(p, frame, &d.title, READ, &rows, p.detail_sel);
+}
+
+fn overlay(
+    p: &Pager,
+    frame: &mut Frame,
+    title: &str,
+    hint: &str,
+    rows: &[(String, Style)],
+    sel: usize,
+) {
     let body = p.body_rows();
     let width = p.cols.max(1);
     if body == 0 {
         return;
     }
     frame.move_to(1, 1);
-    let head = format!(" {title} \u{2014} j/k move, Enter jump, Esc close");
+    let head = format!(" {title} \u{2014} {hint}");
     frame.span(theme::status(), truncate_width(&head, width));
     frame.reset_style();
     frame.clear_to_eol();

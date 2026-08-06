@@ -235,6 +235,12 @@ path, and `q` must never wait on a scan.
 - **Reading affordances**: the header row stays pinned while scrolling
   vertically; `h`/`l` scroll by column, not by character; the status bar names
   the current row, the total, and the column under the cursor.
+- **`Enter` opens a row as a form** — one field per line, label beside value —
+  because a record wider than the terminal is unreadable as a row. Rows
+  carrying more fields than the header named keep them: the grid marks such a
+  row by standing a `+` in for its left border (never an extra column, which
+  would misalign it), and the form lists the surplus labelled by position.
+  Padding a short row is display; dropping a long one would be data loss.
 - **Yank**: `y` the cell, `Y` the row as valid CSV, `c` the column. Always
   source-faithful — re-quoted correctly, never the padded display form.
 

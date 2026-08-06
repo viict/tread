@@ -94,7 +94,15 @@ pub fn data(grid: &Grid, fields: &[String], source_line: usize) -> Line {
 /// the pads carry no background in either style used here.
 fn row(grid: &Grid, fields: &[String], base: Style, source_line: usize) -> Line {
     let bar = || Span::new(BAR, theme::table_border());
-    let mut spans = vec![bar()];
+    // A row with more fields than the header named keeps them — they are simply
+    // past the right edge of a header-shaped grid. Say so where the eye already
+    // is, by standing the marker in for the left border rather than adding a
+    // column that would misalign this row against every other one.
+    let lead = match fields.len() > grid.cols.len() {
+        true => Span::new(theme::MARKER_MORE.to_string(), theme::more()),
+        false => bar(),
+    };
+    let mut spans = vec![lead];
     for (i, col) in grid.cols.iter().enumerate() {
         let text = clean(fields.get(i).map_or("", String::as_str));
         cell(&mut spans, &text, col.width, base);
@@ -211,5 +219,19 @@ mod tests {
         let g = g();
         assert_eq!(data(&g, &strs(&["only"]), 2).width(), g.total());
         assert_eq!(data(&g, &strs(&["a", "b", "c", "d"]), 2).width(), g.total());
+    }
+
+    #[test]
+    fn a_row_with_more_fields_than_the_header_is_marked() {
+        let g = g();
+        let over = data(&g, &strs(&["a", "b", "c", "d"]), 2);
+        assert_eq!(over.spans[0].text, theme::MARKER_MORE.to_string());
+        // The marker stands in for the border, so the grid does not shift.
+        assert_eq!(over.width(), g.total());
+
+        let exact = data(&g, &strs(&["a", "b"]), 2);
+        assert_eq!(exact.spans[0].text, BAR);
+        let short = data(&g, &strs(&["a"]), 2);
+        assert_eq!(short.spans[0].text, BAR, "a short row lost nothing");
     }
 }

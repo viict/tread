@@ -482,3 +482,53 @@ fn crlf_and_bom_leave_no_debris_in_the_cells() {
     assert_eq!(s.yank_section(3).unwrap().text, "1,2\n");
     assert!(!text(&mut s, 1).contains('\u{feff}'));
 }
+
+// -- the row detail (Enter) ---------------------------------------------------
+
+/// The data a header-shaped grid cannot show must still be reachable. This is
+/// the whole reason `Enter` opens a row.
+#[test]
+fn a_ragged_row_keeps_the_fields_the_grid_cannot_show() {
+    let mut s = src_from("id,name\n1,alice\n2,bo,extra,more\n");
+    // Row 2 is the second data row: 0 top, 1 header, 2 sep, 3 first data.
+    let d = s.detail(4).expect("data row has a detail");
+    assert_eq!(d.title, "Row 2");
+    assert_eq!(
+        d.fields,
+        vec![
+            ("id".to_string(), "2".to_string()),
+            ("name".to_string(), "bo".to_string()),
+            // Past the header, so named by position rather than dropped.
+            ("[3]".to_string(), "extra".to_string()),
+            ("[4]".to_string(), "more".to_string()),
+        ]
+    );
+    // And the grid marks it, so the reader knows to press Enter.
+    assert!(text(&mut s, 4).starts_with(crate::theme::MARKER_MORE));
+    assert!(!text(&mut s, 3).starts_with(crate::theme::MARKER_MORE));
+}
+
+#[test]
+fn every_row_opens_not_just_ragged_ones() {
+    let s = src_from(SMALL);
+    let d = s.detail(3).expect("first data row");
+    assert_eq!(d.title, "Row 1");
+    assert_eq!(d.fields.len(), 3);
+    assert_eq!(d.fields[2], ("city".to_string(), "berlin".to_string()));
+    assert_eq!(s.detail(1).expect("header row").title, "Header");
+}
+
+#[test]
+fn a_detail_shows_control_characters_rather_than_emitting_them() {
+    let s = src_from("a,b\n1,\"two\nlines\"\n");
+    let d = s.detail(3).expect("detail");
+    assert_eq!(d.fields[1].1, "two\u{b7}lines", "newline must not be raw");
+}
+
+#[test]
+fn borders_and_separators_have_no_detail() {
+    let s = src_from(SMALL);
+    for row in [0, 2] {
+        assert!(s.detail(row).is_none(), "row {row} is not a record");
+    }
+}

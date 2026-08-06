@@ -41,6 +41,9 @@ pub const STATUS_BG: u8 = 238;
 pub const STATUS_FG: u8 = 252;
 pub const GUTTER_FG: u8 = 244;
 pub const TASK_DONE_FG: u8 = 114;
+/// The `+` on a row carrying fields past the header. Amber: it is a notice,
+/// not an error — the data is there, it is just not in the grid.
+pub const MORE_FG: u8 = 214;
 
 // ---------------------------------------------------------------------------
 // Element styles
@@ -72,6 +75,9 @@ pub const fn quote_bar() -> Style {
 }
 pub const fn table_border() -> Style {
     Style::new().fg(TABLE_BORDER_FG)
+}
+pub const fn more() -> Style {
+    Style::new().fg(MORE_FG).bold()
 }
 pub const fn table_head() -> Style {
     Style::new().fg(TABLE_HEAD_FG).bold()
@@ -121,6 +127,11 @@ pub const fn heading_indent(level: u8) -> usize {
 /// Collapse gutter markers (SPEC.md §Headings).
 pub const MARKER_OPEN: char = '\u{25be}'; // ▾
 pub const MARKER_CLOSED: char = '\u{25b8}'; // ▸
+
+/// Stands in for a row's left border when the row carries more fields than the
+/// header named. It replaces the bar rather than sitting beside it: a grid that
+/// shifted by a column on some rows would be worse than the problem it reports.
+pub const MARKER_MORE: char = '+';
 
 /// Bullet glyph for a list nesting depth (0-based), cycling `•` `◦` `▪`.
 pub const fn bullet(depth: usize) -> char {

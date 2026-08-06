@@ -309,8 +309,29 @@ impl Pager {
                 true
             }
             (Mode::Outline, _) => self.outline_key(ev),
+            (Mode::Detail, _) => self.detail_key(ev),
             _ => false,
         }
+    }
+
+    /// The row-detail overlay's own keys: scroll the field list, nothing else.
+    /// Esc and `q` are handled above, for every overlay at once.
+    fn detail_key(&mut self, ev: KeyEvent) -> bool {
+        let page = self.body_rows().max(1);
+        let last = match &self.detail {
+            Some(d) => d.fields.len().saturating_sub(1),
+            None => return false,
+        };
+        match ev.key {
+            Key::Char('j') | Key::Down => self.detail_sel = (self.detail_sel + 1).min(last),
+            Key::Char('k') | Key::Up => self.detail_sel = self.detail_sel.saturating_sub(1),
+            Key::Char('g') => self.detail_sel = 0,
+            Key::Char('G') => self.detail_sel = last,
+            Key::PageDown => self.detail_sel = (self.detail_sel + page).min(last),
+            Key::PageUp => self.detail_sel = self.detail_sel.saturating_sub(page),
+            _ => return false,
+        }
+        true
     }
 
     /// The outline overlay's own keys. An unhandled key falls through to the
