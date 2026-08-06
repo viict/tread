@@ -177,3 +177,66 @@ including nesting and escapes, wrapping with wide/zero-width chars, table
 column sizing, collapse range computation, link resolution, ANSI-stripped
 golden renders. Rendering tests must assert on the ANSI-stripped text plus a
 separate style-span assertion, so palette tweaks don't break every test.
+
+---
+
+# Multi-format reading
+
+`tread` reads more than markdown. Formats are **compiled in**, never loaded at
+runtime: no `dlopen`, no plugin files, no shared objects. One static binary
+stays the shipping property, and `[dependencies]` stays empty — every parser is
+hand-written in this repo.
+
+## The `Source` seam
+
+A document is anything that can produce rendered lines on demand:
+
+```rust
+pub trait Source {
+    fn len(&self) -> usize;                                   // total rendered lines
+    fn lines(&mut self, rows: Range<usize>) -> Vec<Line>;     // only what is on screen
+    fn set_width(&mut self, cols: usize);
+    fn outline(&self) -> &[Entry];                            // `o`, and the collapse tree
+    fn search(&mut self, needle: &str, from: usize, fwd: bool) -> Option<usize>;
+    fn yank(&self, rows: Range<usize>) -> String;             // source-faithful text
+}
+```
+
+`pager`, `nav`, `select` and `term` hold a `Box<dyn Source>` and must never
+learn which format they are showing — the same discipline that let the Windows
+port change nothing above `sys`. Adding a format is one module plus one arm in
+the detector.
+
+`MarkdownSource` keeps today's eager `Vec<Line>`: markdown documents are small,
+and nothing about their behaviour may change when they move behind the trait.
+
+Format detection: file extension first; content sniff when there is no name,
+which is the stdin case (BOM, a leading `{`/`[`, a plausible delimiter row).
+`--format <md|csv>` overrides both.
+
+## CSV
+
+The point of CSV support is **files too big to load**. A multi-GB file must
+open instantly and quit instantly; nothing may read the whole file on the open
+path, and `q` must never wait on a scan.
+
+- **Row index.** One lazy pass recording each row's byte offset, respecting
+  quoting: a newline inside a quoted field is *not* a row boundary, and getting
+  that wrong corrupts every offset after it. Rows render from their offsets on
+  demand.
+- **Column widths are sampled** from the first ~1000 rows, so open time does not
+  depend on file size. A later value that exceeds its column is truncated with a
+  visible marker rather than breaking the layout; `w` widens the column under
+  the cursor on demand. Layout may shift as sampling proves wrong — that is the
+  accepted trade for instant open.
+- **Parsing** is RFC 4180: quoted fields, embedded newlines and delimiters,
+  doubled quotes as escapes, BOM, CRLF, ragged rows padded or truncated to the
+  header's arity. Delimiter sniffed among `,` `\t` `;` `|`, overridable.
+- **Reading affordances**: the header row stays pinned while scrolling
+  vertically; `h`/`l` scroll by column, not by character; the status bar names
+  the current row, the total, and the column under the cursor.
+- **Yank**: `y` the cell, `Y` the row as valid CSV, `c` the column. Always
+  source-faithful — re-quoted correctly, never the padded display form.
+
+Malformed input never panics: an unterminated quote at EOF, a 50MB single cell,
+10k columns and embedded NULs all degrade to something readable.

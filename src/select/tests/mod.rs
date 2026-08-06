@@ -254,7 +254,8 @@ fn link_yank_copies_a_bare_url() {
 // -- pager wiring ------------------------------------------------------------
 
 fn pager(src: &str) -> Pager {
-    Pager::new(md::parse(src), "doc.md".into(), 60, 12, None)
+    let source = crate::source::markdown::MarkdownSource::new(md::parse(src));
+    Pager::new(Box::new(source), "doc.md".into(), 60, 12, None)
 }
 
 fn press(p: &mut Pager, s: &str) {

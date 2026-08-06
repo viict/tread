@@ -23,6 +23,8 @@ pub enum Action {
     Bottom,
     ScrollLeft,
     ScrollRight,
+    /// `w`: widen the column under the cursor (CSV; nothing in markdown).
+    Widen,
     ToggleCollapse,
     OpenSection,
     CloseSection,
@@ -150,15 +152,21 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         keys: "h / \u{2190}",
-        desc: "scroll left (code, wide tables)",
+        desc: "scroll left (code, wide tables; one CSV column)",
         action: A::ScrollLeft,
         triggers: &[Trigger::c('h'), Trigger::k(Key::Left)],
     },
     Binding {
         keys: "l / \u{2192}",
-        desc: "scroll right (code, wide tables)",
+        desc: "scroll right (code, wide tables; one CSV column)",
         action: A::ScrollRight,
         triggers: &[Trigger::c('l'), Trigger::k(Key::Right)],
+    },
+    Binding {
+        keys: "w",
+        desc: "widen the CSV column under the cursor to fit the screen",
+        action: A::Widen,
+        triggers: &[Trigger::c('w')],
     },
     Binding {
         keys: "za",

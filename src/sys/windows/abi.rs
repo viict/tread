@@ -107,7 +107,7 @@ pub const fn raw_input_mode(cur: u32) -> u32 {
 /// the console must interpret them), keeps `ENABLE_PROCESSED_OUTPUT`, sets
 /// `DISABLE_NEWLINE_AUTO_RETURN` and clears `ENABLE_WRAP_AT_EOL_OUTPUT` so that
 /// painting the last cell of a row does not scroll the screen — together the
-/// equivalent of clearing `OPOST` on unix (WINDOWS.md §1).
+/// equivalent of clearing `OPOST` on unix (docs/windows.md §1).
 pub const fn raw_output_mode(cur: u32) -> u32 {
     (cur & !ENABLE_WRAP_AT_EOL_OUTPUT)
         | ENABLE_PROCESSED_OUTPUT
@@ -130,7 +130,7 @@ const _: () = assert!(raw_output_mode(0) & ENABLE_VIRTUAL_TERMINAL_PROCESSING !=
 ///
 /// This is `srWindow`, **not** `dwSize`: `dwSize` is the screen *buffer*
 /// (scrollback), routinely 9000 rows tall, and laying frames out to it would
-/// paint most of the pager where the user cannot see it (WINDOWS.md §3).
+/// paint most of the pager where the user cannot see it (docs/windows.md §3).
 ///
 /// The rectangle is inclusive on both ends, hence the `+ 1`. A degenerate or
 /// inverted rectangle yields `None`, which `term.rs` turns into 80x24 — the

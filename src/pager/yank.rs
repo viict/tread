@@ -13,7 +13,7 @@ impl Pager {
     pub(super) fn toggle_visual(&mut self) {
         match self.select {
             Some(_) => self.cancel_visual(),
-            None if self.visible.is_empty() => self.notify("nothing to select"),
+            None if self.src.is_empty() => self.notify("nothing to select"),
             None => self.select = Some(Selection::new(self.cursor)),
         }
     }
@@ -36,16 +36,24 @@ impl Pager {
         }
         let rows = self.selected_rows();
         self.select = None;
-        match select::selection_yank(&self.doc, &self.lines, &rows) {
+        match self.src.yank_rows(rows) {
             Some(y) => self.queue_yank(y),
             None => self.notify("nothing to yank"),
         }
     }
 
-    /// `y` with no selection: copy the focused link's target. External URLs are
-    /// copied verbatim (they are never opened); internal ones as the path
-    /// relative to the index root.
+    /// `y` with no selection: the smallest thing the format offers at the
+    /// cursor — a CSV's cell — and otherwise the focused link.
     fn yank_link(&mut self) {
+        if let Some(y) = self.cursor_row().and_then(|r| self.src.yank_point(r)) {
+            return self.queue_yank(y);
+        }
+        self.yank_focused_link()
+    }
+
+    /// External URLs are copied verbatim (they are never opened); internal ones
+    /// as the path relative to the index root.
+    fn yank_focused_link(&mut self) {
         let target = match self.focused_link_yank() {
             Some(t) => t,
             None => {
@@ -61,12 +69,12 @@ impl Pager {
 
     /// `Y`: yank the whole section under the cursor, heading included.
     pub(super) fn yank_section(&mut self) {
-        let line = match self.cursor_line() {
-            Some(l) => l,
+        let row = match self.cursor_row() {
+            Some(r) => r,
             None => return self.notify("nothing to yank"),
         };
         self.select = None;
-        match select::section_yank(&self.doc, &self.lines, line) {
+        match self.src.yank_section(row) {
             Some(y) => self.queue_yank(y),
             None => self.notify("no section here"),
         }
@@ -74,9 +82,9 @@ impl Pager {
 
     /// `c`: yank the code block under (or nearest below) the cursor, verbatim.
     pub(super) fn yank_code(&mut self) {
-        let line = self.cursor_line().unwrap_or(0);
+        let row = self.cursor;
         self.select = None;
-        match select::code_yank(&self.doc, &self.lines, line) {
+        match self.src.yank_block(row) {
             Some(y) => self.queue_yank(y),
             None => self.notify("no code block below the cursor"),
         }

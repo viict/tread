@@ -15,36 +15,10 @@ use std::path::PathBuf;
 
 use super::{Mode, Pager};
 use crate::key::{Key, KeyEvent};
-use crate::md::Document;
 use crate::nav::history::Snapshot;
 use crate::nav::link::Target;
 use crate::nav::Navigator;
-use crate::render::Line;
-
-/// One link occurrence in the rendered document.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LinkSite {
-    /// Index into `Pager::lines`.
-    pub line: usize,
-    /// Display column the link starts at.
-    pub col: usize,
-    pub url: String,
-}
-
-/// Every link in the rendered document, in reading order.
-pub fn sites(lines: &[Line]) -> Vec<LinkSite> {
-    let mut out = Vec::new();
-    for (i, l) in lines.iter().enumerate() {
-        for (col, url) in l.links() {
-            out.push(LinkSite {
-                line: i,
-                col,
-                url: url.to_string(),
-            });
-        }
-    }
-    out
-}
+use crate::source::{Anchor, LinkSite, Source};
 
 impl Pager {
     /// Give the pager a corpus to walk. Relabels the status bar with the path
@@ -60,17 +34,18 @@ impl Pager {
     /// The focused link: the one `n` last landed on if it is still under the
     /// cursor row, otherwise the first link on that row.
     pub(crate) fn focus_index(&self) -> Option<usize> {
-        let line = self.cursor_line()?;
+        let row = self.cursor_row()?;
+        let here = |site: &LinkSite| self.src.row_of(site.anchor) == Some(row);
         if let Some(i) = self.link_cursor {
-            if self.links.get(i).map(|s| s.line) == Some(line) {
+            if self.src.links().get(i).map(&here).unwrap_or(false) {
                 return Some(i);
             }
         }
-        self.links.iter().position(|s| s.line == line)
+        self.src.links().iter().position(here)
     }
 
     pub(crate) fn focused_link(&self) -> Option<&LinkSite> {
-        self.links.get(self.focus_index()?)
+        self.src.links().get(self.focus_index()?)
     }
 
     /// What the status bar shows for the focused link: the resolved path for
@@ -95,7 +70,7 @@ impl Pager {
 
     /// `n` / `N`: move to the next or previous link and scroll it into view.
     pub(super) fn step_link(&mut self, forward: bool) {
-        if self.links.is_empty() {
+        if self.src.links().is_empty() {
             return self.notify("no links in this document");
         }
         let here = self.focus_index();
@@ -105,11 +80,10 @@ impl Pager {
             (Some(i), false) => i - 1,
             (None, _) => self.nearest_link(forward),
         };
-        match self.links.get(next) {
-            Some(_) => {
+        match self.src.links().get(next).map(|s| s.anchor) {
+            Some(anchor) => {
                 self.link_cursor = Some(next);
-                let line = self.links[next].line;
-                self.jump_to(line);
+                self.jump_to(anchor);
             }
             None => self.notify(match forward {
                 true => "no further link",
@@ -120,17 +94,16 @@ impl Pager {
 
     /// First link at or after (before) the cursor row when none is focused.
     fn nearest_link(&self, forward: bool) -> usize {
-        let line = self.cursor_line().unwrap_or(0);
+        let here = self.cursor_anchor().unwrap_or(Anchor(0));
+        let links = self.src.links();
         match forward {
-            true => self
-                .links
+            true => links
                 .iter()
-                .position(|s| s.line >= line)
-                .unwrap_or(self.links.len()),
-            false => self
-                .links
+                .position(|s| s.anchor >= here)
+                .unwrap_or(links.len()),
+            false => links
                 .iter()
-                .rposition(|s| s.line <= line)
+                .rposition(|s| s.anchor <= here)
                 .unwrap_or(usize::MAX),
         }
     }
@@ -161,16 +134,8 @@ impl Pager {
 
     /// Scroll to a heading by slug, expanding it if it is folded.
     pub(super) fn goto_anchor(&mut self, slug: &str) {
-        let found = self
-            .lines
-            .iter()
-            .position(|l| matches!(&l.heading, Some(h) if h.id == slug));
-        match found {
-            Some(i) => {
-                self.collapsed.retain(|c| c != slug);
-                self.refresh_view();
-                self.jump_to(i);
-            }
+        match self.src.goto_id(slug) {
+            Some(row) => self.jump_to_row(row),
             None => self.notify(format!("no heading #{slug}")),
         }
     }
@@ -186,7 +151,7 @@ impl Pager {
                 .unwrap_or_default(),
             top: self.top,
             cursor: self.cursor,
-            collapsed: self.collapsed.clone(),
+            collapsed: self.src.folds(),
             link: self.link_cursor,
         }
     }
@@ -221,16 +186,15 @@ impl Pager {
             .map(|n| n.is_current(&s.path))
             .unwrap_or(true);
         if !same {
-            let doc = match self.nav.as_ref().map(|n| n.load(&s.path)) {
+            let doc = match self.nav.as_ref().map(|n| n.load_source(&s.path)) {
                 Some(Ok(d)) => d,
                 Some(Err(e)) => return self.notify(e),
                 None => return,
             };
             self.swap_doc(s.path.clone(), doc);
         }
-        self.collapsed = s.collapsed.clone();
-        self.refresh_view();
-        self.cursor = s.cursor.min(self.visible.len().saturating_sub(1));
+        self.src.set_folds(s.collapsed.clone());
+        self.cursor = s.cursor.min(self.src.len().saturating_sub(1));
         self.top = s.top.min(self.cursor);
         self.link_cursor = s.link;
         self.clamp();
@@ -245,7 +209,7 @@ impl Pager {
             }
             return;
         }
-        let doc = match self.nav.as_ref().map(|n| n.load(&path)) {
+        let doc = match self.nav.as_ref().map(|n| n.load_source(&path)) {
             Some(Ok(d)) => d,
             Some(Err(e)) => return self.notify(e),
             None => return self.notify("no corpus attached"),
@@ -263,15 +227,18 @@ impl Pager {
     }
 
     /// Replace the document being shown, resetting per-document state.
-    fn swap_doc(&mut self, path: PathBuf, doc: Document) {
-        self.doc = doc;
-        self.collapsed.clear();
+    ///
+    /// The pager takes a `Box<dyn Source>` and never asks what is inside it;
+    /// which format a corpus document is in is [`Navigator`]'s business.
+    fn swap_doc(&mut self, path: PathBuf, src: Box<dyn Source>) {
+        self.src = src;
+        // The typed query outlives the document: the new one is searched for
+        // the same text, exactly as the old eager rescan did.
+        self.src.set_query(&self.query);
         self.link_cursor = None;
         self.cursor = 0;
         self.top = 0;
         self.hoff = 0;
-        self.matches.clear();
-        self.current = None;
         if let Some(n) = self.nav.as_mut() {
             n.set_current(path.clone());
         }

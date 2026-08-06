@@ -10,6 +10,7 @@ use crate::md;
 use crate::nav::link::Fs;
 use crate::nav::Navigator;
 use crate::pager::{Mode, Pager};
+use crate::source::markdown::MarkdownSource;
 
 struct MapFs(HashMap<PathBuf, String>);
 
@@ -66,7 +67,8 @@ fn corpus() -> MapFs {
 fn pager_at(path: &str) -> Pager {
     let fs = corpus();
     let text = fs.read(Path::new(path)).unwrap();
-    let mut p = Pager::new(md::parse(&text), "x".into(), 80, 24, Some(80));
+    let src = MarkdownSource::new(md::parse(&text));
+    let mut p = Pager::new(Box::new(src), "x".into(), 80, 24, Some(80));
     let nav = Navigator::with_fs(Box::new(corpus()), Path::new(path), None, Path::new("/c"));
     p.attach_nav(nav);
     p
@@ -103,7 +105,7 @@ fn current(p: &Pager) -> String {
 /// that hangs burns a CI runner until someone cancels it by hand instead of
 /// failing in a second with a useful message. This one names what it saw.
 fn seek_link(p: &mut Pager, what: &str, hit: impl Fn(&Pager) -> bool) {
-    for _ in 0..p.links.len().max(1) * 2 {
+    for _ in 0..p.link_count().max(1) * 2 {
         if hit(p) {
             return;
         }
@@ -125,7 +127,7 @@ fn seek_status(p: &mut Pager, want: &str) {
 #[test]
 fn n_walks_the_links_and_the_status_bar_names_the_target() {
     let mut p = pager_at("/c/README.md");
-    assert!(p.links.len() >= 6, "{} links", p.links.len());
+    assert!(p.link_count() >= 6, "{} links", p.link_count());
     press(&mut p, "n");
     assert_eq!(p.link_status().as_deref(), Some("models/A.md"));
     press(&mut p, "n");
@@ -143,9 +145,10 @@ fn n_scrolls_the_focused_link_into_view() {
     for _ in 0..8 {
         press(&mut p, "n");
     }
-    let line = p.focused_link().unwrap().line;
-    let shown: Vec<usize> = p.visible.iter().skip(p.top).take(p.body_rows()).copied().collect();
-    assert!(shown.contains(&line), "focused link {line} not on screen");
+    let anchor = p.focused_link().unwrap().anchor;
+    let row = p.row_of(anchor).expect("the focused link is visible");
+    let shown = p.top..p.top + p.body_rows();
+    assert!(shown.contains(&row), "focused link row {row} not on screen");
 }
 
 #[test]
@@ -172,13 +175,14 @@ fn enter_on_a_link_loads_the_real_target() {
 fn enter_without_a_link_still_toggles_the_section() {
     let mut p = pager_at("/c/models/A.md");
     let heading = p
-        .lines
+        .outline()
         .iter()
-        .position(|l| matches!(&l.heading, Some(h) if h.id == "second-heading"))
+        .find(|e| e.id == "second-heading")
+        .map(|e| e.anchor)
         .unwrap();
     p.jump_to(heading);
     key(&mut p, Key::Enter);
-    assert_eq!(p.collapsed, vec!["second-heading".to_string()]);
+    assert_eq!(p.folds(), vec!["second-heading".to_string()]);
     assert!(!p.visible_text().iter().any(|t| t == "buried text"));
 }
 
@@ -217,9 +221,9 @@ fn escaping_links_are_refused_with_a_status_message() {
 fn same_document_anchors_jump_and_expand() {
     let mut p = pager_at("/c/models/A.md");
     press(&mut p, "zM");
-    assert!(p.collapsed.contains(&"second-heading".to_string()));
+    assert!(p.folds().contains(&"second-heading".to_string()));
     p.goto_anchor("second-heading");
-    assert!(!p.collapsed.contains(&"second-heading".to_string()));
+    assert!(!p.folds().contains(&"second-heading".to_string()));
     assert_eq!(p.cursor_text(), "\u{25be} Second Heading");
     p.goto_anchor("nope");
     assert_eq!(p.message.as_deref(), Some("no heading #nope"));
@@ -240,18 +244,18 @@ fn cross_document_anchors_land_on_the_heading() {
 fn back_restores_scroll_position_and_collapse_state_exactly() {
     let mut p = pager_at("/c/README.md");
     press(&mut p, "zM");
-    let folds = p.collapsed.clone();
+    let folds = p.folds();
     assert!(!folds.is_empty());
     press(&mut p, "zR");
     press(&mut p, "jjjj");
     press(&mut p, "n");
-    let (top, cursor, collapsed) = (p.top, p.cursor, p.collapsed.clone());
+    let (top, cursor, collapsed) = (p.top, p.cursor, p.folds());
     key(&mut p, Key::Enter);
     assert_eq!(current(&p), "/c/models/A.md");
     key(&mut p, Key::Backspace);
     assert_eq!(current(&p), "/c/README.md");
     assert_eq!((p.top, p.cursor), (top, cursor));
-    assert_eq!(p.collapsed, collapsed);
+    assert_eq!(p.folds(), collapsed);
     assert_eq!(p.label, "README.md");
     assert_eq!(p.nav.as_ref().unwrap().depth(), 0);
 }
@@ -263,12 +267,12 @@ fn back_restores_folds_made_before_leaving() {
     press(&mut p, "n");
     // `n` reveals the fold hiding the link it lands on; what is left folded is
     // what must come back.
-    let folded = p.collapsed.clone();
+    let folded = p.folds();
     assert!(!folded.is_empty());
     key(&mut p, Key::Enter);
-    assert!(p.collapsed.is_empty(), "new document starts unfolded");
+    assert!(p.folds().is_empty(), "new document starts unfolded");
     press(&mut p, "-");
-    assert_eq!(p.collapsed, folded);
+    assert_eq!(p.folds(), folded);
 }
 
 #[test]
@@ -351,7 +355,8 @@ fn a_corpus_without_an_index_says_so() {
             .into_iter()
             .collect(),
     );
-    let mut p = Pager::new(md::parse("# N\n"), "N.md".into(), 80, 24, Some(80));
+    let src = MarkdownSource::new(md::parse("# N\n"));
+    let mut p = Pager::new(Box::new(src), "N.md".into(), 80, 24, Some(80));
     p.attach_nav(Navigator::with_fs(
         Box::new(fs),
         Path::new("/lone/N.md"),
@@ -441,7 +446,7 @@ fn y_on_an_internal_link_yanks_the_path_relative_to_the_root() {
 #[test]
 fn y_with_neither_a_selection_nor_a_link_explains_itself() {
     let mut p = pager_at("/c/models/B.md");
-    assert!(p.links.is_empty());
+    assert_eq!(p.link_count(), 0);
     press(&mut p, "y");
     assert!(p.peek_yank().is_none());
     let msg = p.message.clone().expect("a message");

@@ -4,6 +4,9 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::csv::delim;
+use crate::source::detect::{parse_format, Format};
+
 pub const BIN: &str = "tread";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -18,6 +21,10 @@ pub struct Args {
     pub no_alt: bool,
     pub plain: bool,
     pub width: Option<usize>,
+    /// `--format <md|csv>`: overrides the extension and the content sniff.
+    pub format: Option<Format>,
+    /// `--delim <char|tab|comma|semicolon|pipe>`: overrides the CSV sniff.
+    pub delim: Option<u8>,
     pub toc: bool,
     pub help: bool,
     pub version: bool,
@@ -58,7 +65,7 @@ impl fmt::Display for CliError {
 pub fn help_text() -> String {
     format!(
         "\
-{BIN} {VERSION} — a terminal markdown reader
+{BIN} {VERSION} — a terminal reader for markdown and CSV
 
 USAGE
     {BIN} [OPTIONS] [FILE]
@@ -76,6 +83,10 @@ OPTIONS
                     non-terminal stdout.
     --width <N>     Force the wrap width to N columns instead of detecting
                     the terminal size.
+    --format <FMT>  Force the format: `md` or `csv`. By default the file
+                    extension decides, and unnamed input (a pipe) is sniffed.
+    --delim <D>     CSV field delimiter: one character, or `tab`, `comma`,
+                    `semicolon`, `pipe`. Sniffed among , TAB ; | by default.
     --toc           Print the heading outline of the document and exit.
     -h, --help      Show this help and exit.
     -V, --version   Show the version and exit.
@@ -86,6 +97,12 @@ KEYS
     n Enter               follow link   Backspace   back
     o  i                  outline/index  / ?        search
     v y Y c               select & yank  q  Ctrl-C   quit
+
+CSV
+    Large files open instantly: the row index is built lazily, the header
+    stays pinned, h/l move a whole column and w widens the column under the
+    cursor. y copies the cell, Y the row and c the column, always as valid
+    CSV rather than as the padded display form.
 
 The mouse is never captured, so terminal-native drag-select always works.
 "
@@ -137,7 +154,7 @@ fn parse_long<I: Iterator<Item = String>>(
         None => (body, None),
     };
     let flag = format!("--{name}");
-    let wants_value = matches!(name, "index" | "width");
+    let wants_value = matches!(name, "index" | "width" | "format" | "delim");
     if let (false, Some(v)) = (wants_value, inline.as_ref()) {
         if matches!(name, "no-alt" | "plain" | "toc" | "help" | "version") {
             return Err(CliError::BadValue {
@@ -156,6 +173,10 @@ fn parse_long<I: Iterator<Item = String>>(
     match name {
         "index" => out.index = Some(PathBuf::from(take()?)),
         "width" => out.width = Some(parse_width(&take()?)?),
+        "format" => {
+            out.format = Some(parsed(parse_format, take()?, &flag, "expected `md` or `csv`")?)
+        }
+        "delim" => out.delim = Some(parsed(delim::parse_delim, take()?, &flag, DELIM_WHY)?),
         "no-alt" => out.no_alt = true,
         "plain" => out.plain = true,
         "toc" => out.toc = true,
@@ -164,6 +185,25 @@ fn parse_long<I: Iterator<Item = String>>(
         _ => return Err(CliError::UnknownFlag(flag.clone())),
     }
     Ok(())
+}
+
+/// Why a `--delim` value was rejected. A constant so the message and the
+/// `--help` text cannot drift apart.
+const DELIM_WHY: &str = "expected one character, or tab/comma/semicolon/pipe";
+
+/// Apply a value parser to a flag's argument, turning `None` into the standard
+/// "invalid value" error.
+fn parsed<T>(
+    parse: impl Fn(&str) -> Option<T>,
+    raw: String,
+    flag: &str,
+    why: &str,
+) -> Result<T, CliError> {
+    parse(&raw).ok_or_else(|| CliError::BadValue {
+        flag: flag.to_string(),
+        value: raw,
+        why: why.to_string(),
+    })
 }
 
 /// Handle a bundle of short flags such as `-hV`.
@@ -302,9 +342,28 @@ mod tests {
     }
 
     #[test]
+    fn format_and_delimiter_overrides() {
+        for a in [p(&["--format", "csv"]).unwrap(), p(&["--format=CSV"]).unwrap()] {
+            assert_eq!(a.format, Some(Format::Csv));
+        }
+        assert_eq!(p(&["--format=md"]).unwrap().format, Some(Format::Markdown));
+        assert_eq!(p(&["--delim", "tab"]).unwrap().delim, Some(b'\t'));
+        assert_eq!(p(&["--delim=;"]).unwrap().delim, Some(b';'));
+        assert_eq!(p(&[]).unwrap().format, None);
+        for bad in ["json", "", "yaml"] {
+            assert!(p(&["--format", bad]).is_err(), "{bad} should be rejected");
+        }
+        for bad in ["", "abc", "\""] {
+            assert!(p(&["--delim", bad]).is_err(), "{bad} should be rejected");
+        }
+    }
+
+    #[test]
     fn help_and_version_text_are_useful() {
         let h = help_text();
-        for needle in ["--index", "--no-alt", "--plain", "--width", "--toc", "-V"] {
+        for needle in [
+            "--index", "--no-alt", "--plain", "--width", "--toc", "-V", "--format", "--delim",
+        ] {
             assert!(h.contains(needle), "help missing {needle}");
         }
         assert!(version_text().starts_with("tread "));

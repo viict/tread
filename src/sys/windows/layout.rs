@@ -82,7 +82,7 @@ impl ScreenBufferInfo {
     /// `(cols, rows)` of the *visible window*, from `srWindow`.
     ///
     /// `dwSize` is ignored on purpose: it describes the scrollback buffer, which
-    /// is typically hundreds of rows taller than the window (WINDOWS.md §3).
+    /// is typically hundreds of rows taller than the window (docs/windows.md §3).
     pub fn window_size(&self) -> Option<(u16, u16)> {
         let r = self.sr_window;
         window_dims(r.left, r.top, r.right, r.bottom)

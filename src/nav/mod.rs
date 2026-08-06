@@ -18,6 +18,8 @@ use std::path::{Path, PathBuf};
 
 use crate::md::{self, Document};
 use crate::plat::{path as ppath, Platform};
+use crate::source::markdown::MarkdownSource;
+use crate::source::Source;
 use history::{History, Snapshot};
 use index::Entry;
 use link::{Fs, RealFs, Target};
@@ -120,6 +122,17 @@ impl Navigator {
     /// Read and parse a document.
     pub fn load(&self, path: &Path) -> Result<Document, String> {
         self.fs.read(path).map(|t| md::parse(&t))
+    }
+
+    /// Read a corpus document and hand it back behind the format seam.
+    ///
+    /// The corpus is a web of markdown links (`link::resolve` only ever yields
+    /// a `Doc` target for a markdown file), so this is where "a corpus document
+    /// is markdown" is decided — the pager never learns it (SPEC.md §The
+    /// `Source` seam).
+    pub fn load_source(&self, path: &Path) -> Result<Box<dyn Source>, String> {
+        self.load(path)
+            .map(|doc| Box::new(MarkdownSource::new(doc)) as Box<dyn Source>)
     }
 
     pub fn set_current(&mut self, path: PathBuf) {

@@ -7,6 +7,7 @@ use super::search::Dir;
 use super::{Mode, Pager};
 use crate::key::{Key, KeyEvent};
 use crate::md;
+use crate::source::markdown::MarkdownSource;
 use crate::term::Frame;
 
 const DOC: &str = "\
@@ -33,7 +34,8 @@ gamma text
 ";
 
 fn pager(src: &str, cols: usize, rows: usize) -> Pager {
-    Pager::new(md::parse(src), "doc.md".into(), cols, rows, None)
+    let source = MarkdownSource::new(md::parse(src));
+    Pager::new(Box::new(source), "doc.md".into(), cols, rows, None)
 }
 
 fn press(p: &mut Pager, s: &str) {
@@ -47,9 +49,10 @@ fn key(p: &mut Pager, k: Key) {
 }
 
 fn heading_ids(p: &Pager) -> Vec<String> {
-    p.outline.iter().map(|h| h.id.clone()).collect()
+    p.outline().iter().map(|e| e.id.clone()).collect()
 }
 
+mod csv;
 mod paint;
 
 // -- scrolling ---------------------------------------------------------------
@@ -111,7 +114,7 @@ fn a_one_column_terminal_does_not_panic() {
 fn an_empty_document_renders_an_empty_view() {
     let mut p = pager("", 40, 10);
     assert_eq!(p.line_count(), 0);
-    assert_eq!(p.cursor_line(), None);
+    assert_eq!(p.cursor_row(), None);
     press(&mut p, "jkGg");
     press(&mut p, "za");
     key(&mut p, Key::Tab);
@@ -129,7 +132,7 @@ fn horizontal_scrolling_needs_a_scrollable_row() {
     assert!(with_code_in_view > 0, "code block should scroll");
     press(&mut p, "hhh");
     assert_eq!(p.hoff, 0);
-    let plain = pager("just a short paragraph\n", 40, 10);
+    let mut plain = pager("just a short paragraph\n", 40, 10);
     assert_eq!(plain.max_hoff(), 0);
 }
 
@@ -169,10 +172,10 @@ fn collapse_all_then_expand_all() {
     let full = p.line_count();
     press(&mut p, "zM");
     assert!(p.line_count() < full);
-    assert_eq!(p.collapsed.len(), p.outline.len());
+    assert_eq!(p.folds().len(), p.outline().len());
     press(&mut p, "zR");
     assert_eq!(p.line_count(), full);
-    assert!(p.collapsed.is_empty());
+    assert!(p.folds().is_empty());
 }
 
 #[test]
@@ -180,14 +183,14 @@ fn fold_state_is_keyed_by_heading_id_and_survives_resize() {
     let mut p = pager(DOC, 80, 20);
     key(&mut p, Key::Tab);
     press(&mut p, "zc");
-    let ids = p.collapsed.clone();
+    let ids = p.folds();
     assert_eq!(ids.len(), 1);
     p.resize(32, 12);
-    assert_eq!(p.collapsed, ids);
+    assert_eq!(p.folds(), ids);
     assert!(heading_ids(&p).contains(&ids[0]));
     assert!(!p.visible_text().iter().any(|t| t.contains("alpha one")));
     p.resize(120, 50);
-    assert_eq!(p.collapsed, ids);
+    assert_eq!(p.folds(), ids);
     assert!(!p.visible_text().iter().any(|t| t.contains("alpha one")));
 }
 
@@ -195,9 +198,9 @@ fn fold_state_is_keyed_by_heading_id_and_survives_resize() {
 fn resize_keeps_the_cursor_on_the_same_source_line() {
     let mut p = pager(DOC, 80, 20);
     press(&mut p, "jjjjj");
-    let src = p.cursor_line().map(|i| p.lines[i].source_line);
+    let src = p.cursor_mark();
     p.resize(40, 20);
-    let after = p.cursor_line().map(|i| p.lines[i].source_line);
+    let after = p.cursor_mark();
     assert_eq!(src, after);
 }
 
@@ -225,7 +228,7 @@ fn outline_lists_every_heading_and_jumps() {
     let mut p = pager(DOC, 60, 20);
     press(&mut p, "o");
     assert_eq!(p.mode, Mode::Outline);
-    let texts: Vec<&str> = p.outline.iter().map(|h| h.text.as_str()).collect();
+    let texts: Vec<&str> = p.outline().iter().map(|e| e.text.as_str()).collect();
     assert_eq!(texts, vec!["Alpha", "Alpha Deep", "Beta", "Gamma"]);
     press(&mut p, "jjj");
     key(&mut p, Key::Enter);
@@ -250,7 +253,7 @@ fn outline_selection_starts_at_the_section_being_read() {
     let mut p = pager(DOC, 60, 20);
     press(&mut p, "G");
     press(&mut p, "o");
-    assert_eq!(p.outline[p.outline_sel].text, "Gamma");
+    assert_eq!(p.outline()[p.outline_sel].text, "Gamma");
 }
 
 // -- help --------------------------------------------------------------------
@@ -282,7 +285,7 @@ fn incremental_search_jumps_to_the_first_hit() {
     let mut p = pager(DOC, 60, 30);
     press(&mut p, "/needle");
     assert_eq!(p.mode, Mode::Search(Dir::Forward));
-    assert!(!p.matches.is_empty());
+    assert!(p.match_count() > 0);
     key(&mut p, Key::Enter);
     assert_eq!(p.mode, Mode::Normal);
     assert!(p.cursor_text().contains("needle"));
@@ -292,10 +295,10 @@ fn incremental_search_jumps_to_the_first_hit() {
 fn search_is_smartcase() {
     let mut p = pager("alpha\n\nAlpha\n", 40, 10);
     press(&mut p, "/alpha");
-    assert_eq!(p.matches.len(), 2);
+    assert_eq!(p.match_count(), 2);
     key(&mut p, Key::Enter);
     press(&mut p, "/Alpha");
-    assert_eq!(p.matches.len(), 1);
+    assert_eq!(p.match_count(), 1);
 }
 
 #[test]
@@ -303,12 +306,12 @@ fn n_and_shift_n_cycle_and_report_the_wrap() {
     let mut p = pager(DOC, 60, 30);
     press(&mut p, "/needle");
     key(&mut p, Key::Enter);
-    let first = p.current.unwrap();
+    let first = p.current_match().unwrap();
     press(&mut p, "n");
-    assert_ne!(p.current.unwrap(), first);
+    assert_ne!(p.current_match().unwrap(), first);
     p.message = None;
     press(&mut p, "n");
-    assert_eq!(p.current.unwrap(), first);
+    assert_eq!(p.current_match().unwrap(), first);
     assert!(p.message.as_deref().unwrap_or("").contains("hit bottom"));
     p.message = None;
     press(&mut p, "N");
@@ -323,7 +326,9 @@ fn search_expands_a_fold_to_reveal_a_hit() {
     press(&mut p, "/buried");
     key(&mut p, Key::Enter);
     assert!(p.cursor_text().contains("buried needle"));
-    assert!(p.visible.contains(&p.matches[p.current.unwrap()].line));
+    // The hit is on screen: the fold hiding it was expanded, not skipped.
+    assert!(p.current_match().is_some());
+    assert!(p.visible_text().iter().any(|t| t.contains("buried needle")));
 }
 
 #[test]
@@ -346,7 +351,7 @@ fn escaping_a_search_restores_the_starting_position() {
     key(&mut p, Key::Esc);
     assert_eq!(p.mode, Mode::Normal);
     assert_eq!(p.cursor, at);
-    assert!(p.matches.is_empty());
+    assert_eq!(p.match_count(), 0);
 }
 
 #[test]
@@ -364,7 +369,40 @@ fn search_survives_a_resize() {
     let mut p = pager(DOC, 80, 30);
     press(&mut p, "/needle");
     key(&mut p, Key::Enter);
-    let hits = p.matches.len();
+    let hits = p.match_count();
     p.resize(40, 20);
-    assert_eq!(p.matches.len(), hits);
+    assert_eq!(p.match_count(), hits);
+}
+
+#[test]
+fn collapsing_everything_clamps_the_viewport_before_it_jumps() {
+    // Folding shrinks the document under the viewport, and the jump that
+    // follows `zM` tests "is the cursor on screen?" against `top`. Clamping
+    // first is what the pre-seam pager did inside every fold mutation: without
+    // it the window settles rows below where it used to, with the top of the
+    // collapsed document scrolled off (SPEC.md §The `Source` seam — nothing
+    // about markdown's behaviour may change behind the trait).
+    let mut doc = String::from("# Title\n\nintro\n");
+    for s in 1..=6 {
+        doc.push_str(&format!("\n## Section {s}\n\n"));
+        for l in 0..20 {
+            doc.push_str(&format!("body {s}.{l}\n"));
+        }
+    }
+    let mut p = pager(&doc, 60, 12);
+    key(&mut p, Key::Tab);
+    key(&mut p, Key::Tab);
+    assert!(p.top > 0, "the document did not scroll");
+    press(&mut p, "zM");
+    assert_eq!(p.top, 0, "viewport left behind by the collapse");
+    assert!(p.cursor >= p.top && p.cursor < p.top + p.body_rows());
+    // And the same key sequence one section further down, where the collapsed
+    // document is still taller than the screen: the window follows the cursor
+    // rather than staying where the expanded document had it.
+    let mut p = pager(&doc, 60, 12);
+    for _ in 0..3 {
+        key(&mut p, Key::Tab);
+    }
+    press(&mut p, "zM");
+    assert_eq!((p.cursor, p.top), (12, 9));
 }

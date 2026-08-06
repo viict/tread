@@ -33,7 +33,7 @@
 //!   `ENABLE_VIRTUAL_TERMINAL_PROCESSING` cannot be set. Rather than paint that
 //!   console with escape codes it would print literally, [`set_raw`] undoes
 //!   everything it changed and returns `None` — the documented "no raw mode"
-//!   signal (WINDOWS.md §1) — and [`vt_output_supported`] stays false so a
+//!   signal (docs/windows.md §1) — and [`vt_output_supported`] stays false so a
 //!   caller can distinguish "no console" from "console without VT".
 //!
 //! This file contains no `unsafe` itself — all of it is in `windows/ffi.rs`,

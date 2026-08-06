@@ -150,7 +150,7 @@ mod backend;
 mod backend;
 
 // No real backend for this target yet: a placeholder with the same surface and
-// no `unsafe`, so the crate still compiles. See WINDOWS.md.
+// no `unsafe`, so the crate still compiles. See docs/windows.md.
 #[cfg(not(any(unix, windows)))]
 #[path = "stub.rs"]
 mod backend;

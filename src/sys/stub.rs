@@ -1,7 +1,7 @@
 //! Placeholder `sys` backend for targets with no real one yet.
 //!
 //! Keeps the crate compiling — and the public surface of [`crate::sys`]
-//! identical — until a Windows backend lands (see WINDOWS.md). Every entry
+//! identical — until a Windows backend lands (see docs/windows.md). Every entry
 //! point reports "no terminal here", which `main.rs` already handles: it is the
 //! same path taken when stdout is redirected, so the reader degrades to the
 //! non-interactive dump instead of failing. Contains no `unsafe` code.

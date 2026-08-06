@@ -6,7 +6,7 @@
 #![deny(unsafe_code)]
 
 use super::{keys, search, Mode, Pager};
-use crate::render::{slice_spans, str_width, truncate_width, Span};
+use crate::render::{slice_spans, str_width, truncate_width, Line, Span};
 use crate::term::{Frame, Style};
 use crate::theme;
 
@@ -17,7 +17,7 @@ use cells::Cells;
 const CUT_LEFT: char = '\u{2039}';
 const CUT_RIGHT: char = '\u{203a}';
 
-pub fn paint(p: &Pager, frame: &mut Frame) {
+pub fn paint(p: &mut Pager, frame: &mut Frame) {
     frame.reset();
     let body = p.body_rows();
     match p.mode {
@@ -32,11 +32,24 @@ pub fn paint(p: &Pager, frame: &mut Frame) {
     }
 }
 
-fn document(p: &Pager, frame: &mut Frame, body: usize) {
+/// Paint the window the viewport is showing — and *only* that window: the
+/// source is asked for `top..top + body` rows and nothing else, so a document
+/// too large to hold renders one screen at a time (SPEC.md §The `Source` seam).
+fn document(p: &mut Pager, frame: &mut Frame, body: usize) {
+    let (top, pin) = (p.top, p.pinned());
+    let head = p.src.lines(0..pin);
+    let window = p.src.lines(top..top.saturating_add(body - pin));
     for r in 0..body {
         frame.move_to(r as u16 + 1, 1);
-        if let Some(li) = p.visible.get(p.top + r).copied() {
-            let spans = row_spans(p, li);
+        // Rows 0..pin are frozen at the top of the viewport — a CSV's header
+        // (SPEC.md §CSV). `pin` is 0 for a format that pins nothing, which
+        // leaves this loop exactly what it was.
+        let (row, line) = match r < pin {
+            true => (r, head.get(r)),
+            false => (top + r - pin, window.get(r - pin)),
+        };
+        if let Some(line) = line {
+            let spans = compose(p, row, line);
             paint_spans(frame, &spans);
         }
         frame.reset_style();
@@ -44,22 +57,31 @@ fn document(p: &Pager, frame: &mut Frame, body: usize) {
     }
 }
 
-/// The final spans of one document row: folded-heading summary, horizontal
+/// The final spans of one row, fetched from the source. Used by the tests and
+/// by anything outside the paint loop, which already holds the window.
+#[cfg(test)]
+pub(super) fn row_spans(p: &mut Pager, row: usize) -> Vec<Span> {
+    match p.src.line(row) {
+        Some(line) => compose(p, row, &line),
+        None => Vec::new(),
+    }
+}
+
+/// The final spans of one document row: folded-section summary, horizontal
 /// window, search highlights, cursor tint and cut indicators.
-pub(super) fn row_spans(p: &Pager, li: usize) -> Vec<Span> {
-    let line = &p.lines[li];
+fn compose(p: &Pager, row: usize, line: &Line) -> Vec<Span> {
     let width = p.cols.max(1);
     let scroll = super::scrollable(line, width);
     let off = if scroll { p.hoff } else { 0 };
-    let base = match fold_summary(p, li) {
-        Some(spans) => spans,
-        None => line.spans.clone(),
-    };
+    // Borrowed unless a fold summary rewrote the row: cloning the spans would
+    // cost a copy of every cell of a 10k-column CSV row, on every frame.
+    let summary = fold_summary(p, row, line);
+    let base: &[Span] = summary.as_deref().unwrap_or(&line.spans);
     let full_width = base.iter().map(Span::width).sum::<usize>();
-    let mut cells = Cells::from_spans(&slice_spans(&base, off, width));
-    focus_link(p, &mut cells, li, off);
-    highlight(p, &mut cells, li, off);
-    if p.cursor_line() == Some(li) || selected(p, li) {
+    let mut cells = Cells::from_spans(&slice_spans(base, off, width));
+    focus_link(p, &mut cells, row, line, off);
+    highlight(p, &mut cells, row, off);
+    if p.cursor == row || selected(p, row) {
         cells.tint(theme::selection());
     }
     if scroll {
@@ -74,23 +96,19 @@ pub(super) fn row_spans(p: &Pager, li: usize) -> Vec<Span> {
 }
 
 /// True when the row is inside the visual selection (`v`).
-fn selected(p: &Pager, li: usize) -> bool {
+fn selected(p: &Pager, row: usize) -> bool {
     let sel = match p.select {
         Some(s) => s,
         None => return false,
     };
     let (lo, hi) = sel.range();
-    p.visible
-        .get(lo..=hi.min(p.visible.len().saturating_sub(1)))
-        .map(|rows| rows.contains(&li))
-        .unwrap_or(false)
+    row >= lo && row <= hi.min(p.src.len().saturating_sub(1))
 }
 
-/// A folded heading shows `\u{25b8} Title  (N lines)`.
-fn fold_summary(p: &Pager, li: usize) -> Option<Vec<Span>> {
-    p.lines[li].heading.as_ref()?;
-    let hidden = p.counts.iter().find(|(h, _)| *h == li).map(|(_, n)| *n)?;
-    let mut spans = p.lines[li].spans.clone();
+/// A folded section shows `\u{25b8} Title  (N lines)`.
+fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
+    let hidden = p.src.hidden_at(row)?;
+    let mut spans = line.spans.clone();
     if let Some(first) = spans.first_mut() {
         if first.text.starts_with(theme::MARKER_OPEN) {
             first.text = format!("{} ", theme::MARKER_CLOSED);
@@ -108,12 +126,12 @@ fn link_focus_style() -> Style {
 }
 
 /// Tint the focused link on this row, if it is here.
-fn focus_link(p: &Pager, cells: &mut Cells, li: usize, off: usize) {
+fn focus_link(p: &Pager, cells: &mut Cells, row: usize, line: &Line, off: usize) {
     let site = match p.focused_link() {
-        Some(s) if s.line == li => s,
+        Some(s) if p.src.row_of(s.anchor) == Some(row) => s,
         _ => return,
     };
-    let width = link_width(p, li, &site.url, site.col);
+    let width = link_width(line, &site.url, site.col);
     if width == 0 {
         return;
     }
@@ -122,10 +140,10 @@ fn focus_link(p: &Pager, cells: &mut Cells, li: usize, off: usize) {
 }
 
 /// Display width of the run of spans carrying `url`, starting at column `col`.
-fn link_width(p: &Pager, li: usize, url: &str, col: usize) -> usize {
+fn link_width(line: &Line, url: &str, col: usize) -> usize {
     let mut x = 0;
     let mut w = 0;
-    for s in &p.lines[li].spans {
+    for s in &line.spans {
         if x >= col && s.link.as_deref() == Some(url) {
             w += s.width();
         } else if w > 0 {
@@ -136,17 +154,16 @@ fn link_width(p: &Pager, li: usize, url: &str, col: usize) -> usize {
     w
 }
 
-fn highlight(p: &Pager, cells: &mut Cells, li: usize, off: usize) {
+fn highlight(p: &Pager, cells: &mut Cells, row: usize, off: usize) {
     if p.query.is_empty() {
         return;
     }
-    let current = p.current.and_then(|i| p.matches.get(i)).copied();
-    for (start, end) in search::on_line(&p.matches, li) {
-        let is_current = current
-            .map(|c| c.line == li && c.start == start)
-            .unwrap_or(false);
-        let style = if is_current { theme::search_current() } else { theme::search() };
-        cells.restyle(start.saturating_sub(off), end.saturating_sub(off), style);
+    for m in p.src.matches_on(row) {
+        let style = match m.current {
+            true => theme::search_current(),
+            false => theme::search(),
+        };
+        cells.restyle(m.start.saturating_sub(off), m.end.saturating_sub(off), style);
     }
 }
 
@@ -155,15 +172,18 @@ fn highlight(p: &Pager, cells: &mut Cells, li: usize, off: usize) {
 // ---------------------------------------------------------------------------
 
 fn outline_rows(p: &Pager) -> Vec<(String, Style)> {
-    p.outline
+    p.src
+        .outline()
         .iter()
-        .map(|h| {
-            let indent = "  ".repeat((h.level as usize).saturating_sub(1));
-            let folded = p.collapsed.contains(&h.id);
-            let marker = if folded { theme::MARKER_CLOSED } else { theme::MARKER_OPEN };
+        .map(|e| {
+            let indent = "  ".repeat((e.level as usize).saturating_sub(1));
+            let marker = match e.folded {
+                true => theme::MARKER_CLOSED,
+                false => theme::MARKER_OPEN,
+            };
             (
-                format!("{indent}{marker} {}", h.text),
-                theme::heading(h.level),
+                format!("{indent}{marker} {}", e.text),
+                theme::heading(e.level),
             )
         })
         .collect()
@@ -270,10 +290,17 @@ pub(crate) fn status_text(p: &Pager) -> String {
     if let Some(s) = &p.select {
         return s.status();
     }
-    let total = p.visible.len();
+    let total = p.src.len();
     let cur = if total == 0 { 0 } else { p.cursor + 1 };
     let pct = if total <= 1 { 100 } else { p.cursor * 100 / (total - 1) };
-    let mut s = format!("{}  \u{b7}  {pct}%  \u{b7}  line {cur}/{total}", p.label);
+    // A format that counts in something other than rendered lines says so
+    // itself — a CSV names the row, the total (or `\u{2265}N` while its index
+    // is still lazy) and the column under the cursor (SPEC.md §CSV).
+    let pos = p
+        .src
+        .position_text(p.cursor)
+        .unwrap_or_else(|| format!("{pct}%  \u{b7}  line {cur}/{total}"));
+    let mut s = format!("{}  \u{b7}  {pos}", p.label);
     let depth = p.nav.as_ref().map(|n| n.depth()).unwrap_or(0);
     if depth > 0 {
         s.push_str(&format!("  \u{b7}  [{depth} back]"));

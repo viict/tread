@@ -24,7 +24,8 @@ KEYS = (
     b"dddduu"          # half pages
     b"  b"             # page down / up
     b"G g"             # bottom / top
-    b"lllhhh"          # horizontal scroll
+    b"lllhhh"          # horizontal scroll (whole columns in a CSV)
+    b"wl w h"          # widen the column under the cursor
     b"\t\t\t"          # next heading
     b"za za"           # toggle collapse
     b"zMzR"            # collapse all / expand all
@@ -201,7 +202,7 @@ def main():
         os.path.join(d, f)
         for d, _, fs in os.walk(root)
         for f in fs
-        if f.endswith(".md")
+        if f.endswith((".md", ".csv", ".tsv"))
     )
     if limit:
         docs = docs[:limit]

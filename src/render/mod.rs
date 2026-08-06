@@ -22,7 +22,7 @@ mod tests;
 // Re-exported for the pager/select modules; a `pub use` in a binary crate does
 // not itself count as a use.
 #[allow(unused_imports)]
-pub use width::{char_width, pad_right, str_width, take_width, truncate_width};
+pub use width::{char_width, pad_right, repeat, str_width, take_width, truncate_width};
 
 use crate::md::ast::Document;
 use crate::term::Style;

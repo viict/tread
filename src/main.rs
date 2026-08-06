@@ -13,6 +13,8 @@
 mod sys;
 
 mod cli;
+mod csv;
+mod open;
 mod dump;
 mod key;
 mod md;
@@ -21,58 +23,21 @@ mod pager;
 mod plat;
 mod render;
 mod select;
+mod source;
 mod term;
 mod theme;
 
 use std::env;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+
+use open::{build_source, resolve_input, toc_text, Fail, Input};
+use source::detect::Format;
+use source::Source;
 
 const EXIT_OK: i32 = 0;
 const EXIT_ERROR: i32 = 1;
 const EXIT_USAGE: i32 = 2;
-
-/// A fatal error plus the process exit code it maps to.
-struct Fail {
-    msg: String,
-    code: i32,
-}
-
-impl Fail {
-    fn runtime(msg: impl Into<String>) -> Self {
-        Fail {
-            msg: msg.into(),
-            code: EXIT_ERROR,
-        }
-    }
-    fn usage(msg: impl Into<String>) -> Self {
-        Fail {
-            msg: msg.into(),
-            code: EXIT_USAGE,
-        }
-    }
-}
-
-/// The document to display, plus where keyboard input comes from.
-struct Input {
-    label: String,
-    text: String,
-    /// The file on disk, when there is one (`None` for stdin).
-    path: Option<PathBuf>,
-    /// Descriptor the pager reads keys from, and whether we own it. `None`
-    /// means "use stdin" (it is already a terminal).
-    tty: Option<(sys::Fd, bool)>,
-}
-
-impl Drop for Input {
-    fn drop(&mut self) {
-        if let Some((fd, owned)) = self.tty {
-            if owned {
-                sys::close_fd(fd);
-            }
-        }
-    }
-}
 
 fn main() {
     std::process::exit(run());
@@ -104,44 +69,66 @@ fn run() -> i32 {
 
 fn start(args: &cli::Args) -> Result<(), Fail> {
     let input = resolve_input(args)?;
-    let doc = md::parse(&input.text);
-    let outline = outline(&doc);
     if args.toc {
-        emit(&render_outline(&outline));
+        emit(&toc_text(&input, args)?);
         return Ok(());
     }
+    let src = build_source(&input, args)?;
     if sys::is_tty(sys::STDOUT) {
         // Interactive: hand the document to the pager. A missing controlling
         // terminal is not fatal — fall through to the dump path.
-        match interactive(args, &input, doc) {
+        match interactive(args, &input, src) {
             Ok(()) => return Ok(()),
-            Err(PagerExit::NoTty(doc)) => return dump_document(args, doc),
+            Err(PagerExit::NoTty(src)) => return dump_source(args, src),
             Err(PagerExit::Fatal(f)) => return Err(f),
         }
     }
-    dump_document(args, doc)
+    dump_source(args, src)
+}
+
+/// Width the non-interactive path lays out at.
+fn dump_width(args: &cli::Args) -> usize {
+    let cols = sys::winsize_of(sys::STDOUT).or_else(sys::winsize).map(|(c, _)| c as usize);
+    dump::layout_width(args.width, cols)
 }
 
 /// Non-interactive rendering: one full-fidelity pass to stdout.
-fn dump_document(args: &cli::Args, doc: md::Document) -> Result<(), Fail> {
+fn dump_source(args: &cli::Args, mut src: Box<dyn Source>) -> Result<(), Fail> {
     let plain = plain_mode(
         args.plain,
         env::var("NO_COLOR").ok(),
         sys::is_tty(sys::STDOUT),
     );
-    let cols = sys::winsize_of(sys::STDOUT).or_else(sys::winsize).map(|(c, _)| c as usize);
-    let width = dump::layout_width(args.width, cols);
     // A terminal has a viewport, so overflowing rows are clipped the way the
     // pager clips them; a file or pipe keeps the full row.
     let clip = sys::is_tty(sys::STDOUT);
-    emit(&dump::dump(&doc, width, plain, clip));
+    // Streamed, not accumulated: a window of rows is painted and written before
+    // the next is laid out, so `tread huge.csv | head` prints at once and a
+    // file too big to hold never becomes a String (SPEC.md §CSV).
+    let stdout = std::io::stdout();
+    let mut sink = Sink(std::io::BufWriter::new(stdout.lock()));
+    let _ = dump::write_source(src.as_mut(), dump_width(args), plain, clip, &mut sink);
+    let _ = sink.0.flush();
     Ok(())
+}
+
+/// A [`std::fmt::Write`] over an [`std::io::Write`], which is what lets the
+/// dump path write into stdout and into a test's `String` through one call.
+/// A failed write — the closed pipe `| head` leaves behind — comes back as an
+/// error so the walk stops rather than laying out the rest of the file for
+/// nobody; like [`emit`], it is not a failure of the run.
+struct Sink<W: Write>(W);
+
+impl<W: Write> std::fmt::Write for Sink<W> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        self.0.write_all(s.as_bytes()).map_err(|_| std::fmt::Error)
+    }
 }
 
 /// Why the interactive path did not run to completion. `NoTty` hands the
 /// document back so the caller can fall back to dumping it.
 enum PagerExit {
-    NoTty(md::Document),
+    NoTty(Box<dyn Source>),
     Fatal(Fail),
 }
 
@@ -160,7 +147,11 @@ fn is_non_interactive(e: &term::TermError) -> bool {
 }
 
 /// Enter raw mode and run the event loop until the pager asks to quit.
-fn interactive(args: &cli::Args, input: &Input, doc: md::Document) -> Result<(), PagerExit> {
+fn interactive(
+    args: &cli::Args,
+    input: &Input,
+    src: Box<dyn Source>,
+) -> Result<(), PagerExit> {
     // One NO_COLOR rule for both paths: `Term` reads no environment itself.
     let opts = term::TermOptions {
         alt_screen: !args.no_alt,
@@ -168,16 +159,18 @@ fn interactive(args: &cli::Args, input: &Input, doc: md::Document) -> Result<(),
     };
     let mut term = match term::Term::new(opts) {
         Ok(t) => t,
-        Err(ref e) if is_non_interactive(e) => return Err(PagerExit::NoTty(doc)),
+        Err(ref e) if is_non_interactive(e) => return Err(PagerExit::NoTty(src)),
         Err(e) => return Err(PagerExit::Fatal(Fail::runtime(format!("terminal: {e:?}")))),
     };
     let (cols, rows) = term.size();
     let label = status_label(input);
-    let mut pager = pager::Pager::new(doc, label, cols as usize, rows as usize, args.width);
-    // A document read from a real file gets a corpus: relative links, history
-    // and the index all hang off it. Piped stdin has no location, so it does
-    // not (SPEC.md §Navigation).
-    if let Some(path) = &input.path {
+    // The pager is handed a `Box<dyn Source>` and never learns the format
+    // (SPEC.md §The `Source` seam); picking one was `build_source`'s job.
+    let mut pager = pager::Pager::new(src, label, cols as usize, rows as usize, args.width);
+    // A markdown document read from a real file gets a corpus: relative links,
+    // history and the index all hang off it. Piped stdin has no location, and
+    // a CSV is not part of a linked corpus (SPEC.md §Navigation).
+    if let Some(path) = input.path.as_ref().filter(|_| input.format == Format::Markdown) {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         pager.attach_nav(nav::Navigator::new(path, args.index.as_deref(), &cwd));
     }
@@ -204,7 +197,9 @@ fn event_loop(term: &mut term::Term, pager: &mut pager::Pager) -> Result<(), Fai
                     pager.handle(ev);
                 }
             }
-            sys::ReadOutcome::Timeout => {}
+            // The idle tick is also when a lazily indexed format gets its
+            // bounded slice of scanning (SPEC.md §CSV).
+            sys::ReadOutcome::Timeout => pager.idle(),
             sys::ReadOutcome::Eof => return Ok(()),
             sys::ReadOutcome::Error(e) => return Err(Fail::runtime(format!("read: errno {e}"))),
         }
@@ -284,94 +279,6 @@ fn status_label(input: &Input) -> String {
 /// empty `NO_COLOR=` does not count, per the no-color.org spec.
 fn plain_mode(flag: bool, no_color: Option<String>, stdout_tty: bool) -> bool {
     flag || no_color.map(|v| !v.is_empty()).unwrap_or(false) || !stdout_tty
-}
-
-fn resolve_input(args: &cli::Args) -> Result<Input, Fail> {
-    let from_stdin = args.file.as_deref() == Some(Path::new("-"))
-        || (args.file.is_none() && !sys::is_tty(sys::STDIN));
-    if from_stdin {
-        let mut raw = Vec::new();
-        std::io::stdin()
-            .read_to_end(&mut raw)
-            .map_err(|e| Fail::runtime(format!("reading stdin: {e}")))?;
-        let text = md::sanitize::decode(raw);
-        // stdin is a pipe, so keys have to come from the controlling terminal.
-        return Ok(Input {
-            label: "<stdin>".to_string(),
-            text,
-            path: None,
-            tty: sys::tty_fd(),
-        });
-    }
-    let path = match &args.file {
-        Some(p) => p.clone(),
-        None => index_path(args.index.as_deref())?,
-    };
-    read_document(&path)
-}
-
-fn read_document(path: &Path) -> Result<Input, Fail> {
-    let text = md::sanitize::read_file(path)
-        .map_err(|e| Fail::runtime(format!("{}: {}", path.display(), e)))?;
-    Ok(Input {
-        label: path.display().to_string(),
-        text,
-        path: Some(path.to_path_buf()),
-        tty: None,
-    })
-}
-
-/// Where to start when no FILE was given: the `--index` target, or a README.md
-/// in the working directory.
-fn index_path(index: Option<&Path>) -> Result<PathBuf, Fail> {
-    let candidate = match index {
-        Some(p) if p.is_dir() => p.join("README.md"),
-        Some(p) => p.to_path_buf(),
-        None => PathBuf::from("README.md"),
-    };
-    if candidate.exists() {
-        return Ok(candidate);
-    }
-    if index.is_some() {
-        return Err(Fail::usage(format!(
-            "index not found: {}",
-            candidate.display()
-        )));
-    }
-    Err(Fail::usage(format!(
-        "no input: give a FILE, pipe markdown in, or use --index; try `{} --help`",
-        cli::BIN
-    )))
-}
-
-/// Heading outline, taken from the parsed document so `--toc` and the pager's
-/// outline overlay always agree with the renderer.
-fn outline(doc: &md::Document) -> Vec<(u8, String)> {
-    let mut out = Vec::new();
-    collect_headings(&doc.blocks, &mut out);
-    out
-}
-
-fn collect_headings(blocks: &[md::Block], out: &mut Vec<(u8, String)>) {
-    for b in blocks {
-        match b {
-            md::Block::Heading { level, content, .. } => {
-                out.push((*level, md::ast::inline_text(content)));
-            }
-            md::Block::Quote { blocks, .. } => collect_headings(blocks, out),
-            _ => {}
-        }
-    }
-}
-
-fn render_outline(outline: &[(u8, String)]) -> String {
-    let mut s = String::new();
-    for (level, text) in outline {
-        s.push_str(&" ".repeat((*level as usize - 1) * 2));
-        s.push_str(text);
-        s.push('\n');
-    }
-    s
 }
 
 /// All non-TUI stdout goes through here; a closed pipe is not an error.

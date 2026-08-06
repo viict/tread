@@ -1,5 +1,5 @@
-//! Non-interactive rendering: paint a laid-out document straight to a byte
-//! buffer instead of driving the pager.
+//! Non-interactive rendering: stream a laid-out document straight to a writer
+//! instead of driving the pager.
 //!
 //! This is the path used by `--no-alt` on a non-terminal stdout, by
 //! `cat x.md | tread > file`, and by the golden render tests. It shares the
@@ -8,8 +8,10 @@
 //! terminal output goes through the frame buffer).
 #![deny(unsafe_code)]
 
-use crate::md::Document;
-use crate::render::{render_document, slice_spans, Line, RenderOpts, Span};
+use std::fmt::{self, Write};
+
+use crate::render::{slice_spans, Line, Span};
+use crate::source::Source;
 use crate::term::Frame;
 use crate::theme;
 
@@ -30,15 +32,78 @@ pub fn layout_width(explicit: Option<usize>, detected: Option<usize>) -> usize {
     }
 }
 
-/// Lay out and paint a document. `plain` strips all styling. `clip` is the
-/// viewport width for horizontally scrollable rows (wide tables, code): pass
-/// `Some(width)` when writing to a terminal, `None` when writing to a file or
-/// pipe, where full-fidelity rows are more useful than a viewport.
-pub fn dump(doc: &Document, width: usize, plain: bool, clip: bool) -> String {
-    let opts = RenderOpts::new(width);
-    let lines = render_document(doc, &opts);
-    paint(&lines, plain, if clip { Some(width) } else { None })
+/// Lay out and paint a whole document into `out`, whatever format it is in.
+/// `plain` strips all styling; `clip` is the viewport width for horizontally
+/// scrollable rows (wide tables, code, a CSV grid): pass `true` when writing to
+/// a terminal, `false` when writing to a file or pipe, where full-fidelity rows
+/// are more useful than a viewport.
+///
+/// Nothing whole-document happens here. Rows are laid out a window at a time
+/// and each window is written out before the next is asked for, and a lazily
+/// indexed format is only pushed as far as the rows already written — so
+/// `tread huge.csv | head` prints its first rows immediately and dumping a file
+/// too big to hold costs a window of memory rather than a file's
+/// (SPEC.md §CSV: nothing may read the whole file on the open path).
+/// Painting is per-line and the frame resets its style at every line ending, so
+/// the bytes are identical to painting the whole document in one go.
+///
+/// A write error — the closed pipe `head` leaves behind — stops the walk, which
+/// is what keeps that pipeline from indexing the rest of the file for nobody.
+pub fn write_source(
+    src: &mut dyn Source,
+    width: usize,
+    plain: bool,
+    clip: bool,
+    out: &mut dyn Write,
+) -> fmt::Result {
+    let clip = clip.then_some(width);
+    src.set_width(width);
+    // Blank rows at the end of a window are held back rather than trimmed:
+    // only the ones at the end of the *document* are dropped.
+    let mut pending = 0usize;
+    let mut at = 0usize;
+    loop {
+        let end = src.len();
+        if at >= end {
+            // `len` grows as a lazily indexed format discovers more of its
+            // file. One bounded slice, then look again: draining the index
+            // first would make the first row wait for the last.
+            match src.extend() {
+                true => continue,
+                false => return Ok(()),
+            }
+        }
+        let window = src.lines(at..end.min(at + WINDOW_ROWS));
+        if window.is_empty() {
+            return Ok(());
+        }
+        at += window.len();
+        let kept = window
+            .iter()
+            .rposition(|l| !l.is_blank())
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        if kept > 0 {
+            for _ in 0..std::mem::take(&mut pending) {
+                out.write_char('\n')?;
+            }
+            out.write_str(&paint(&window[..kept], plain, clip))?;
+        }
+        pending += window.len() - kept;
+    }
 }
+
+/// [`write_source`] into a `String`, for the tests and the callers that want
+/// the whole document in hand.
+#[cfg(test)]
+pub fn render_source(src: &mut dyn Source, width: usize, plain: bool, clip: bool) -> String {
+    let mut out = String::new();
+    let _ = write_source(src, width, plain, clip, &mut out);
+    out
+}
+
+/// Rows [`render_source`] lays out per pass.
+const WINDOW_ROWS: usize = 1024;
 
 /// Paint pre-laid-out lines. Trailing blank rows are dropped so piped output
 /// does not end in a run of empty lines.
@@ -109,7 +174,15 @@ fn trim_trailing(text: &str, trim: bool) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::md;
+    use crate::md::{self, Document};
+    use crate::source::markdown::MarkdownSource;
+
+    /// The markdown dump path, as `main` drives it: parse, wrap in a source,
+    /// render every row.
+    fn dump(doc: &Document, width: usize, plain: bool, clip: bool) -> String {
+        let mut src = MarkdownSource::new(doc.clone());
+        render_source(&mut src, width, plain, clip)
+    }
 
     fn strip(s: &str) -> String {
         let mut out = String::new();
@@ -228,9 +301,66 @@ mod tests {
         assert!(row.ends_with("  \u{1b}[0m"), "padding trimmed: {row:?}");
     }
 
+    /// A window boundary is not a document boundary: blank rows held back at
+    /// the end of one window are re-emitted exactly once when the next window
+    /// has content, never once per window from there on.
+    #[test]
+    fn streaming_a_document_longer_than_a_window_matches_painting_it_whole() {
+        let mut doc = String::new();
+        for i in 0..3000 {
+            doc.push_str(&format!("para {i}\n\n"));
+        }
+        let mut src = MarkdownSource::new(md::parse(&doc));
+        let streamed = render_source(&mut src, 60, true, false);
+        let n = crate::source::Source::len(&src);
+        let all = crate::source::Source::lines(&mut src, 0..n);
+        assert_eq!(streamed, paint(&all, true, None));
+        assert!(streamed.lines().count() > 2 * WINDOW_ROWS);
+    }
+
+    /// The dump path must not index a lazily discovered file before it writes
+    /// its first row: `tread huge.csv | head` prints at once, and the closed
+    /// pipe `head` leaves behind stops the walk instead of scanning the rest of
+    /// the file for nobody (SPEC.md §CSV).
+    #[test]
+    fn a_lazy_source_streams_and_stops_when_the_pipe_closes() {
+        use crate::source::csv::CsvSource;
+
+        let mut body = String::from("id,name\n");
+        for i in 0..200_000 {
+            body.push_str(&format!("{i},name {i}\n"));
+        }
+        let mut src = CsvSource::from_bytes(body.into_bytes(), None);
+        let mut sink = Stops { out: String::new(), left: 1 };
+        assert!(write_source(&mut src, 60, true, false, &mut sink).is_err());
+        assert!(sink.out.contains("name 0"), "no row was written");
+        assert!(
+            crate::source::Source::len(&src) < 200_000,
+            "the whole file was indexed before the first write"
+        );
+    }
+
+    /// A writer that fails after `left` writes, as a closed pipe does.
+    struct Stops {
+        out: String,
+        left: usize,
+    }
+
+    impl Write for Stops {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            if self.left == 0 {
+                return Err(fmt::Error);
+            }
+            self.left -= 1;
+            self.out.push_str(s);
+            Ok(())
+        }
+    }
+
     #[test]
     fn no_row_is_carriage_returned() {
         let doc = md::parse("# T\n\npara\n");
         assert!(!dump(&doc, 40, true, false).contains('\r'));
     }
 }
+
