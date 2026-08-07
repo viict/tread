@@ -11,11 +11,15 @@
 //! path so it can be indexed lazily (SPEC.md §CSV).
 #![deny(unsafe_code)]
 
+mod lens;
+
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use crate::csv::read::Reader;
 use crate::source::detect::{self, Format};
-use crate::source::{csv::CsvSource, markdown::MarkdownSource, Source};
+use crate::source::json::{self as json, JsonSource};
+use crate::source::{csv::CsvSource, jsonl::JsonlSource, markdown::MarkdownSource, Source};
 use crate::{cli, md, sys};
 
 /// A fatal error plus the process exit code it maps to.
@@ -69,8 +73,13 @@ impl Drop for Input {
 /// and nothing else's: everything above takes a `Box<dyn Source>`
 /// (SPEC.md §The `Source` seam).
 pub fn build_source(input: &Input, args: &cli::Args) -> Result<Box<dyn Source>, Fail> {
+    if args.lens.is_some() && input.format != Format::Jsonl {
+        return Err(lens::needs_records(input.format));
+    }
     match input.format {
         Format::Csv => Ok(Box::new(csv_source(input, args)?)),
+        Format::Json => Ok(Box::new(json_source(input)?)),
+        Format::Jsonl => Ok(Box::new(lens::jsonl_source_with(input, args)?)),
         Format::Markdown => Ok(Box::new(MarkdownSource::new(markdown_document(input)?))),
     }
 }
@@ -86,6 +95,40 @@ fn csv_source(input: &Input, args: &cli::Args) -> Result<CsvSource, Fail> {
             args.delim,
         )),
     }
+}
+
+/// The record source for this input: from the path when there is one, so a
+/// multi-GB log is never read whole, and from the piped bytes when there is not.
+pub(super) fn jsonl_source(input: &Input) -> Result<JsonlSource, Fail> {
+    match &input.path {
+        Some(path) => JsonlSource::open(path)
+            .map_err(|e| Fail::runtime(format!("{}: {e}", path.display()))),
+        None => Ok(JsonlSource::from_bytes(input.bytes.clone().unwrap_or_default())),
+    }
+}
+
+/// The JSON source for this input: from the path when there is one, so a
+/// multi-GB document is never read whole, and from the piped bytes when there
+/// is not.
+fn json_source(input: &Input) -> Result<JsonSource, Fail> {
+    match &input.path {
+        Some(path) => {
+            JsonSource::open(path).map_err(|e| Fail::runtime(format!("{}: {e}", path.display())))
+        }
+        None => Ok(JsonSource::from_bytes(input.bytes.clone().unwrap_or_default())),
+    }
+}
+
+/// `--to-jsonl`: the document's top-level array, one element per line, on
+/// `out`. Streams — the document is never held in memory (SPEC.md §JSON).
+pub fn to_jsonl(input: &Input, out: &mut dyn std::io::Write) -> Result<(), Fail> {
+    let reader = match (&input.path, &input.bytes) {
+        (Some(p), _) => {
+            Reader::open(p).map_err(|e| Fail::runtime(format!("{}: {e}", p.display())))?
+        }
+        (None, bytes) => Reader::memory(bytes.clone().unwrap_or_default()),
+    };
+    json::export::to_jsonl(reader, out).map_err(|e| Fail::runtime(format!("--to-jsonl: {e}")))
 }
 
 /// Parse markdown, reading the file now if it was not read already.
@@ -105,11 +148,27 @@ pub fn toc_text(input: &Input, args: &cli::Args) -> Result<String, Fail> {
     if input.format == Format::Markdown {
         return Ok(render_outline(&outline(&markdown_document(input)?)));
     }
+    // A record file has no headings; the closest thing to an outline is the
+    // first records, one summary line each. Bounded, because a `--toc` over a
+    // million-record log would be neither a table of contents nor quick.
+    // A JSON document's outline is its root's immediate members: the one level
+    // that can be listed without walking the file.
+    if input.format == Format::Json {
+        let mut src = json_source(input)?;
+        return Ok(src.toc().iter().map(|s| format!("{s}\n")).collect());
+    }
+    if input.format == Format::Jsonl {
+        let mut src = lens::jsonl_source_with(input, args)?;
+        return Ok(src.summaries(TOC_RECORDS).iter().map(|s| format!("{s}\n")).collect());
+    }
     let mut src = csv_source(input, args)?;
     src.set_width(crate::dump_width(args));
     Ok(src.columns().iter().map(|c| format!("{c}\n")).collect())
 }
 
+
+/// Records `--toc` lists for a `.jsonl`.
+const TOC_RECORDS: usize = 1000;
 
 pub fn resolve_input(args: &cli::Args) -> Result<Input, Fail> {
     let from_stdin = args.file.as_deref() == Some(Path::new("-"))
@@ -121,7 +180,7 @@ pub fn resolve_input(args: &cli::Args) -> Result<Input, Fail> {
             .map_err(|e| Fail::runtime(format!("reading stdin: {e}")))?;
         check_encoding("<stdin>", sniff_head(&raw))?;
         // Unnamed input: the content decides (SPEC.md §Multi-format reading).
-        let format = detect::decide(args.format, None, sniff_head(&raw));
+        let format = lens::format_for(args, None, detect::decide(args.format, None, sniff_head(&raw)));
         // stdin is a pipe, so keys have to come from the controlling terminal.
         return Ok(Input {
             label: "<stdin>".to_string(),
@@ -158,7 +217,7 @@ fn read_document(args: &cli::Args, path: &Path) -> Result<Input, Fail> {
         false => head_bytes(path, SNIFF_BYTES)?,
     };
     check_encoding(&path.display().to_string(), &head)?;
-    let format = detect::decide(args.format, Some(path), &head);
+    let format = lens::format_for(args, Some(path), detect::decide(args.format, Some(path), &head));
     Ok(Input {
         label: path.display().to_string(),
         bytes: None,
@@ -207,7 +266,7 @@ fn stream_document(args: &cli::Args, path: &Path) -> Result<Input, Fail> {
         )));
     }
     check_encoding(&label, sniff_head(&raw))?;
-    let format = detect::decide(args.format, Some(path), sniff_head(&raw));
+    let format = lens::format_for(args, Some(path), detect::decide(args.format, Some(path), sniff_head(&raw)));
     Ok(Input {
         label,
         bytes: Some(raw),

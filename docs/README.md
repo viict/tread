@@ -3,6 +3,7 @@ status: Active
 updated: 2026-08-06
 related:
   - layout.md
+  - lenses.md
   - testing.md
   - windows.md
 ---
@@ -23,6 +24,7 @@ the whole project instead.
 | Doc | What it covers |
 | --- | --- |
 | [layout.md](layout.md) — module map | where every module lives and the one rule it obeys |
+| [lenses.md](lenses.md) — `--lens` | the seam, the `agent` dialect field by field, and what a new dialect must provide |
 | [testing.md](testing.md) — the suite | unit, golden and integration layers, plus the two soak harnesses |
 | [../install.sh](../install.sh) — the installer | what `curl \| sh` runs: platform detection, checksum verification, atomic install |
 

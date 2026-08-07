@@ -56,9 +56,15 @@ pub fn render_stdin(body: &[u8], args: &[&str]) -> String {
 
 /// Write `body` to a uniquely named temp file and return the path.
 pub fn temp_doc(name: &str, body: &[u8]) -> PathBuf {
+    temp_doc_ext(name, "md", body)
+}
+
+/// [`temp_doc`], with the extension spelled out — the format detector reads it,
+/// so `.json` and `.jsonl` over the same bytes are two different tests.
+pub fn temp_doc_ext(name: &str, ext: &str, body: &[u8]) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(format!(
-        "tread-{}-{}-{name}.md",
+        "tread-{}-{}-{name}.{ext}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

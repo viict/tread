@@ -280,3 +280,89 @@ path, and `q` must never wait on a scan.
 
 Malformed input never panics: an unterminated quote at EOF, a 50MB single cell,
 10k columns and embedded NULs all degrade to something readable.
+
+## JSON
+
+Hand-written, RFC 8259, no dependencies. The reader must open a large JSON file
+as fast as it opens a large CSV, which means the same discipline: **nothing
+reads the whole file on the open path.**
+
+### Structural indexing
+
+A container is indexed by *byte range*, not parsed:
+
+- Finding the boundaries of a container's immediate members is a linear byte
+  walk with a depth counter, an in-string flag and an escape flag. It builds no
+  values and allocates nothing per member beyond an offset.
+- The scan is **lazy and incremental**, exactly as the CSV row index is: enough
+  to paint the first screen, extended as the viewport moves and on idle ticks.
+- **Expanding a node indexes that node's members the same way.** Laziness is
+  therefore not limited to the top level: a document that is one object holding
+  one enormous array stays instant, because each level is indexed only when it
+  is opened.
+- A member is parsed into a value only when it is shown. The size cap applies
+  to *one member*, not to the document, and a member too large to parse says so
+  by name and number rather than being loaded until the machine suffers.
+
+There is deliberately **no cache**: no derived file, no invalidation rule, no
+second copy of the reader's data on disk. Making the first open cheap removes
+the reason to have one.
+
+### `.jsonl` / `.ndjson`
+
+A record per line — logs, exports, agent trajectories. Indexed lazily by line
+offset, records parsed only when shown. A single line may itself be tens of
+kilobytes, so per-record parsing is lazy too.
+
+A line that is not valid JSON renders as an error row carrying the reason and
+the line number, and does not stop the file. Half a log is still worth reading.
+
+### `--to-jsonl`
+
+Writes a top-level array to stdout as one element per line, so a document can be
+turned into the record form deliberately:
+
+```sh
+tread --to-jsonl big.json > big.jsonl
+```
+
+An export, not a cache: the reader never writes it on its own, and there is no
+staleness question because it exists only when asked for. Applies to a top-level
+array; anything else is refused with the reason. It streams — it must not hold
+the document in memory to write it.
+
+### Values
+
+- Numbers keep their **source text**. `1e999`, `0.1` and a 40-digit integer all
+  display exactly as written: a reader that round-trips through `f64` shows
+  something the document does not say.
+- Duplicate keys are kept, in order, for the same reason.
+- Parsing must not recurse on nesting depth — an explicit stack, so ten thousand
+  levels of `[[[[` is a refusal or a flat render, never a blown stack. The
+  renderer, the serialiser and the fold-range computation must not recurse
+  either: an iterative parser behind a recursive walker is still a crash.
+
+### The tree
+
+- Root open, everything under it folded. A collapsed node summarises itself:
+  `{…5 keys}`, `[…120 items]`. Counts come from the index, so summarising a node
+  does not require parsing it.
+- Keys, strings, numbers, booleans and `null` are coloured distinctly. Strings
+  are shown quoted, because `"1"` and `1` are different values.
+- The status bar names the path of the row under the cursor: `.users[3].name`.
+- `y` copies the value under the cursor, `Y` the subtree as valid JSON.
+- Control characters inside strings go through the shared sanitiser.
+
+### Lenses
+
+`--lens <name>` selects a semantic view over a record file, for records whose
+shape is known. Without it, records render as the generic tree; the flag only
+ever *adds* interpretation, and an unrecognised record falls back to the generic
+rendering rather than being hidden.
+
+The first is agent trajectories, where the generic tree is close to useless: a
+run is a conversation, and what a reader wants is the conversation with the
+mechanics folded away. Messages stay visible; consecutive tool calls and their
+results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that opens.
+Other dialects — and the ATIF interchange format — are later work; the seam is
+what this phase must get right.

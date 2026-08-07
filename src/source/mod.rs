@@ -40,6 +40,9 @@
 pub mod collapse;
 pub mod csv;
 pub mod detect;
+pub mod json;
+pub mod jsonl;
+pub mod jsonrow;
 pub mod markdown;
 pub mod search;
 

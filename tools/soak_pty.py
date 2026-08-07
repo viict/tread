@@ -202,7 +202,7 @@ def main():
         os.path.join(d, f)
         for d, _, fs in os.walk(root)
         for f in fs
-        if f.endswith((".md", ".csv", ".tsv"))
+        if f.endswith((".md", ".csv", ".tsv", ".json", ".jsonl", ".ndjson"))
     )
     if limit:
         docs = docs[:limit]

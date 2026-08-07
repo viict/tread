@@ -37,6 +37,7 @@ binary and nothing else. Windows builds are there too, as `.zip`.
 ```
 $ tread README.md
 $ tread data.csv
+$ tread big.json
 $ tread --index ~/notes
 ```
 
@@ -128,11 +129,19 @@ tread [OPTIONS] [FILE]
                    so the output stays visible after quitting.
   --plain          Disable color. Implied by NO_COLOR or a non-terminal stdout.
   --width <N>      Force the wrap width instead of detecting the terminal size.
-  --format <FMT>   Force the format: `md` or `csv`. By default the extension
-                   decides, and unnamed input (a pipe) is sniffed.
+  --format <FMT>   Force the format: `md`, `csv`, `json` or `jsonl`
+                   (`ndjson`). By default the extension decides, and unnamed
+                   input (a pipe) is sniffed.
   --delim <D>      CSV field delimiter: one character, or `tab`, `comma`,
                    `semicolon`, `pipe`. Sniffed among `,` TAB `;` `|` otherwise.
-  --toc            Print the heading outline (CSV: the column names) and exit.
+  --lens <NAME>    Read a record file through a semantic view: `agent` for
+                   Claude Code session logs. `--lens list` prints them all.
+                   Without it, records render as the generic tree.
+  --toc            Print the heading outline (CSV: the column names; JSON: the
+                   root's members) and exit.
+  --to-jsonl       Write a JSON document's top-level array to stdout as one
+                   element per line, and exit. Streams; anything but an array
+                   is refused with the reason.
   -h, --help       Show help.
   -V, --version    Show the version.
 ```
@@ -257,6 +266,102 @@ tick, so `q` returns immediately whatever the file size, and the status bar says
 A CSV has no sections and no links, so `o`, `za`, `Tab` and `n` say so instead
 of pretending — and `Enter`, which follows a link in markdown and folds a
 section when there is none, opens the row here.
+
+## Reading JSON
+
+```sh
+tread big.json
+tread --format json dump.txt
+curl -s https://api.example.com/things | tread
+tread --to-jsonl big.json > big.jsonl
+```
+
+A `.json` document opens as a foldable tree: the root open, everything under it
+folded, one row per member.
+
+```
+▾ {
+      "name": "ada"
+      "age": 36
+    ▸ "runs": […120 items]
+    ▸ "meta": {…5 keys}
+  }
+```
+
+It holds to the same rule CSV does — **nothing reads the whole file** — one
+level further down:
+
+- **Containers are indexed by byte range, never parsed.** Finding a container's
+  immediate members is a linear byte walk with a depth counter, an in-string
+  flag and an escape flag. It builds no values, costs 16 bytes a member, and is
+  resumable, so it runs a slice at a time as the viewport moves.
+- **Opening a node indexes that node.** Laziness is not only at the top level: a
+  document that is one object holding one enormous array is instant, because the
+  array is walked only when you open it.
+- **A member is parsed when it is shown, and not before.** The size cap is per
+  member, not per document; one past it says `⟨4.2 MB — over the 1.0 MB display
+  limit⟩` rather than being loaded, and a member that is not valid JSON becomes
+  an error row naming the reason and the byte, without stopping the file.
+- **A collapsed row counts itself from the index** — `{…5 keys}`, `[…120
+  items]` — so summarising a node never parses it. A count still being walked
+  shows `≥`, and settles on the idle tick.
+- **Numbers keep their source text.** `1e999`, `0.1` and a 40-digit integer all
+  display exactly as written; duplicate keys are kept, in order. Strings are
+  shown quoted, because `"1"` and `1` are different values, and a control
+  character inside one is shown as `·` rather than sent to the terminal.
+- **The status bar names the path under the cursor** — `.users[3].name` — and
+  the row count, `≥N (indexing 12%)` until the walk has reached the end.
+- **`y` copies the value under the cursor**, a string without the quotes the
+  screen shows it with; **`Y` copies the subtree as valid JSON**, the document's
+  own bytes with the insignificant whitespace taken out; **`c` copies it
+  verbatim**, exactly as written. `za`/`Enter` fold, `zM`/`zR` fold and unfold
+  everything, `Tab` steps between open containers.
+- **Nothing recurses on nesting.** Parser, value tree, serialiser, structural
+  scan, flatten and fold ranges are all iterative, so ten thousand levels of
+  `[[[[` are heap and never stack. The tree opens 256 levels and says
+  `⟨nested deeper than 256 levels — not opened⟩` below that — the flat render,
+  arrived at promptly, because indexing a container walks its bytes and a
+  chain of them would otherwise re-walk the same file once per level.
+
+`--to-jsonl` turns a top-level array into one element per line. It streams — a
+1 GB document exports in a couple of megabytes of memory — and it copies bytes
+rather than re-encoding, so numbers and escapes come out exactly as they went
+in. It is an export, never a cache: `tread` writes it only when asked.
+
+## Reading a trajectory
+
+A `.jsonl` / `.ndjson` file is a record per line — a log, an export, an agent
+run — indexed lazily by line offset and parsed a record at a time. `--lens`
+turns one back into what it recorded:
+
+```sh
+tread ~/.claude/projects/<slug>/<session>.jsonl            # the generic tree
+tread --lens agent ~/.claude/projects/<slug>/<session>.jsonl
+tread --lens list                                          # what there is
+```
+
+```
+▾ user       21:28   I want to create a reader for the terminal…
+▾            21:29   ⟨16 steps · 4 tool calls⟩
+▾ assistant  21:29   The codex is 106 markdown files with a README index…
+▾            21:31   ⟨15 steps · 3 tool calls⟩
+▾ assistant  21:32   Scaffold and contract are in place. Now the workflow…
+```
+
+A run is a conversation, so the conversation is what stays on screen: the
+mechanics — tool calls, their results, thinking, the transcript's own
+bookkeeping — collapse into one row that opens with `Enter`. `Tab` steps
+between messages and runs rather than through what a run folded away, and a
+search hit inside a folded run opens it.
+
+A lens only ever *adds* interpretation. A record it does not recognise renders
+exactly as it would without one, and every summary row still opens into the
+whole record: `Y` on a run copies every record in it as JSON. Reading a real
+4 MB, 2354-record session costs under 30 ms to the first screen — 2354
+records fold into 633 rows, and every one of them is still reachable.
+
+[`docs/lenses.md`](docs/lenses.md) documents the `agent` dialect field by field
+and what a new one has to provide.
 
 ## Working a corpus
 

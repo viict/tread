@@ -5,6 +5,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use crate::csv::delim;
+use crate::lens;
 use crate::source::detect::{parse_format, Format};
 
 pub const BIN: &str = "tread";
@@ -21,11 +22,19 @@ pub struct Args {
     pub no_alt: bool,
     pub plain: bool,
     pub width: Option<usize>,
-    /// `--format <md|csv>`: overrides the extension and the content sniff.
+    /// `--format <md|csv|jsonl>`: overrides the extension and the content sniff.
     pub format: Option<Format>,
     /// `--delim <char|tab|comma|semicolon|pipe>`: overrides the CSV sniff.
     pub delim: Option<u8>,
+    /// `--lens <name>`: a semantic view over a record file (SPEC.md §Lenses).
+    /// Validated here, so an unknown name never reaches the reader.
+    pub lens: Option<String>,
+    /// `--lens list`: print the lenses and exit 2.
+    pub lens_list: bool,
     pub toc: bool,
+    /// `--to-jsonl`: stream a top-level JSON array to stdout, one element per
+    /// line, and exit (SPEC.md §JSON).
+    pub to_jsonl: bool,
     pub help: bool,
     pub version: bool,
 }
@@ -65,7 +74,7 @@ impl fmt::Display for CliError {
 pub fn help_text() -> String {
     format!(
         "\
-{BIN} {VERSION} — a terminal reader for markdown and CSV
+{BIN} {VERSION} — a terminal reader for markdown, CSV and JSON
 
 USAGE
     {BIN} [OPTIONS] [FILE]
@@ -83,11 +92,18 @@ OPTIONS
                     non-terminal stdout.
     --width <N>     Force the wrap width to N columns instead of detecting
                     the terminal size.
-    --format <FMT>  Force the format: `md` or `csv`. By default the file
-                    extension decides, and unnamed input (a pipe) is sniffed.
+    --format <FMT>  Force the format: `md`, `csv`, `json` or `jsonl`
+                    (`ndjson`). By default the file extension decides, and
+                    unnamed input (a pipe) is sniffed.
     --delim <D>     CSV field delimiter: one character, or `tab`, `comma`,
                     `semicolon`, `pipe`. Sniffed among , TAB ; | by default.
+    --lens <NAME>   Read a record file through a semantic view: `agent` for
+                    Claude Code session logs. `--lens list` prints them all.
+                    Without it, records render as the generic JSON tree.
     --toc           Print the heading outline of the document and exit.
+    --to-jsonl      Write a JSON document's top-level array to stdout as one
+                    element per line, and exit. Streams: the document is never
+                    held in memory. Anything but an array is refused.
     -h, --help      Show this help and exit.
     -V, --version   Show the version and exit.
 
@@ -98,11 +114,25 @@ KEYS
     o  i                  outline/index  / ?        search
     v y Y c               select & yank  q  Ctrl-C   quit
 
+JSON
+    A .json document is a foldable tree: root open, everything under it
+    folded. Nothing reads the whole file, at any size — containers are
+    indexed by byte range as you open them, and a member is parsed only when
+    it is shown. y copies the value under the cursor, Y the subtree as valid
+    JSON, and the status bar names its path (.users[3].name).
+
 CSV
     Large files open instantly: the row index is built lazily, the header
     stays pinned, h/l move a whole column and w widens the column under the
     cursor. y copies the cell, Y the row and c the column, always as valid
     CSV rather than as the padded display form.
+
+LENSES
+    --lens turns a .jsonl trajectory back into the conversation it recorded:
+    messages stay on screen, and runs of tool calls and their results fold
+    into one row — \u{27e8}6 steps \u{b7} 4 tool calls\u{27e9} — that opens with Enter or za.
+    A record the lens does not recognise renders as the generic tree, whole:
+    a lens adds interpretation and never hides data.
 
 The mouse is never captured, so terminal-native drag-select always works.
 "
@@ -154,9 +184,9 @@ fn parse_long<I: Iterator<Item = String>>(
         None => (body, None),
     };
     let flag = format!("--{name}");
-    let wants_value = matches!(name, "index" | "width" | "format" | "delim");
+    let wants_value = matches!(name, "index" | "width" | "format" | "delim" | "lens");
     if let (false, Some(v)) = (wants_value, inline.as_ref()) {
-        if matches!(name, "no-alt" | "plain" | "toc" | "help" | "version") {
+        if matches!(name, "no-alt" | "plain" | "toc" | "to-jsonl" | "help" | "version") {
             return Err(CliError::BadValue {
                 flag,
                 value: v.clone(),
@@ -174,12 +204,14 @@ fn parse_long<I: Iterator<Item = String>>(
         "index" => out.index = Some(PathBuf::from(take()?)),
         "width" => out.width = Some(parse_width(&take()?)?),
         "format" => {
-            out.format = Some(parsed(parse_format, take()?, &flag, "expected `md` or `csv`")?)
+            out.format = Some(parsed(parse_format, take()?, &flag, FORMAT_WHY)?)
         }
         "delim" => out.delim = Some(parsed(delim::parse_delim, take()?, &flag, DELIM_WHY)?),
+        "lens" => set_lens(out, take()?, &flag)?,
         "no-alt" => out.no_alt = true,
         "plain" => out.plain = true,
         "toc" => out.toc = true,
+        "to-jsonl" => out.to_jsonl = true,
         "help" => out.help = true,
         "version" => out.version = true,
         _ => return Err(CliError::UnknownFlag(flag.clone())),
@@ -187,9 +219,41 @@ fn parse_long<I: Iterator<Item = String>>(
     Ok(())
 }
 
+/// `--lens <name>`: `list` asks for the catalogue, a known name selects it, and
+/// anything else is a usage error naming what there is. Both of the first two
+/// exit 2 (SPEC.md §Lenses is a flag, never a guess), which is why `list` is
+/// carried on [`Args`] rather than printed from here — this function neither
+/// writes nor exits.
+fn set_lens(out: &mut Args, value: String, flag: &str) -> Result<(), CliError> {
+    if value == "list" {
+        out.lens_list = true;
+        return Ok(());
+    }
+    if !lens::exists(&value) {
+        return Err(CliError::BadValue {
+            flag: flag.to_string(),
+            value,
+            why: lens_why(),
+        });
+    }
+    out.lens = Some(value);
+    Ok(())
+}
+
+/// The names there are, for the error and the help text.
+fn lens_why() -> String {
+    format!(
+        "expected `list` or one of: {}",
+        lens::names().join(", ")
+    )
+}
+
 /// Why a `--delim` value was rejected. A constant so the message and the
 /// `--help` text cannot drift apart.
 const DELIM_WHY: &str = "expected one character, or tab/comma/semicolon/pipe";
+
+/// Why a `--format` value was rejected, for the same reason.
+const FORMAT_WHY: &str = "expected `md`, `csv`, `json` or `jsonl`";
 
 /// Apply a value parser to a flag's argument, turning `None` into the standard
 /// "invalid value" error.
@@ -347,10 +411,13 @@ mod tests {
             assert_eq!(a.format, Some(Format::Csv));
         }
         assert_eq!(p(&["--format=md"]).unwrap().format, Some(Format::Markdown));
+        assert_eq!(p(&["--format=jsonl"]).unwrap().format, Some(Format::Jsonl));
+        assert_eq!(p(&["--format", "ndjson"]).unwrap().format, Some(Format::Jsonl));
+        assert_eq!(p(&["--format=json"]).unwrap().format, Some(Format::Json));
         assert_eq!(p(&["--delim", "tab"]).unwrap().delim, Some(b'\t'));
         assert_eq!(p(&["--delim=;"]).unwrap().delim, Some(b';'));
         assert_eq!(p(&[]).unwrap().format, None);
-        for bad in ["json", "", "yaml"] {
+        for bad in ["", "yaml"] {
             assert!(p(&["--format", bad]).is_err(), "{bad} should be rejected");
         }
         for bad in ["", "abc", "\""] {
@@ -358,11 +425,53 @@ mod tests {
         }
     }
 
+    /// `--to-jsonl` is an export, so it is a flag and not a value: it takes
+    /// none, it is off by default, and it survives being mixed with a FILE.
+    #[test]
+    fn to_jsonl_is_a_plain_flag() {
+        assert!(!p(&[]).unwrap().to_jsonl);
+        assert!(p(&["--to-jsonl"]).unwrap().to_jsonl);
+        let a = p(&["--to-jsonl", "big.json"]).unwrap();
+        assert!(a.to_jsonl);
+        assert_eq!(a.file, Some(PathBuf::from("big.json")));
+        assert!(p(&["--to-jsonl=yes"]).is_err());
+    }
+
+    /// `--lens` is validated here, against the same table the reader resolves
+    /// it from: an unknown name can never reach a file.
+    #[test]
+    fn lens_names_are_checked_against_the_registry() {
+        let a = p(&["--lens", "agent", "run.jsonl"]).unwrap();
+        assert_eq!(a.lens.as_deref(), Some("agent"));
+        assert!(!a.lens_list);
+        assert_eq!(p(&["--lens=agent"]).unwrap().lens.as_deref(), Some("agent"));
+        assert_eq!(p(&[]).unwrap().lens, None);
+
+        let err = p(&["--lens", "opencode"]).unwrap_err();
+        assert!(matches!(err, CliError::BadValue { .. }));
+        let text = err.to_string();
+        assert!(text.contains("opencode"), "{text}");
+        assert!(text.contains("agent"), "the error lists what there is: {text}");
+        assert!(text.contains("list"), "{text}");
+        assert!(p(&["--lens"]).is_err(), "the flag takes a value");
+    }
+
+    /// `--lens list` is a question the caller answers by printing and exiting
+    /// 2; the parser only records that it was asked.
+    #[test]
+    fn lens_list_is_carried_not_printed() {
+        let a = p(&["--lens", "list"]).unwrap();
+        assert!(a.lens_list);
+        assert_eq!(a.lens, None);
+        assert!(p(&["--lens=list"]).unwrap().lens_list);
+    }
+
     #[test]
     fn help_and_version_text_are_useful() {
         let h = help_text();
         for needle in [
-            "--index", "--no-alt", "--plain", "--width", "--toc", "-V", "--format", "--delim",
+            "--index", "--no-alt", "--plain", "--width", "--toc", "--to-jsonl", "-V", "--format",
+            "--delim", "--lens", "agent",
         ] {
             assert!(h.contains(needle), "help missing {needle}");
         }

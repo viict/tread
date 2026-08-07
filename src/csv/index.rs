@@ -1,36 +1,34 @@
 //! The lazy byte-offset row index (SPEC.md §CSV, "Row index").
 //!
-//! A multi-GB CSV must open instantly and quit instantly, so nothing here runs
-//! on the open path except a `stat` and one 3-byte BOM peek. The index records
-//! the byte offset of each row's first byte and grows *only* as far as
-//! somebody asks: painting the first screen indexes the first screen, scrolling
-//! extends it, and the idle tick extends it further. Every one of those goes
-//! through [`RowIndex::ensure`] or [`RowIndex::ensure_bytes`] — the whole
-//! driving surface — so a forced full scan (`G`) is nothing but a caller
-//! spending slice after slice, which is what makes it interruptible between
-//! them and what leaves the progress report to [`RowIndex::progress`]. Rows are
-//! never held in memory — [`RowStore::row`] seeks to an offset and reads to the
-//! next one, which is O(1) given the index.
+//! A multi-GB CSV must open and quit instantly, so nothing here runs on the open
+//! path except a `stat` and one 3-byte BOM peek. The index records the byte
+//! offset of each row's first byte and grows *only* as far as somebody asks:
+//! painting the first screen indexes the first screen, scrolling extends it, the
+//! idle tick extends it further. Every one goes through [`RowIndex::ensure`] or
+//! [`RowIndex::ensure_bytes`] — the whole driving surface — so a forced full scan
+//! (`G`) is a caller spending slice after slice, which is what makes it
+//! interruptible and what leaves the progress report to [`RowIndex::progress`].
+//! Rows are never held in memory: [`RowStore::row`] seeks and reads, O(1).
 //!
-//! # Quoting
+//! # Where a row ends
 //!
-//! A newline inside a quoted field is not a row boundary, and one wrong
-//! boundary corrupts every offset after it. The rules therefore live in
-//! exactly one place — [`super::parse::Scanner`], the same machine the
-//! renderer splits fields with — and this module only drives it, through
-//! [`super::parse::scan_row_ends`] and [`super::parse::finish_row_end`].
-//! Nothing here knows what a quote is. The scanner is resumable across chunk
-//! boundaries, including one that splits a `\r\n`, which is why the index can
-//! walk the file a window at a time with no lookback.
+//! A newline inside a quoted field is not a row boundary, and one wrong boundary
+//! corrupts every offset after it. The rules therefore live in exactly one place
+//! — [`super::parse::Scanner`], the machine the renderer splits fields with —
+//! and this module only drives it, through [`super::parse::scan_row_ends`] and
+//! [`super::parse::finish_row_end`]. Nothing here knows what a quote is, which
+//! is what lets `.jsonl` drive this same index with
+//! [`super::parse::Scanner::lines`]. The scanner resumes across chunk
+//! boundaries, one splitting a `\r\n` included, so the index walks the file a
+//! window at a time with no lookback.
 //!
 //! # Memory
 //!
 //! Offsets are stored as a `u32` delta from a per-[`BLOCK`] (1024-row) `u64`
-//! base, so a row costs 4 bytes plus 8 bytes per 1024 rows: ~40MB for 10M
-//! rows, against ~80MB for a flat `Vec<u64>`. Lookup stays O(1) — one index
-//! into `bases`, one into `deltas`. A single block spanning more than 4GiB (a
-//! pathological file of megabyte rows) puts its offsets in the `spill` map
-//! instead, which is still O(1) and still exact.
+//! base, so a row costs 4 bytes plus 8 bytes per 1024 rows: ~40MB for 10M rows,
+//! against ~80MB for a flat `Vec<u64>`. Lookup stays O(1) — one index into
+//! `bases`, one into `deltas`. A single block spanning more than 4GiB (a file of
+//! megabyte rows) puts its offsets in the `spill` map, still O(1) and exact.
 #![deny(unsafe_code)]
 
 use std::collections::HashMap;
@@ -135,6 +133,10 @@ impl Offsets {
     }
 }
 
+/// Where row 0 starts: past a UTF-8 BOM. All that opening a file costs.
+pub fn origin(r: &mut Reader) -> u64 {
+    parse::bom_len(r.chunk(0, parse::BOM.len())) as u64
+}
 /// Byte offsets of every row indexed so far.
 pub struct RowIndex {
     offs: Offsets,
@@ -146,6 +148,11 @@ pub struct RowIndex {
     /// Mid-row state of the shared machine, carried across windows so a row
     /// larger than the window costs no extra memory.
     scanner: Scanner,
+    /// The pristine machine: what a restart resets to, and not
+    /// `Scanner::new(delim)`, which would forget the line grammar. Only a file
+    /// that moved under an open reader restarts, which is a `cfg(test)` path.
+    #[cfg_attr(not(test), allow(dead_code))]
+    start: Scanner,
     /// End of data, meaningful once `complete`.
     end: u64,
     complete: bool,
@@ -161,14 +168,19 @@ pub struct RowIndex {
 }
 
 impl RowIndex {
-    /// An index over a file whose first row starts at `origin` (past the BOM),
-    /// with fields separated by `delim`.
+    /// An index over a file starting at `origin` (past the BOM), `delim`-separated.
     pub fn new(origin: u64, delim: u8) -> RowIndex {
+        RowIndex::with_scanner(origin, Scanner::new(delim))
+    }
+
+    /// The constructor `new` is made of: the row grammar is the caller's.
+    pub fn with_scanner(origin: u64, scanner: Scanner) -> RowIndex {
         RowIndex {
             offs: Offsets::default(),
             origin,
             cursor: origin,
-            scanner: Scanner::new(delim),
+            scanner,
+            start: scanner,
             end: origin,
             complete: false,
             unterminated: false,
@@ -356,7 +368,7 @@ impl RowIndex {
             0 => self.origin,
             n => self.offs.get(n - 1).unwrap_or(self.origin),
         };
-        self.scanner = Scanner::new(self.scanner.delim());
+        self.scanner = self.start;
         self.complete = false;
         self.unterminated = false;
         self.last_terminated = true;
@@ -376,7 +388,7 @@ impl RowIndex {
             self.offs.push(self.end);
             self.cursor = self.end;
         }
-        self.scanner = Scanner::new(self.scanner.delim());
+        self.scanner = self.start;
         self.complete = false;
         self.unterminated = false;
         self.last_terminated = true;
@@ -412,16 +424,14 @@ impl RowStore {
     /// not depend on file size.
     pub fn open(path: &Path, delim: u8) -> io::Result<RowStore> {
         let mut reader = Reader::open(path)?;
-        let origin = parse::bom_len(reader.chunk(0, parse::BOM.len())) as u64;
-        let index = RowIndex::new(origin, delim);
+        let index = RowIndex::new(origin(&mut reader), delim);
         Ok(RowStore { reader, index })
     }
 
     /// A store over bytes that arrived on a pipe. See [`Reader::memory`].
     pub fn memory(data: Vec<u8>, delim: u8) -> RowStore {
         let mut reader = Reader::memory(data);
-        let origin = parse::bom_len(reader.chunk(0, parse::BOM.len())) as u64;
-        let index = RowIndex::new(origin, delim);
+        let index = RowIndex::new(origin(&mut reader), delim);
         RowStore { reader, index }
     }
 

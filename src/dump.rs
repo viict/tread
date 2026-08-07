@@ -72,10 +72,18 @@ pub fn write_source(
             // `len` grows as a lazily indexed format discovers more of its
             // file. One bounded slice, then look again: draining the index
             // first would make the first row wait for the last.
-            match src.extend() {
-                true => continue,
-                false => return Ok(()),
+            //
+            // The slice that finishes the file both *finds* the last rows and
+            // reports that there is no more work, so "no more work" cannot end
+            // the dump on its own — only "no more work and no new rows" can.
+            // Getting this wrong truncates the output silently: a document
+            // whose last rows sit past one budget printed the rows before them
+            // and exited 0.
+            let more = src.extend();
+            if !more && src.len() <= end {
+                return Ok(());
             }
+            continue;
         }
         let window = src.lines(at..end.min(at + WINDOW_ROWS));
         if window.is_empty() {
@@ -320,6 +328,30 @@ mod tests {
         let all = crate::source::Source::lines(&mut src, 0..n);
         assert_eq!(streamed, paint(&all, true, None));
         assert!(streamed.lines().count() > 2 * WINDOW_ROWS);
+    }
+
+    /// The last rows of a lazily indexed document must reach the output.
+    ///
+    /// A JSON member bigger than one scan budget takes several `extend` calls
+    /// to step over. The call that finally steps over it both finds the rows
+    /// after it and reports that there is no work left — so a dump that stopped
+    /// on "no work left" alone printed the rows *before* the big member, the
+    /// closing bracket and everything after it silently missing, and exited 0.
+    #[test]
+    fn a_member_bigger_than_one_scan_budget_does_not_truncate_the_dump() {
+        use crate::source::json::JsonSource;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(br#"{"small":1,"blob":""#);
+        bytes.extend(std::iter::repeat(b'x').take(6 * 1024 * 1024));
+        bytes.extend_from_slice(br#"","tail":2}"#);
+        let mut src = JsonSource::from_bytes(bytes);
+        let out = render_source(&mut src, 100, true, false);
+        let rows: Vec<&str> = out.lines().collect();
+        assert_eq!(rows.len(), 5, "every row reaches the output: {rows:#?}");
+        assert!(rows[1].contains("\"small\": 1"));
+        assert!(rows[2].contains("over the"), "the big member says why: {:?}", rows[2]);
+        assert!(rows[3].contains("\"tail\": 2"), "the row after it survives");
+        assert_eq!(rows[4].trim(), "}", "and so does the closing bracket");
     }
 
     /// The dump path must not index a lazily discovered file before it writes

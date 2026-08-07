@@ -13,9 +13,11 @@
 mod sys;
 
 mod cli;
+mod lens;
 mod csv;
 mod open;
 mod dump;
+mod json;
 mod key;
 mod md;
 mod nav;
@@ -57,6 +59,13 @@ fn run() -> i32 {
     if args.version {
         return emit(&cli::version_text());
     }
+    // `--lens list` is a question, not a run: it prints what there is and
+    // exits 2, the same code an unknown name gets (SPEC.md §Lenses — the flag
+    // is explicit, so "which are there" is answered rather than guessed).
+    if args.lens_list {
+        emit(&lens::list_text());
+        return EXIT_USAGE;
+    }
     install_panic_hook();
     match start(&args) {
         Ok(()) => EXIT_OK,
@@ -69,6 +78,13 @@ fn run() -> i32 {
 
 fn start(args: &cli::Args) -> Result<(), Fail> {
     let input = resolve_input(args)?;
+    // An export, not a view: it never enters the pager, and it streams, so a
+    // document too big to hold costs a read window (SPEC.md §JSON).
+    if args.to_jsonl {
+        let stdout = std::io::stdout();
+        let mut out = std::io::BufWriter::new(stdout.lock());
+        return open::to_jsonl(&input, &mut out);
+    }
     if args.toc {
         emit(&toc_text(&input, args)?);
         return Ok(());

@@ -160,6 +160,80 @@ pub const fn heading_indent(level: u8) -> usize {
 pub const MARKER_OPEN: char = '\u{25be}'; // ▾
 pub const MARKER_CLOSED: char = '\u{25b8}'; // ▸
 
+// ---------------------------------------------------------------------------
+// JSON tree (SPEC.md §JSON, "The tree")
+// ---------------------------------------------------------------------------
+//
+// "Keys, strings, numbers, booleans and null are coloured distinctly." Five
+// colours that stay apart on a dark and on a light terminal, plus a dim one for
+// the punctuation so the structure recedes behind the data.
+
+pub const JSON_KEY_FG: u8 = 81;
+pub const JSON_STR_FG: u8 = 150;
+pub const JSON_NUM_FG: u8 = 215;
+pub const JSON_BOOL_FG: u8 = 141;
+pub const JSON_NULL_FG: u8 = MUTED_FG;
+pub const JSON_PUNCT_FG: u8 = RULE_FG;
+/// A row that could not be read: a member past the size cap, or invalid JSON.
+pub const ERROR_FG: u8 = 203;
+
+pub const fn json_key() -> Style {
+    Style::new().fg(JSON_KEY_FG)
+}
+pub const fn json_string() -> Style {
+    Style::new().fg(JSON_STR_FG)
+}
+pub const fn json_number() -> Style {
+    Style::new().fg(JSON_NUM_FG)
+}
+pub const fn json_bool() -> Style {
+    Style::new().fg(JSON_BOOL_FG).bold()
+}
+pub const fn json_null() -> Style {
+    Style::new().fg(JSON_NULL_FG).italic()
+}
+pub const fn json_punct() -> Style {
+    Style::new().fg(JSON_PUNCT_FG)
+}
+/// The `▾`/`▸` in front of a container row.
+pub const fn json_marker() -> Style {
+    Style::new().fg(GUTTER_FG)
+}
+pub const fn error() -> Style {
+    Style::new().fg(ERROR_FG)
+}
+
+// ---------------------------------------------------------------------------
+// Lenses (SPEC.md §Lenses)
+// ---------------------------------------------------------------------------
+//
+// A trajectory read through a lens is a conversation, so the speaker is what
+// the eye should find first: one colour per actor, reusing the JSON palette's
+// hues rather than starting a second one, and everything that is not speech —
+// the clock, the group summary — in the same muted grey the tree's punctuation
+// uses.
+
+pub const fn lens_user() -> Style {
+    Style::new().fg(JSON_KEY_FG).bold()
+}
+pub const fn lens_assistant() -> Style {
+    Style::new().fg(STATUS_LIVE).bold()
+}
+pub const fn lens_tool() -> Style {
+    Style::new().fg(JSON_NUM_FG)
+}
+pub const fn lens_system() -> Style {
+    Style::new().fg(MUTED_FG)
+}
+/// The clock on a summary row.
+pub const fn lens_time() -> Style {
+    Style::new().fg(GUTTER_FG)
+}
+/// `⟨6 steps · 4 tool calls⟩` — a count of what is folded away, not content.
+pub const fn lens_group() -> Style {
+    Style::new().fg(MUTED_FG).italic()
+}
+
 /// Stands in for a row's left border when the row carries more fields than the
 /// header named. It replaces the bar rather than sitting beside it: a grid that
 /// shifted by a column on some rows would be worse than the problem it reports.

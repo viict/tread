@@ -12,11 +12,10 @@
 //! * the indexer feeds it bytes and watches for [`Event::EndRow`], via
 //!   [`scan_row_ends`], keeping only offsets;
 //! * the renderer feeds it one row's bytes and collects the values, via
-//!   [`Records`] / [`record`].
+//!   [`Records`] / [`record`]; `.jsonl` drives it with quoting off.
 //!
 //! [`Scanner`] is `Copy`, holds no buffers, and is resumable across arbitrary
 //! chunk boundaries — including one that splits a `\r\n`.
-//!
 //! # What it accepts
 //!
 //! Quoted fields with embedded delimiters, `LF`, `CR` and `CRLF`; `""` as a
@@ -131,11 +130,20 @@ pub struct Scanner {
     /// Has the current row consumed a byte? Distinguishes "file ends after a
     /// terminator" (no trailing row) from "file ends mid-row" (one more row).
     started: bool,
+    /// `"` opens a quoted field. See [`Scanner::lines`].
+    quoting: bool,
 }
 
 impl Scanner {
     pub fn new(delim: u8) -> Scanner {
-        Scanner { delim, st: St::FieldStart, pad: 0, started: false }
+        Scanner { delim, st: St::FieldStart, pad: 0, started: false, quoting: true }
+    }
+
+    /// A scanner for a file whose records are *lines*: no quoting, so every
+    /// `LF`, `CRLF` or bare `CR` ends a row and nothing suppresses one. The
+    /// delimiter is `NUL`, so field boundaries never fire (`crate::source::jsonl`).
+    pub fn lines() -> Scanner {
+        Scanner { delim: 0, st: St::FieldStart, pad: 0, started: false, quoting: false }
     }
 
     pub fn delim(&self) -> u8 {
@@ -209,7 +217,7 @@ impl Scanner {
                 self.st = St::Cr;
                 Step { spaces, push: None, event: Event::Continue }
             }
-            QUOTE if matches!(self.st, St::FieldStart | St::Pad) => {
+            QUOTE if self.quoting && matches!(self.st, St::FieldStart | St::Pad) => {
                 self.pad = 0;
                 self.st = St::Quoted;
                 Step::SKIP

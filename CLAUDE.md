@@ -1,6 +1,6 @@
 # tread
 
-A terminal reader for markdown and CSV — `less`, but it understands markdown: collapsible
+A terminal reader for markdown, CSV and JSON — `less`, but it understands markdown: collapsible
 headings, banner H1s, real tables, colored links, and navigation across a
 corpus of linked documents. Crate `tread`, binary `tread`.
 
@@ -52,9 +52,14 @@ corpus of linked documents. Crate `tread`, binary `tread`.
 | `src/term/` | raw-mode guard, alt screen, ANSI, frame buffer, OSC 52 |
 | `src/key/` | byte stream to `Key` decoder |
 | `src/md/` | `mod.rs` (`parse`), `block.rs`, `inline.rs`, `ast.rs`, `sanitize.rs` |
-| `src/csv/` | the CSV foundation: RFC 4180 `parse.rs`, lazy `index.rs`, windowed `read.rs`, `delim.rs` |
-| `src/source/` | the format seam: `Source`, `markdown.rs`, `csv/`, `detect.rs`. Formats are compiled in, never loaded |
-| `src/open.rs` | resolving the input and building the `Box<dyn Source>` behind it |
+| `src/csv/` | the CSV foundation: RFC 4180 `parse.rs`, lazy `index.rs`, windowed `read.rs`, `delim.rs`. The index is grammar-agnostic: `.jsonl` drives it with a quoting-free `Scanner::lines` |
+| `src/json/` | the JSON foundation: RFC 8259 `parse.rs`, the source-faithful `value.rs` tree, `write.rs`, `error.rs`, and the lazy structural `index.rs` — all iterative, nothing recurses on nesting |
+| `src/source/` | the format seam: `Source`, `markdown.rs`, `csv/`, `json/`, `jsonl/`, `jsonrow.rs`, `detect.rs`. Formats are compiled in, never loaded |
+| `src/source/jsonrow.rs` | the **one** JSON tree-row grammar: indent, fold marker, key spelling, collapsed summary, scalar colours, path steps. Both JSON sources build every row through it, and `tests/json_differential.rs` reads the same content both ways and compares — two renderers would drift and the same object would look different depending on which file it came from |
+| `src/source/json/` | JSON behind the seam: the lazily indexed `tree.rs` with `ident.rs` (a member's bytes, key and path — **derived** from the parent chain, never stored, or the paths alone cost O(depth²)), the fold state and flatten in `flat.rs`, `render.rs`, the `Source` impl in `view.rs`, and `export.rs` (`--to-jsonl`) |
+| `src/source/jsonl/` | `.jsonl` / `.ndjson` behind the seam: a record per line over the *CSV* lazy line index, `rowmap.rs` (which rows an open record owns), `tree.rs` (one iterative walker: count, rows, path, over `jsonrow`'s grammar), `rows.rs`, `view.rs`, and the lens half — `plan.rs` (items: which records share a row, and the two-level row arithmetic) and `lensrow.rs` (the lens state on the source, and the rows it paints) |
+| `src/lens/` | the `--lens` seam (SPEC.md §Lenses): `mod.rs` holds `Lens`, `Summary` and the registry; one module per dialect (`agent.rs` — Claude Code session logs). A lens is a **transform over records**, never a `Source`: it says what one record *is* and nothing about rows, folding or search. A record it does not recognise falls back to the generic tree and is never hidden. Adding a dialect is a module plus one line in `LENSES` — `docs/lenses.md` is the contract |
+| `src/open.rs` | resolving the input and building the `Box<dyn Source>` behind it; `open/lens.rs` is the one place a `--lens` meets a format |
 | `src/render/` | AST + width to styled wrapped lines |
 | `src/theme.rs` | palette, heading styles, banner glyphs |
 | `src/pager/` | viewport, scrolling, collapse tree, search |
@@ -97,12 +102,21 @@ changes do not break every test. Goldens are checked in under `tests/golden/`
 from fixtures in `tests/fixtures/`; regenerate with
 `UPDATE_GOLDEN=1 cargo test --test golden_files`.
 
-Two soak harnesses run outside `cargo test` and must stay green before shipping:
+Soak harnesses run outside `cargo test` and must stay green before shipping:
 
 ```sh
 tools/soak.sh target/x86_64-unknown-linux-musl/release/tread ~/notes
 tools/soak_pty.py target/x86_64-unknown-linux-musl/release/tread ~/notes
+
+# scale + hostile input, per format. Both generate everything they need
+# (csvgen.py / jsongen.py are deterministic) and check nothing in.
+tools/soak_csv.sh  target/x86_64-unknown-linux-musl/release/tread
+tools/soak_json.sh target/x86_64-unknown-linux-musl/release/tread
 ```
+
+The scale claim these pin is that open time, quit time and resident memory do
+not track file size. `tools/csvbench.py` and `tools/jsonbench.py` measure it
+through a real pty, which is the only place the claim means anything.
 
 `docs/windows.md` documents what the console backend does, and — importantly — what
 about it is *not* verified: it type-checks for both Windows targets and its pure
