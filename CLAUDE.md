@@ -121,8 +121,12 @@ The scale claim these pin is that open time, quit time and resident memory do
 not track file size. `tools/csvbench.py` and `tools/jsonbench.py` measure it
 through a real pty, which is the only place the claim means anything.
 
-`docs/windows.md` documents what the console backend does, and — importantly — what
-about it is *not* verified: it type-checks for both Windows targets and its pure
-logic is host-tested, but it has never been executed on Windows hardware. Never
-claim it works; claim only what a command in this repo printed. If a change would
-make that document wrong, the change is above `sys` and belongs somewhere else.
+`docs/windows.md` documents what the console backend does, and — importantly — the
+exact line between what is verified and what is not. The suite runs natively on
+both MSVC targets in CI, and at v0.2.0 `install.ps1` and the interactive reader
+were exercised once by hand on real hardware; the interactive path under
+adversarial conditions — drag-select above all — has no automated harness on
+Windows and stays hand-verified. Never claim more than that; claim only what a
+command printed or a session actually did, and keep that document's
+verified/not-verified lists true when you change the backend. If a change would
+make the document wrong, the change is above `sys` and belongs somewhere else.

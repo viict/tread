@@ -5,13 +5,23 @@ This described a backend that did not exist. It now describes one that does:
 `extern "system"` bindings to `kernel32` with no `windows-sys`, no `winapi` and
 no `libc`.
 
-**Read this caveat first.** The backend has never run on Windows. There is no
-Windows machine, no Wine and no mingw linker in this project's loop. Everything
-below is *implemented and type-checked* for `x86_64-pc-windows-msvc` and
-`x86_64-pc-windows-gnu`, and every part of it that is arithmetic rather than a
-syscall is unit-tested on the Linux builder — but "compiles and its pure logic
-passes tests" is not "works". The first execution on real hardware is the first
-real test. §"What is and is not verified" is precise about the line.
+**Read this caveat first.** The backend *does* run on Windows, and the line
+between what that proves and what it does not is narrow enough to state exactly.
+
+CI builds and runs the full test suite natively on `x86_64-pc-windows-msvc` and
+`aarch64-pc-windows-msvc` on every push and every release, followed by a smoke
+run of the non-interactive paths. As of v0.2.0 the installer and the interactive
+reader have also been exercised by hand on one real Windows machine: `install.ps1`
+installed from the published release and the installed `tread.exe` ran cleanly.
+
+What that leaves open is the *interactive console path under adversarial
+conditions*. There is no ConPTY soak harness, so nothing automated drives the
+pager on Windows the way `tools/soak_pty.py` does on unix, and one clean session
+on one machine is not the same evidence. Drag-select — a product
+non-negotiable — resize, the close/logoff handlers, browser opening, Windows
+PowerShell 5.1 and the interactive path on arm64 are all still unverified.
+§"What is and is not verified" is precise about each. Claim only what a command
+printed or a session actually did.
 
 ## The seam
 
@@ -335,13 +345,29 @@ itself runs on Linux. Against a real `pwsh`, on the builder:
   tampered `SHA256SUMS` and a missing one were both served from a local
   server and both refused with nothing installed.
 
+Verified **on Windows itself**:
+
+- **The full test suite**, natively on `x86_64-pc-windows-msvc` and
+  `aarch64-pc-windows-msvc`, on every push and pull request (`ci.yml`) and again
+  on every release (`release.yml`). Both are real Windows runners, not
+  cross-compilation.
+- **Release linking and a smoke run** on both MSVC targets: `--version`,
+  `--help`, `--toc`, three `--plain` renders including the hostile fixture, and
+  piped stdin. These are the non-interactive paths — no console is opened, so
+  raw mode and teardown are untouched by this.
+- **`install.ps1`, end to end on real hardware**, once, at v0.2.0: it installed
+  from the published release and the installed `tread.exe` ran cleanly as an
+  interactive reader. That is one session on one machine — enough to retire "the
+  backend has never run", not enough to call the console path proven.
+
 **Not** verified, and unverifiable from here:
 
 - That any of the syscalls behave as documented — that `ReadFile` on a
   VT-input console really yields UTF-8 ANSI, that `WaitForSingleObject` really
   signals when it should, that `CONOUT$` opens under every shell.
-- Linking. No mingw linker and no MSVC toolchain here; `cargo check` is as far as
-  it goes for both Windows targets.
+- Linking **with mingw**. `cargo check` is as far as `x86_64-pc-windows-gnu`
+  goes; nothing links it. MSVC is no longer in this list — CI builds release
+  binaries natively for both MSVC targets, so a link error there fails the run.
 - That `rundll32 url.dll,FileProtocolHandler <url>` actually opens the default
   browser, that `rundll32` resolves on `PATH`, or that `CreateProcess` quotes the
   argument vector the way the Rust standard library documents. Only the vector
@@ -349,15 +375,15 @@ itself runs on Linux. Against a real `pwsh`, on the builder:
   an error either way (SPEC.md §"Opening a link outside the reader").
 - Anything about a real console host's rendering: line wrapping at the last
   column, the code-page switch surviving, how conhost handles a wide CJK cell.
-- Everything about `install.ps1` that is *Windows*. It has never run on
-  Windows and never under **Windows PowerShell 5.1**, which is a different
+- `install.ps1` under **Windows PowerShell 5.1**. It has now run on Windows —
+  once, by hand, installing from the real release — but 5.1 is a different
   engine from the PowerShell 7 it was tested against — the .NET Framework
   behind it, its `Expand-Archive`, and the TLS branch that only 5.1 takes are
-  all unexercised. Nor is: the registry write to `HKCU:\Environment`, that
-  renaming a running `tread.exe` is permitted, `PROCESSOR_ARCHITEW6432` really
-  holding what the documentation says, `Unblock-File`, or that the installed
-  exe runs. On Linux only the shapes of these could be tested, by stubbing
-  their collaborators.
+  all unexercised on that engine. Nor is: the registry write to
+  `HKCU:\Environment`, that renaming a *running* `tread.exe` is permitted,
+  `PROCESSOR_ARCHITEW6432` really holding what the documentation says, or
+  `Unblock-File`. That the installed exe runs is no longer in this list. On Linux
+  only the shapes of these could be tested, by stubbing their collaborators.
 - The soak harnesses. `tools/soak.sh` and `tools/soak_pty.py` are Linux-only and
   are run against the musl binary; the Windows equivalent wants a pseudoconsole
   (`CreatePseudoConsole`) driving the same key script and asserting the same
