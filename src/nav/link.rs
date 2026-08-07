@@ -222,7 +222,10 @@ fn classify_path(raw: &str, path: PathBuf, anchor: Option<String>, fs: &dyn Fs) 
                 anchor,
             };
         }
-        return broken(raw, "directory has no README.md");
+        // No README to prefer, so the directory itself is the document
+        // (SPEC.md §Directories). Refusing here would tell the reader what is
+        // missing instead of showing them what is there.
+        return Target::Doc { path, anchor };
     }
     // Any file that exists is followable. The reader has a format for every
     // one of them — markdown, CSV, JSON, records, or plain text for everything

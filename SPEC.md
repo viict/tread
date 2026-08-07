@@ -448,3 +448,27 @@ verify it against the release's `SHA256SUMS`, refuse to install anything that
 does not match, and install to a per-user location on `PATH`
 (`%LOCALAPPDATA%\Programs\tread` by default, `$env:INSTALL_PATH` to change it).
 It reports how to add the directory to `PATH` when it is not already there.
+
+## Directories
+
+A directory is something to read, not an error. `tread some/dir` lists it, and a
+corpus link to a directory opens the listing when there is no `README.md` to
+prefer — the current refusal, "directory has no README.md", tells the reader
+what is missing rather than showing them what is there.
+
+- Directories first, each with a trailing `/`, then files with a human size and
+  the format `tread` would read them as. Sorted case-insensitively within each
+  group, so a listing reads the way a person would write it.
+- **Dotfiles are hidden but counted.** The header says how many, and `a` toggles
+  them: hiding what exists without saying so would be lying about the
+  directory's contents.
+- Every entry is a link, so `n` walks them, `←`/`→` select along a row and
+  `Enter` opens one — the corpus navigation that already exists, not a second
+  mechanism. A directory entry opens as another listing, so a tree can be walked
+  down and `Backspace` walks back up.
+- `README.md` still wins when it exists: a directory that documents itself
+  should show its documentation.
+- Relative links resolve against the directory itself rather than its parent,
+  because for a listing the directory *is* the document's location.
+- A directory that cannot be read (permissions) says so and stays a listing with
+  no entries, rather than becoming a fatal error.

@@ -25,6 +25,7 @@ use crate::md::{self, Document};
 use crate::plat::{path as ppath, Platform};
 use crate::source::csv::CsvSource;
 use crate::source::detect::{self, Format};
+use crate::source::dir::DirSource;
 use crate::source::json::JsonSource;
 use crate::source::jsonl::JsonlSource;
 use crate::source::markdown::MarkdownSource;
@@ -125,7 +126,14 @@ impl Navigator {
 
     /// Resolve a raw link destination against the *current* document.
     pub fn resolve(&self, raw: &str) -> Target {
-        let dir = parent_of(&self.current);
+        // For a listing the *directory* is the document's location, so its
+        // entries resolve against it rather than against its parent
+        // (SPEC.md §Directories). Everything else resolves against the folder
+        // its document sits in, as it always did.
+        let dir = match self.fs.is_dir(&self.current) {
+            true => self.current.clone(),
+            false => parent_of(&self.current),
+        };
         link::resolve(raw, &dir, &self.root, self.fs.as_ref())
     }
 
@@ -151,6 +159,11 @@ impl Navigator {
         let opened = |r: std::io::Result<Box<dyn Source>>| {
             r.map_err(|e| format!("{}: {e}", path.display()))
         };
+        // A directory is not a file format, so it is decided here rather than
+        // in the detector: nothing about an extension could tell you this.
+        if self.fs.is_dir(path) {
+            return Ok(Box::new(DirSource::open(path)) as Box<dyn Source>);
+        }
         match detect::decide(None, Some(path), &[]) {
             Format::Markdown => self
                 .load(path)

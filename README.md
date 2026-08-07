@@ -217,6 +217,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `←` | previous link on this row (scrolls left on a scrollable row) |
 | `→` | next link on this row (scrolls right on a scrollable row) |
 | `w` | widen the column under the cursor to fit the screen |
+| `a` | show or hide the entries a listing hides |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, open the row, else fold |
 | `zo` | open the section at the cursor |
@@ -408,6 +409,42 @@ records fold into 633 rows, and every one of them is still reachable.
 
 [`docs/lenses.md`](docs/lenses.md) documents the `agent` dialect field by field
 and what a new one has to provide.
+
+## Listing a directory
+
+```sh
+tread src/            # no README.md needed
+tread --index ~/notes # a link to a folder opens its listing
+```
+
+A directory is something to read, not `os error 21`. Directories come first with
+a trailing `/`, then files with a size and the format `tread` would read them as:
+
+```
+▾ /home/you/project/src  ·  9 entries  ·  1 hidden
+
+  csv/
+  json/
+  source/
+  cli.rs                     6.1 KB
+  main.rs                    9.4 KB
+  theme.rs                   7.8 KB
+
+  press a to show 1 hidden entry
+```
+
+- **Every entry is a link**, so `n` walks them, `←`/`→` select along a row and
+  `Enter` opens one. A directory entry opens as another listing, and
+  `Backspace` walks back up — the corpus navigation that already exists, not a
+  second mechanism.
+- **Dotfiles are hidden but counted.** `a` toggles them: hiding what exists
+  without saying so would be lying about the directory.
+- `README.md` still wins when there is one — a directory that documents itself
+  should show its documentation.
+- `y` copies the entry's name, `c` its full path, `Y` the whole listing one name
+  per line, so a listing can be piped somewhere.
+- A directory that cannot be read says why and stays a listing, rather than
+  becoming a fatal error that loses the document you came from.
 
 ## Working a corpus
 

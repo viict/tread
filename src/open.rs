@@ -77,6 +77,14 @@ pub fn build_source(input: &Input, args: &cli::Args) -> Result<Box<dyn Source>, 
     if args.lens.is_some() && input.format != Format::Jsonl {
         return Err(lens::needs_records(input.format));
     }
+    // A directory named on the command line is a listing, not `os error 21`
+    // (SPEC.md §Directories). A `README.md` inside it still wins, which is
+    // what `index_path` already prefers.
+    if let Some(p) = input.path.as_deref() {
+        if p.is_dir() {
+            return Ok(Box::new(crate::source::dir::DirSource::open(p)));
+        }
+    }
     match input.format {
         Format::Csv => Ok(Box::new(csv_source(input, args)?)),
         Format::Json => Ok(Box::new(json_source(input)?)),
@@ -224,6 +232,21 @@ fn read_document(args: &cli::Args, path: &Path) -> Result<Input, Fail> {
     // to work with — and opening it twice (once to peek, once to read) blocks
     // forever on a fifo whose writer has already gone. It is a *stream*, so it
     // takes the same path piped stdin does: read once, keep the bytes.
+    // A directory is read as a listing (SPEC.md §Directories), so it is settled
+    // before the not-a-regular-file branch below: a directory is not a stream,
+    // and trying to read one is where `os error 21` came from. There is no head
+    // to peek at and no encoding to check.
+    if path.is_dir() {
+        return Ok(Input {
+            label: path.display().to_string(),
+            bytes: None,
+            path: Some(path.to_path_buf()),
+            // Unused: `build_source` sees the directory first. A listing is not
+            // a file format and the detector has no name for one.
+            format: Format::Text,
+            tty: sys::tty_fd(),
+        });
+    }
     if !is_regular(path) {
         return stream_document(args, path);
     }
@@ -344,7 +367,10 @@ fn head_bytes(path: &Path, want: usize) -> Result<Vec<u8>, Fail> {
 /// in the working directory.
 pub fn index_path(index: Option<&Path>) -> Result<PathBuf, Fail> {
     let candidate = match index {
-        Some(p) if p.is_dir() => p.join("README.md"),
+        // A directory that documents itself shows its documentation; one that
+        // does not is still readable as a listing (SPEC.md §Directories).
+        Some(p) if p.is_dir() && p.join("README.md").is_file() => p.join("README.md"),
+        Some(p) if p.is_dir() => p.to_path_buf(),
         Some(p) => p.to_path_buf(),
         None => PathBuf::from("README.md"),
     };

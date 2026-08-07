@@ -96,6 +96,13 @@ impl Pager {
             Action::ArrowLeft => self.arrow(false),
             Action::ArrowRight => self.arrow(true),
             Action::Widen => self.widen(),
+            Action::ToggleHidden => match self.src.toggle_hidden() {
+                Some(msg) => {
+                    self.notify(msg);
+                    self.clamp();
+                }
+                None => self.notify("nothing hidden here"),
+            },
             other => self.nav_action(other),
         }
     }

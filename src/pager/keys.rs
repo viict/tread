@@ -30,6 +30,8 @@ pub enum Action {
     ArrowRight,
     /// `w`: widen the column under the cursor, where the format has columns.
     Widen,
+    /// Show or hide what the format hides by default (a listing's dotfiles).
+    ToggleHidden,
     ToggleCollapse,
     OpenSection,
     CloseSection,
@@ -187,6 +189,12 @@ pub const BINDINGS: &[Binding] = &[
         desc: "widen the column under the cursor to fit the screen",
         action: A::Widen,
         triggers: &[Trigger::c('w')],
+    },
+    Binding {
+        keys: "a",
+        desc: "show or hide the entries a listing hides",
+        action: A::ToggleHidden,
+        triggers: &[Trigger::c('a')],
     },
     Binding {
         keys: "za",
@@ -393,7 +401,10 @@ mod tests {
     #[test]
     fn chords_need_their_prefix() {
         assert_eq!(lookup(Some('z'), ev('a')), Some(A::ToggleCollapse));
-        assert_eq!(lookup(None, ev('a')), None);
+        // `a` is its own binding now, so the point is that it is *not* the
+        // chord: pressing it without `z` must never fold a section.
+        assert_eq!(lookup(None, ev('a')), Some(A::ToggleHidden));
+        assert_ne!(lookup(None, ev('a')), Some(A::ToggleCollapse));
         assert_eq!(lookup(Some('z'), ev('j')), None);
         assert_eq!(lookup(Some('z'), ev('M')), Some(A::CollapseAll));
     }

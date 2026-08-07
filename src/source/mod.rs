@@ -40,6 +40,7 @@
 pub mod collapse;
 pub mod csv;
 pub mod detect;
+pub mod dir;
 pub mod json;
 pub mod jsonl;
 pub mod jsonrow;
@@ -392,6 +393,16 @@ pub trait Source {
     fn yank_block(&self, row: usize) -> Option<Yank>;
 
     // -- row detail -----------------------------------------------------------
+
+    /// `a`: show or hide whatever this format hides by default, returning what
+    /// to say about it. `None` — the default — means the format hides nothing,
+    /// and the pager says so rather than appearing to do nothing.
+    ///
+    /// Only a directory listing has an answer today (its dotfiles), and the
+    /// pager stays format-blind about it exactly as it does for `w`.
+    fn toggle_hidden(&mut self) -> Option<String> {
+        None
+    }
 
     /// `Enter` on `row`: that row expanded into labelled fields, for formats
     /// where a row is a record rather than prose.

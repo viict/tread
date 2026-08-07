@@ -451,3 +451,34 @@ fn a_real_relative_path_is_preferred_to_the_fallback() {
         }
     );
 }
+
+/// A listing's entries resolve against the directory itself, and a directory
+/// without a README opens as another listing rather than being refused.
+#[test]
+fn a_listing_entry_resolves_against_its_own_directory() {
+    // `models` holds A.md and B.md but no README.md.
+    assert_eq!(
+        resolve("A.md", "/corpus/models"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/models/A.md"),
+            anchor: None
+        }
+    );
+    // A directory that documents itself still wins with its README.
+    assert_eq!(
+        resolve("models/", "/corpus"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/models/README.md"),
+            anchor: None
+        }
+    );
+    // One that does not opens as a listing, trailing slash and all — where it
+    // used to be refused as "directory has no README.md".
+    assert_eq!(
+        resolve("assets/", "/corpus"),
+        Target::Doc {
+            path: PathBuf::from("/corpus/assets"),
+            anchor: None
+        }
+    );
+}
