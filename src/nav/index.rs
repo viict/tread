@@ -173,8 +173,14 @@ fn first_doc_link(
             Inline::Link { text, url, .. } => (inline_text(text), url.as_str()),
             _ => continue,
         };
+        // A *document* link. Every existing file resolves to `Target::Doc` now
+        // that the reader can show any of them (SPEC.md §Plain text), but the
+        // index listing is the corpus's table of contents and an image or a
+        // script is not an entry in it: `i`, `]`/`[` and the outline overlay
+        // all read this list. Such a link still resolves and still opens from
+        // the body of the document that wrote it — it is only not *listed*.
         let (path, anchor) = match link::resolve(url, dir, root, fs) {
-            Target::Doc { path, anchor } => (path, anchor),
+            Target::Doc { path, anchor } if link::is_markdown(&path) => (path, anchor),
             _ => continue,
         };
         return Some(Entry {

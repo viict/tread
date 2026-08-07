@@ -136,6 +136,39 @@ fn horizontal_scrolling_needs_a_scrollable_row() {
     assert_eq!(plain.max_hoff(), 0);
 }
 
+/// SPEC.md §"Selecting links on a line": the arrows scroll a row that scrolls,
+/// and on any other row they are link keys — which on a row with no links means
+/// they do nothing at all, silently. `h`/`l` scroll from either row.
+#[test]
+fn the_arrows_scroll_only_a_row_that_scrolls() {
+    let src = "text only\n\n```\nlonglonglonglonglonglonglonglonglongline\n```\n";
+    let mut p = pager(src, 20, 12);
+    assert_eq!(p.cursor_text(), "text only");
+    key(&mut p, Key::Right);
+    assert_eq!(p.hoff, 0, "a plain row has nothing to scroll");
+    assert_eq!(p.message, None, "and says nothing about it");
+    key(&mut p, Key::Left);
+    assert_eq!((p.hoff, p.message.clone()), (0, None));
+    // `l` scrolls from the very same row: it scrolls everywhere regardless.
+    press(&mut p, "l");
+    assert!(p.hoff > 0, "`l` should have scrolled the window");
+    press(&mut p, "hhhhh");
+    assert_eq!(p.hoff, 0);
+    // Now put the cursor on the code row, which does scroll.
+    for _ in 0..10 {
+        if p.cursor_text().contains("longline") {
+            break;
+        }
+        press(&mut p, "j");
+    }
+    assert!(p.cursor_text().contains("longline"), "never reached the code row");
+    key(&mut p, Key::Right);
+    assert!(p.hoff > 0, "the arrows scroll a scrollable row");
+    let out = p.hoff;
+    key(&mut p, Key::Left);
+    assert!(p.hoff < out, "and scroll back");
+}
+
 // -- collapsing --------------------------------------------------------------
 
 #[test]

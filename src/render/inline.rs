@@ -7,6 +7,7 @@
 
 use super::Span;
 use crate::md::ast::Inline;
+use crate::url::is_external;
 use crate::term::Style;
 use crate::theme;
 
@@ -79,14 +80,29 @@ pub(crate) fn space_style(st: Style) -> Style {
     st
 }
 
-fn link_style(st: Style) -> Style {
-    st.fg(theme::LINK).underline()
+/// The style of a link's text. A link that leaves the reader is coloured apart
+/// from one that stays inside it, so which links leave is visible before `Enter`
+/// is pressed (SPEC.md §Navigation).
+///
+/// "Leaves the reader" is asked of [`crate::url::is_external`] rather than
+/// decided here: that leaf module is also what `nav`'s `Enter` and the opener's
+/// own guard read, and a second copy of the rule would eventually paint one link
+/// and open another. It is deliberately *not* asked of `nav` — the renderer is
+/// AST + width -> `Vec<Line>` and must not depend on the navigator to colour a
+/// span.
+pub(super) fn link_style(st: Style, url: &str) -> Style {
+    st.fg(theme::link_fg(is_external(url))).underline()
 }
 
 /// A code span keeps the code background, but inside a link it keeps the link
-/// colour: `[`x`](u)` is a link first (SPEC.md §Inline: "Links: blue").
-fn code_style(st: Style, in_link: bool) -> Style {
-    let fg = if in_link { theme::LINK } else { theme::CODE_SPAN_FG };
+/// colour: `[`x`](u)` is a link first (SPEC.md §Inline: "Links: blue") — and the
+/// link's *own* colour, so a `` [`api.example.com`](https://…) `` still reads as
+/// leaving.
+fn code_style(st: Style, in_link: Option<&str>) -> Style {
+    let fg = match in_link {
+        Some(url) => theme::link_fg(is_external(url)),
+        None => theme::CODE_SPAN_FG,
+    };
     Style { fg: Some(fg), bg: Some(theme::CODE_SPAN_BG), attrs: st.attrs }
 }
 
@@ -94,19 +110,19 @@ fn walk(items: &[Inline], st: Style, link: Option<&str>, out: &mut Vec<Atom>) {
     for it in items {
         match it {
             Inline::Text(s) => push_text(s, st, link, out),
-            Inline::Code(s) => push_text(s, code_style(st, link.is_some()), link, out),
+            Inline::Code(s) => push_text(s, code_style(st, link), link, out),
             Inline::Emph(k) => walk(k, st.italic(), link, out),
             Inline::Strong(k) => walk(k, st.bold(), link, out),
             Inline::Strike(k) => walk(k, st.strike(), link, out),
             Inline::Link { text, url, .. } => {
-                let ls = link_style(st);
+                let ls = link_style(st, url);
                 if text.is_empty() {
                     push_text(url, ls, Some(url), out);
                 } else {
                     walk(text, ls, Some(url), out);
                 }
             }
-            Inline::Autolink(u) => push_text(u, link_style(st), Some(u), out),
+            Inline::Autolink(u) => push_text(u, link_style(st, u), Some(u), out),
             Inline::Image { alt, url } => {
                 let label = if alt.is_empty() { "image" } else { alt.as_str() };
                 push_text(&format!("[{}]", label), st.dim(), Some(url), out);

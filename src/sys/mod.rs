@@ -71,6 +71,13 @@ use core::sync::atomic::{AtomicBool, Ordering};
 pub mod abi;
 pub mod layout;
 
+// Handing a URL to the system opener (SPEC.md §"Opening a link outside the
+// reader"). Declared on every target for the same reason `win_abi` is: the
+// argument vector each OS wants is a table, and a table is host-testable for
+// OSes this builder is not. It is the only part of `sys` that spawns a process,
+// and the only place in the crate that names `xdg-open`, `open` or `rundll32`.
+pub mod browser;
+
 // The Windows console ABI gets the same treatment as the Darwin tables above:
 // declared on *every* target, never behind `cfg(windows)`, so its constants,
 // its console-mode arithmetic and its C struct sizes are compile-asserted and

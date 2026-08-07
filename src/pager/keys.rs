@@ -23,6 +23,11 @@ pub enum Action {
     Bottom,
     ScrollLeft,
     ScrollRight,
+    /// `←`: scroll left on a row that scrolls, otherwise move the link focus
+    /// back along the current row (SPEC.md §"Selecting links on a line").
+    ArrowLeft,
+    /// `→`: the same rule, forwards.
+    ArrowRight,
     /// `w`: widen the column under the cursor, where the format has columns.
     Widen,
     ToggleCollapse,
@@ -151,16 +156,31 @@ pub const BINDINGS: &[Binding] = &[
         triggers: &[Trigger::c('G'), Trigger::k(Key::End)],
     },
     Binding {
-        keys: "h / \u{2190}",
+        keys: "h",
         desc: "scroll left \u{2014} code, wide tables, one column",
         action: A::ScrollLeft,
-        triggers: &[Trigger::c('h'), Trigger::k(Key::Left)],
+        triggers: &[Trigger::c('h')],
     },
     Binding {
-        keys: "l / \u{2192}",
+        keys: "l",
         desc: "scroll right \u{2014} code, wide tables, one column",
         action: A::ScrollRight,
-        triggers: &[Trigger::c('l'), Trigger::k(Key::Right)],
+        triggers: &[Trigger::c('l')],
+    },
+    // `h`/`l` scroll everywhere; the arrows scroll only where scrolling means
+    // something and otherwise walk the links on the row (SPEC.md §"Selecting
+    // links on a line").
+    Binding {
+        keys: "\u{2190}",
+        desc: "previous link on this row (scrolls left on a scrollable row)",
+        action: A::ArrowLeft,
+        triggers: &[Trigger::k(Key::Left)],
+    },
+    Binding {
+        keys: "\u{2192}",
+        desc: "next link on this row (scrolls right on a scrollable row)",
+        action: A::ArrowRight,
+        triggers: &[Trigger::k(Key::Right)],
     },
     Binding {
         keys: "w",

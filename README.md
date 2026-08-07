@@ -30,10 +30,31 @@ INSTALL_PATH=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/viict/t
 VERSION=v0.1.0 curl -fsSL https://raw.githubusercontent.com/viict/tread/master/install.sh | sh
 ```
 
+On Windows, in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
+```
+
+That puts `tread.exe` in `%LOCALAPPDATA%\Programs\tread` and checks the same
+`SHA256SUMS`, refusing to install on a mismatch. If that directory is not on
+your `PATH` it prints the one command that adds it, and changes nothing itself —
+same as `install.sh`. It picks the x64 or ARM64 build for the machine, and works
+in both Windows PowerShell 5.1 (what ships with Windows) and PowerShell 7.
+
+```powershell
+# somewhere else
+$env:INSTALL_PATH = 'C:\tools'; irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
+
+# a particular release rather than the newest
+$env:VERSION = 'v0.1.0'; irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
+```
+
 Prefer not to pipe the internet into a shell? Read
-[`install.sh`](install.sh) first, or take a `.tar.gz` from the
-[releases page](https://github.com/viict/tread/releases) — it holds one static
-binary and nothing else. Windows builds are there too, as `.zip`.
+[`install.sh`](install.sh) or [`install.ps1`](install.ps1) first, or take a
+`.tar.gz` — a `.zip` on Windows — from the
+[releases page](https://github.com/viict/tread/releases). It holds one static
+binary and nothing else.
 
 ```
 $ tread README.md
@@ -144,10 +165,15 @@ tread [OPTIONS] [FILE]
   --no-alt         Render into the scrollback instead of the alternate screen,
                    so the output stays visible after quitting.
   --plain          Disable color. Implied by NO_COLOR or a non-terminal stdout.
+  --no-browser     Never open an external link. `Enter` on an `http`, `https`
+                   or `mailto` link normally hands the URL to the system opener
+                   (one process, never a shell); this shows the URL and refuses
+                   instead. Every other scheme is always refused, by name.
   --width <N>      Force the wrap width instead of detecting the terminal size.
-  --format <FMT>   Force the format: `md`, `csv`, `json` or `jsonl`
-                   (`ndjson`). By default the extension decides, and unnamed
-                   input (a pipe) is sniffed.
+  --format <FMT>   Force the format: `md`, `csv`, `json`, `jsonl` (`ndjson`)
+                   or `text`. By default the extension decides — a name it does
+                   not know is plain text — and unnamed input (a pipe) is
+                   sniffed.
   --delim <D>      CSV field delimiter: one character, or `tab`, `comma`,
                    `semicolon`, `pipe`. Sniffed among `,` TAB `;` `|` otherwise.
   --lens <NAME>    Read a record file through a semantic view: `agent` for
@@ -186,8 +212,10 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `b` | page up |
 | `g` | top of document |
 | `G` | bottom of document |
-| `h / ←` | scroll left — code, wide tables, one column |
-| `l / →` | scroll right — code, wide tables, one column |
+| `h` | scroll left — code, wide tables, one column |
+| `l` | scroll right — code, wide tables, one column |
+| `←` | previous link on this row (scrolls left on a scrollable row) |
+| `→` | next link on this row (scrolls right on a scrollable row) |
 | `w` | widen the column under the cursor to fit the screen |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, open the row, else fold |
@@ -399,8 +427,21 @@ tread ~/notes/guides/setup.md    # start anywhere; `i` finds the index
   appeared under, filterable with `/`, navigable with `j`/`k`/`Enter`.
 - `]` and `[` walk the corpus in index order, without returning to the index.
 - `#anchor` links scroll to the matching heading using GitHub-style slugs.
-- `http(s)` and other external links are never opened. The URL shows in the
-  status bar and can be yanked.
+- `←`/`→` move the link focus along the current row, so a table cell or a line
+  holding several links can be walked without `n` carrying the cursor off it.
+  Links win where there is a choice: a row with more than one link gets the
+  walk even when it also scrolls, which is what makes it work on the wide
+  linked tables a corpus README is made of. Any other row scrolls if it can —
+  code, a CSV row, a table row with one link or none — and `h`/`l` scroll
+  everywhere regardless.
+- External links are coloured apart from links that stay inside the reader, so
+  which ones leave is visible before pressing `Enter`. `Enter` hands an `http`,
+  `https` or `mailto` URL to the system opener — `xdg-open`, `open`, or
+  `rundll32 url.dll,FileProtocolHandler` — as a single argument to a single
+  process, never through a shell. Any other scheme (`file:`, `javascript:`,
+  `data:`) is refused by name and never reaches the OS, a missing opener is a
+  status-bar message, and `--no-browser` turns the whole thing off. The URL is
+  always yankable, whatever `Enter` does with it.
 
 The status bar reads:
 

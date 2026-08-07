@@ -49,19 +49,29 @@ impl Fs for RealFs {
 }
 
 /// What a link points at, once resolved against the current document.
+///
+/// There used to be a fourth kind — `Other`, "a file inside the corpus that is
+/// not markdown" — and following one was refused. It is gone: since SPEC.md
+/// §Plain text every file the corpus links to is one the reader can show, so a
+/// link to a `.sh` or a `.conf` is a [`Target::Doc`] like any other and opens
+/// (SPEC.md §Navigation, "links to files the reader can show ... open in the
+/// reader"). Which *format* the file is read as is [`super::Navigator::load_source`]'s
+/// decision, not this module's.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
-    /// A markdown document inside the corpus, with an optional heading anchor.
+    /// A file inside the corpus, with an optional heading anchor.
     Doc {
         path: PathBuf,
         anchor: Option<String>,
     },
     /// `#heading` — a heading in the document we are already reading.
     Anchor(String),
-    /// `http(s)://`, `mailto:` and friends. Never opened; only displayed.
+    /// `http(s)://`, `mailto:` and friends — anything with a scheme, so it
+    /// covers the ones that will be refused as well. Handed to the system opener
+    /// when the scheme is on [`super::external::OPENABLE`] and `--no-browser`
+    /// was not given; shown and yankable either way (SPEC.md §"Opening a link
+    /// outside the reader").
     External(String),
-    /// A file inside the corpus that is not markdown (image, script, ...).
-    Other(PathBuf),
     /// Unusable: escapes the root, missing, or not a link at all.
     Broken { raw: String, why: String },
 }
@@ -80,7 +90,6 @@ impl Target {
             }
             Target::Anchor(a) => format!("#{a}"),
             Target::External(url) => url.clone(),
-            Target::Other(path) => format!("{} (not markdown)", rel_to(path, root)),
             Target::Broken { raw, why } => format!("{raw}: {why}"),
         }
     }
@@ -89,7 +98,7 @@ impl Target {
     pub fn yank_text(&self, root: &Path) -> String {
         match self {
             Target::External(url) => url.clone(),
-            Target::Doc { path, .. } | Target::Other(path) => rel_to(path, root),
+            Target::Doc { path, .. } => rel_to(path, root),
             Target::Anchor(a) => format!("#{a}"),
             Target::Broken { raw, .. } => raw.clone(),
         }
@@ -215,11 +224,12 @@ fn classify_path(raw: &str, path: PathBuf, anchor: Option<String>, fs: &dyn Fs) 
         }
         return broken(raw, "directory has no README.md");
     }
+    // Any file that exists is followable. The reader has a format for every
+    // one of them — markdown, CSV, JSON, records, or plain text for everything
+    // else — so refusing a `.sh` here would be refusing to show something it
+    // can show (SPEC.md §Plain text).
     if fs.is_file(&path) {
-        return match is_markdown(&path) {
-            true => Target::Doc { path, anchor },
-            false => Target::Other(path),
-        };
+        return Target::Doc { path, anchor };
     }
     if path.extension().is_none() {
         let mut with_md = OsString::from(path.as_os_str());
@@ -235,11 +245,17 @@ fn classify_path(raw: &str, path: PathBuf, anchor: Option<String>, fs: &dyn Fs) 
     broken(raw, "no such file")
 }
 
+/// Is this path a markdown document?
+///
+/// Asked of [`crate::source::detect`] rather than answered here, because that
+/// is the one place extensions are mapped to formats (SPEC.md §Multi-format
+/// reading: "adding a format is one module plus one arm in the detector"). This
+/// used to carry its own list — `md` and `markdown` — which was two extensions
+/// short of the detector's: `notes.mkd` opened as markdown but was dropped from
+/// the index listing, because the listing asks *this* and the loader asks the
+/// detector. One table, so the two answers cannot disagree.
 pub fn is_markdown(path: &Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some(e) => e.eq_ignore_ascii_case("md") || e.eq_ignore_ascii_case("markdown"),
-        None => false,
-    }
+    crate::source::detect::from_path(path) == Some(crate::source::detect::Format::Markdown)
 }
 
 /// Split `path#fragment`. The fragment is slugified so it compares directly
@@ -254,22 +270,12 @@ pub fn split_fragment(raw: &str) -> (&str, Option<String>) {
 
 /// The URL scheme of `raw`, if it has one. `a/b:c` is not a scheme — a colon
 /// only counts before the first slash.
-pub fn scheme_of(raw: &str) -> Option<&str> {
-    let end = raw.find(':')?;
-    if end == 0 || raw[..end].contains('/') {
-        return None;
-    }
-    let mut chars = raw[..end].chars();
-    let first = chars.next()?;
-    if !first.is_ascii_alphabetic() {
-        return None;
-    }
-    if chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) {
-        Some(&raw[..end])
-    } else {
-        None
-    }
-}
+///
+/// Re-exported from [`crate::url`], the leaf module that owns URL syntax, so
+/// `link::scheme_of` keeps naming it here where resolution reads it: the
+/// renderer needs the same predicate to colour a link and must not import the
+/// navigator to get it.
+pub use crate::url::scheme_of;
 
 /// Lexically join the link destination `rel` onto the native directory `base`,
 /// folding `.` and `..`. Returns `None` when `..` walks past the start, which

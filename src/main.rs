@@ -28,6 +28,7 @@ mod select;
 mod source;
 mod term;
 mod theme;
+mod url;
 
 use std::env;
 use std::io::Write;
@@ -183,6 +184,9 @@ fn interactive(
     // The pager is handed a `Box<dyn Source>` and never learns the format
     // (SPEC.md §The `Source` seam); picking one was `build_source`'s job.
     let mut pager = pager::Pager::new(src, label, cols as usize, rows as usize, args.width);
+    // `--no-browser` restores refuse-and-show (SPEC.md §"Opening a link outside
+    // the reader"). The pager holds the policy; the spawn happens below.
+    pager.set_browser(!args.no_browser);
     // A markdown document read from a real file gets a corpus: relative links,
     // history and the index all hang off it. Piped stdin has no location, and
     // a CSV is not part of a linked corpus (SPEC.md §Navigation).
@@ -223,6 +227,11 @@ fn event_loop(term: &mut term::Term, pager: &mut pager::Pager) -> Result<(), Fai
             let msg = deliver_yank(term, &y);
             pager.notify(msg);
         }
+        // `Enter` on an external link the allowlist accepted. The pager decided;
+        // this only starts the process, and never waits on it.
+        if let Some(url) = pager.take_open() {
+            pager.notify(open_external(&url));
+        }
         // SIGWINCH is polled, never handled inline: the handler only sets a flag.
         if term.resize_pending() {
             let (c, r) = term.refresh_size();
@@ -235,6 +244,27 @@ fn event_loop(term: &mut term::Term, pager: &mut pager::Pager) -> Result<(), Fai
         if pager.should_quit() || term.interrupt_pending() || term.terminate_pending() {
             return Ok(());
         }
+    }
+}
+
+/// Hand an accepted URL to this platform's opener and describe the outcome for
+/// the status bar (SPEC.md §"Opening a link outside the reader").
+///
+/// Which program runs is [`sys::browser`]'s business and is not knowable from
+/// here; a missing opener is a message, never an error exit.
+///
+/// The pager already checked the allowlist before queueing the URL, so the
+/// refusal arm is unreachable in practice. It is still *written*, because
+/// `sys::browser::open` takes a [`sys::browser::Vetted`] and the only way to get
+/// one is to ask the allowlist again — which is the point: the check is not
+/// something this function could forget.
+fn open_external(url: &str) -> String {
+    match nav::external::vetted(url) {
+        Ok(v) => match sys::browser::open(v) {
+            Ok(program) => format!("opening in {program}: {url}"),
+            Err(e) => e.message(),
+        },
+        Err(why) => why.message(url),
     }
 }
 

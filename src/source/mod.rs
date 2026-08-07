@@ -45,6 +45,7 @@ pub mod jsonl;
 pub mod jsonrow;
 pub mod markdown;
 pub mod search;
+pub mod text;
 
 use std::ops::Range;
 

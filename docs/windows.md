@@ -223,6 +223,60 @@ rules are exercised by `cargo test` on Linux rather than by hope:
 the dump path instead of failing, which is what `sys/mod.rs` always documented
 `set_raw`'s `None` to mean and what the pre-1703 conhost case depends on.
 
+## Installing — `install.ps1`
+
+The counterpart of `install.sh`, and the same contract: pick the build for the
+machine, verify it against the release's `SHA256SUMS`, refuse to install
+anything that does not match, install to a per-user location, clean up either
+way. It targets **Windows PowerShell 5.1** — what ships with Windows, and what
+most people will run — and **PowerShell 7**.
+
+```powershell
+irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
+```
+
+Four things it does that the shell script does not have to:
+
+- **`iex` runs the whole download as one expression**, so nothing may execute
+  while it parses. Everything is inside `Install-Tread`, called on the last
+  line: a transfer cut short is a parse error that does nothing at all. Nothing
+  reads `$MyInvocation` or `$PSScriptRoot`, because there is no script on disk.
+- **Architecture is a two-variable question.** `$env:PROCESSOR_ARCHITECTURE`
+  describes the *process*: a 32-bit PowerShell on a 64-bit machine says `x86`,
+  and an x64 PowerShell emulated on ARM64 says `AMD64`. `PROCESSOR_ARCHITEW6432`
+  holds the machine's real architecture under WOW64 and is absent otherwise, so
+  preferring it is right in every combination — including installing the native
+  ARM64 build rather than the emulated x64 one.
+- **A running `tread.exe` cannot be overwritten, but it can be renamed.** The
+  new exe is staged beside it, any existing one is moved to `tread.exe.old-…`,
+  and the staged file is moved into place — the same "write beside it and rename
+  over" as `install.sh`. A running `tread` keeps working off the renamed file
+  and the leftover is swept by the next install. If even the rename is refused,
+  it says so instead of leaving a half-written exe.
+- **PATH is reported, never written.** SPEC.md §"Installing on Windows" asks the
+  installer to *report* how to add the directory to `PATH` when it is not
+  already there, which is also all `install.sh` does — it prints an
+  `export PATH=…` line. So `install.ps1` prints the one-line
+  `[Environment]::SetEnvironmentVariable(… 'User')` command and changes nothing:
+  a one-liner piped from the internet editing the persistent environment is more
+  than was asked for, and it could not have been honest about it either. A
+  registry write is invisible to every process already running unless
+  `WM_SETTINGCHANGE` is broadcast, so the "open a new terminal" advice that used
+  to follow it was false for any terminal launched from the Explorer session that
+  was already up — the installer would have said it worked while `tread` stayed
+  not-found. The check for "already there" still reads `HKCU:\Environment`
+  unexpanded (through the registry provider, since
+  `[Environment]::GetEnvironmentVariable` expands), so a stored `%USERPROFILE%`
+  is compared as the directory it names rather than as literal text. `setx` is
+  named in a comment as what not to reach for: it truncates at 1024 characters
+  and expands what it writes.
+
+Also: TLS 1.2 is or'ed into `ServicePointManager.SecurityProtocol` on Windows
+PowerShell only (an unpatched box still defaults to SSL3 + TLS 1.0, and
+github.com has required 1.2 for years); failure is a `throw` and never `exit`,
+because `exit` inside `iex` would close the console the one-liner was typed
+into.
+
 ## What is and is not verified
 
 Verified, on every `cargo test` run on the Linux builder:
@@ -245,10 +299,41 @@ Verified, on every `cargo test` run on the Linux builder:
   `MOUSE_EVENT_RECORD` are both 16). The `KEY_EVENT_RECORD` field offsets are
   decoded by `u16::from_le_bytes` arithmetic, tested on Linux, legitimate because
   Windows is little-endian on every architecture it supports.
+- **The opener's argument vector** — `src/sys/browser.rs`, declared on every
+  target for exactly the `win_abi` reason. `argv(Desktop::Windows, url)` is
+  pinned to the program `rundll32` with `url.dll,FileProtocolHandler` and then
+  the URL, each as its own argument; a host test asserts no platform's vector
+  contains `cmd`, `cmd.exe` or `start`, and that a URL carrying `&`, `|`, `^`,
+  quotes and a newline survives as one untouched argument. `cmd /c start` is not
+  used precisely because its quoting rules would make such a URL a command
+  injection, and no command *string* is built anywhere on that path.
 - **Behaviour that is arithmetic**: mode transformations, quick-edit
   preservation, `srWindow` geometry including saturation and inverted rectangles,
   resize comparison, read/write classification, record classification, control
   event mapping, teardown-sequence contents.
+
+`install.ps1` is verified further than the backend is, because PowerShell 7
+itself runs on Linux. Against a real `pwsh`, on the builder:
+
+- It **parses**, via `[Parser]::ParseInput`, with no errors — and of its 278
+  line-boundary prefixes, exactly one (the whole file) contains a top-level
+  invocation. Truncation cannot run half of it.
+- **PSScriptAnalyzer** reports no errors, and nothing at all outside
+  `PSAvoidUsingWriteHost` (deliberate: this is UI, not pipeline output),
+  `PSAvoidUsingEmptyCatchBlock` (three deliberate best-effort probes) and
+  `PSUseShouldProcessForStateChangingFunctions`.
+- Its functions are **host-tested** — 48 assertions covering the architecture
+  matrix including both WOW64 shapes and x64-on-ARM64 emulation, `SHA256SUMS`
+  parsing (two-space, binary-mode `*`, CRLF, absent, empty, near-miss name),
+  mismatch refusal, download success and failure, the staged install including
+  upgrade, leftover sweeping and failure leaving the old exe in place, and the
+  PATH check including that an unexpanded `%VAR%` in the stored value is compared
+  as the directory it expands to.
+- It **installs, end to end, from the real GitHub release**: newest-version
+  lookup, download, checksum, `Expand-Archive`, staged install — leaving a
+  genuine `PE32+ … x86-64` (and, for ARM64, `PE32+ … Aarch64`) `tread.exe`. A
+  tampered `SHA256SUMS` and a missing one were both served from a local
+  server and both refused with nothing installed.
 
 **Not** verified, and unverifiable from here:
 
@@ -257,8 +342,22 @@ Verified, on every `cargo test` run on the Linux builder:
   signals when it should, that `CONOUT$` opens under every shell.
 - Linking. No mingw linker and no MSVC toolchain here; `cargo check` is as far as
   it goes for both Windows targets.
+- That `rundll32 url.dll,FileProtocolHandler <url>` actually opens the default
+  browser, that `rundll32` resolves on `PATH`, or that `CreateProcess` quotes the
+  argument vector the way the Rust standard library documents. Only the vector
+  itself is verified here; a failure to spawn is a status-bar message rather than
+  an error either way (SPEC.md §"Opening a link outside the reader").
 - Anything about a real console host's rendering: line wrapping at the last
   column, the code-page switch surviving, how conhost handles a wide CJK cell.
+- Everything about `install.ps1` that is *Windows*. It has never run on
+  Windows and never under **Windows PowerShell 5.1**, which is a different
+  engine from the PowerShell 7 it was tested against — the .NET Framework
+  behind it, its `Expand-Archive`, and the TLS branch that only 5.1 takes are
+  all unexercised. Nor is: the registry write to `HKCU:\Environment`, that
+  renaming a running `tread.exe` is permitted, `PROCESSOR_ARCHITEW6432` really
+  holding what the documentation says, `Unblock-File`, or that the installed
+  exe runs. On Linux only the shapes of these could be tested, by stubbing
+  their collaborators.
 - The soak harnesses. `tools/soak.sh` and `tools/soak_pty.py` are Linux-only and
   are run against the musl binary; the Windows equivalent wants a pseudoconsole
   (`CreatePseudoConsole`) driving the same key script and asserting the same

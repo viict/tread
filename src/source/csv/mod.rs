@@ -36,6 +36,9 @@ pub mod yank;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+#[cfg(test)]
+#[path = "input_tests.rs"]
+mod input_tests;
 
 use std::cell::RefCell;
 use std::io;

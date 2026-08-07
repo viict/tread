@@ -22,10 +22,13 @@
 
 mod input;
 pub mod keys;
+mod link;
 pub mod navigate;
 mod view;
 mod yank;
 
+#[cfg(test)]
+mod probe;
 #[cfg(test)]
 mod tests;
 
@@ -105,6 +108,14 @@ pub struct Pager {
     /// Text produced by `y`/`Y`/`c`, waiting for `main` to put it on the
     /// clipboard. The pager itself performs no I/O.
     pending_yank: Option<Yank>,
+    /// A URL `Enter` accepted for the system opener, waiting for `main` to hand
+    /// it to [`crate::sys::browser`] — the same arrangement as `pending_yank`,
+    /// and for the same reason: the pager starts no processes (SPEC.md §"Opening
+    /// a link outside the reader").
+    pending_open: Option<String>,
+    /// False under `--no-browser`: an external link is then shown and refused
+    /// instead of opened.
+    browser: bool,
     pub(crate) message: Option<String>,
     message_at: Option<Instant>,
     pending: Option<char>,
@@ -150,6 +161,8 @@ impl Pager {
             index_typing: false,
             select: None,
             pending_yank: None,
+            pending_open: None,
+            browser: true,
             message: None,
             message_at: None,
             pending: None,
@@ -296,6 +309,25 @@ impl Pager {
         self.pending_yank.take()
     }
 
+    /// `--no-browser`: `false` restores the documented old behaviour of showing
+    /// an external link's URL and refusing to open it.
+    pub fn set_browser(&mut self, enabled: bool) {
+        self.browser = enabled;
+    }
+
+    /// Take the URL `Enter` accepted for the system opener, for `main` to spawn.
+    /// The pager starts no processes itself, so this is how the one process the
+    /// feature runs stays outside the state machine — and how every test on this
+    /// path proves the decision without launching anything.
+    pub fn take_open(&mut self) -> Option<String> {
+        self.pending_open.take()
+    }
+
+    pub(crate) fn queue_open(&mut self, url: String) {
+        self.pending_open = Some(url);
+        self.dirty = true;
+    }
+
     pub(crate) fn queue_yank(&mut self, yank: Yank) {
         self.pending_yank = Some(yank);
         self.dirty = true;
@@ -423,61 +455,4 @@ impl Pager {
 /// and the reachable offset can never disagree.
 pub(crate) fn scrollable(line: &crate::render::Line, viewport: usize) -> bool {
     line.scroll || line.width() > viewport
-}
-
-#[cfg(test)]
-impl Pager {
-    pub(crate) fn line_count(&self) -> usize {
-        self.src.len()
-    }
-    /// True when a frame should be repainted.
-    pub(crate) fn dirty(&self) -> bool {
-        self.dirty
-    }
-    /// True while `v` visual line-select mode is active.
-    pub(crate) fn in_visual(&self) -> bool {
-        self.select.is_some()
-    }
-    /// The text the status bar would show right now.
-    pub(crate) fn status_line(&self) -> String {
-        view::status_text(self)
-    }
-    pub(crate) fn cursor_text(&mut self) -> String {
-        let row = self.cursor;
-        self.src
-            .line(row)
-            .map(|l| l.text().trim().to_string())
-            .unwrap_or_default()
-    }
-    pub(crate) fn visible_text(&mut self) -> Vec<String> {
-        let n = self.src.len();
-        self.src
-            .lines(0..n)
-            .iter()
-            .map(|l| l.text().trim().to_string())
-            .collect()
-    }
-    /// Fold state, as the source spells it.
-    pub(crate) fn folds(&self) -> Vec<String> {
-        self.src.folds()
-    }
-    pub(crate) fn outline(&self) -> &[crate::source::Entry] {
-        self.src.outline()
-    }
-    pub(crate) fn match_count(&self) -> usize {
-        self.src.match_count()
-    }
-    pub(crate) fn current_match(&self) -> Option<usize> {
-        self.src.current_match()
-    }
-    pub(crate) fn link_count(&self) -> usize {
-        self.src.links().len()
-    }
-    pub(crate) fn row_of(&self, anchor: Anchor) -> Option<usize> {
-        self.src.row_of(anchor)
-    }
-    /// The re-layout-stable mark under the cursor.
-    pub(crate) fn cursor_mark(&self) -> Option<crate::source::Mark> {
-        self.src.mark(self.cursor)
-    }
 }

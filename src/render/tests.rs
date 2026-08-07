@@ -190,6 +190,60 @@ fn links_are_blue_underlined_and_carry_the_url() {
     assert_eq!(out[0].text().trim(), "see docs now");
 }
 
+/// SPEC.md §Navigation: a link that leaves the reader is coloured apart from one
+/// that stays inside it, so it is visible before `Enter` which links leave.
+#[test]
+fn a_link_that_leaves_the_reader_gets_its_own_colour() {
+    let src = "in [doc](models/DNS.md) out [site](https://example.com) \
+               mail [me](mailto:a@b.example) bad [js](javascript:alert)\n";
+    let out = lines(src, 200);
+    let fg = |text: &str| {
+        out[0]
+            .spans
+            .iter()
+            .find(|s| s.text == text)
+            .unwrap_or_else(|| panic!("no span {text}"))
+            .style
+            .fg
+    };
+    assert_eq!(fg("doc"), Some(theme::LINK), "an internal link stays blue");
+    for leaves in ["site", "me", "js"] {
+        assert_eq!(
+            fg(leaves),
+            Some(theme::LINK_EXTERNAL),
+            "{leaves} leaves the reader"
+        );
+    }
+    assert_ne!(theme::LINK, theme::LINK_EXTERNAL, "the two must differ");
+    // Underlined either way: the colour is the only difference.
+    for text in ["doc", "site"] {
+        let s = out[0].spans.iter().find(|s| s.text == text).unwrap();
+        assert!(s.style.has(UNDERLINE), "{text}");
+    }
+}
+
+/// An autolink is external by the same rule, and a code span inside a link
+/// carries the link's own colour rather than the internal blue.
+#[test]
+fn autolinks_and_code_inside_a_link_follow_the_same_rule() {
+    // Not at the start of the line: a `<` in column one is an HTML block.
+    let out = lines("see <https://example.com/a> and [`api`](https://example.com/b)\n", 80);
+    let fg = |text: &str| {
+        out[0]
+            .spans
+            .iter()
+            .find(|s| s.text == text)
+            .unwrap_or_else(|| panic!("no span {text}"))
+            .style
+            .fg
+    };
+    assert_eq!(fg("https://example.com/a"), Some(theme::LINK_EXTERNAL));
+    assert_eq!(fg("api"), Some(theme::LINK_EXTERNAL));
+    let internal = lines("[`x`](models/A.md)\n", 80);
+    let s = internal[0].spans.iter().find(|s| s.text == "x").unwrap();
+    assert_eq!(s.style.fg, Some(theme::LINK));
+}
+
 #[test]
 fn code_spans_are_tinted_and_do_not_bleed_across_a_wrap() {
     let out = lines("`alpha beta` tail\n", 9);

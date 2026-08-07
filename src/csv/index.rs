@@ -32,11 +32,17 @@
 #![deny(unsafe_code)]
 
 use std::collections::HashMap;
-use std::io;
-use std::path::Path;
 
 use super::parse::{self, Scanner};
-use super::read::{Reader, Span, WINDOW};
+use super::read::{Reader, WINDOW};
+
+/// [`RowStore`] — the file, its window and this index together — split out to
+/// keep both files under the size limit. Re-exported, so it stays
+/// `crate::csv::index::RowStore` to every caller: the access layer is one idea
+/// and moving it between files is not a change to the seam.
+#[path = "index_store.rs"]
+mod store;
+pub use store::RowStore;
 
 /// Rows per offset block. Each block carries one `u64` base.
 pub const BLOCK: usize = 1024;
@@ -137,6 +143,7 @@ impl Offsets {
 pub fn origin(r: &mut Reader) -> u64 {
     parse::bom_len(r.chunk(0, parse::BOM.len())) as u64
 }
+
 /// Byte offsets of every row indexed so far.
 pub struct RowIndex {
     offs: Offsets,
@@ -287,11 +294,70 @@ impl RowIndex {
 
     /// Extend the index until at least `n` rows are known or the file ends.
     /// Returns the rows now known.
+    ///
+    /// **Unbounded**, and so not for the paint path: on a file whose tail holds
+    /// no terminator, proving that row `n - 1` does not exist means scanning to
+    /// end-of-file. Only the tests and the deliberate full scans call this; a
+    /// frame asks [`RowIndex::span_within`], which spends a slice and settles
+    /// for a clipped row rather than a stall.
+    #[cfg(test)]
     pub fn ensure(&mut self, n: usize, reader: &mut Reader) -> usize {
         while self.offs.len() < n && !self.complete {
             self.step(reader);
         }
         self.offs.len()
+    }
+
+    /// Row `i`'s byte span for *painting*, spending at most `budget` bytes of
+    /// scanning to find where it ends. `(start, end, settled)`.
+    ///
+    /// This exists because [`RowIndex::span`] can only answer once row `i + 1`
+    /// has been found or the file has been indexed to its end, and "find the
+    /// next terminator" is an unbounded amount of work: a 2GB file holding no
+    /// `LF` after its first bytes has exactly one row, and asking where that row
+    /// ends reads all 2GB. Behind [`RowStore::row`] — which every frame calls —
+    /// that meant the first paint was blocked for seconds to minutes and `q` sat
+    /// unread in the input queue, against SPEC.md §CSV ("a multi-GB file must
+    /// open instantly and quit instantly ... `q` must never wait on a scan").
+    /// The same path is reached by plain text and `.jsonl`, and since SPEC.md
+    /// §Plain text made *every* unknown extension a text file it is reached by
+    /// `.bin`, `.zip` and a minified one-line bundle as well.
+    ///
+    /// The way out is that nothing above ever needs more of a row than
+    /// [`super::read::MAX_ROW_BYTES`]: a longer row is handed back clipped. So
+    /// the end only has to be looked for within that budget. Past it, `end` is
+    /// wherever the scan happens to have got to and `settled` is false — bytes
+    /// that provably belong to row `i`, because the scanner reported no boundary
+    /// inside them — and the span comes back clipped and flagged, exactly as a
+    /// genuinely megabyte-long row does. `budget` bytes is the *whole* cost of
+    /// painting one such row, so the frame is drawn and the keystroke queue is
+    /// read; the rest of the file is indexed by the idle tick, a slice at a
+    /// time, as it always was.
+    ///
+    /// `settled == false` cannot mean "the terminator was just past where we
+    /// stopped": on that path [`RowIndex::ensure_bytes`] returned without the
+    /// index being complete, so it consumed its whole budget, so
+    /// `end - start >= budget` and the row is over the clip limit regardless of
+    /// where it really ends.
+    pub fn span_within(
+        &mut self,
+        i: usize,
+        budget: u64,
+        reader: &mut Reader,
+    ) -> Option<(u64, u64, bool)> {
+        if let Some((start, end)) = self.span(i) {
+            return Some((start, end, true));
+        }
+        self.ensure_bytes(budget, reader);
+        if let Some((start, end)) = self.span(i) {
+            return Some((start, end, true));
+        }
+        // Row `i` was not even reached inside the budget: it is more than
+        // `budget` bytes of scanning beyond the index, which no caller does —
+        // every source's `len()` is the rows already known. Report no row rather
+        // than scan on.
+        let start = self.offs.get(i)?;
+        Some((start, self.cursor.max(start), false))
     }
 
     /// Extend the index by at most `budget` bytes of scanning; returns the
@@ -409,90 +475,6 @@ impl RowIndex {
     }
 }
 
-/// A file, its read window and its row index: the whole big-file access layer.
-///
-/// Everything above the seam asks this for row *bytes*; splitting a row into
-/// fields is [`super::parse`]'s job and laying them out is the source's.
-pub struct RowStore {
-    pub reader: Reader,
-    pub index: RowIndex,
-}
-
-impl RowStore {
-    /// Open `path`. Stats the file and reads at most three bytes to skip a
-    /// BOM; no row is indexed until somebody asks for one, so open time does
-    /// not depend on file size.
-    pub fn open(path: &Path, delim: u8) -> io::Result<RowStore> {
-        let mut reader = Reader::open(path)?;
-        let index = RowIndex::new(origin(&mut reader), delim);
-        Ok(RowStore { reader, index })
-    }
-
-    /// A store over bytes that arrived on a pipe. See [`Reader::memory`].
-    pub fn memory(data: Vec<u8>, delim: u8) -> RowStore {
-        let mut reader = Reader::memory(data);
-        let index = RowIndex::new(origin(&mut reader), delim);
-        RowStore { reader, index }
-    }
-
-    /// Rows known so far.
-    pub fn known(&self) -> usize {
-        self.index.known()
-    }
-
-    /// True once every row is indexed.
-    pub fn complete(&self) -> bool {
-        self.index.complete()
-    }
-
-    /// Index far enough to answer for `n` rows. Returns rows now known. The
-    /// source drives the index itself, under one borrow of the store; this is
-    /// the tests' one-liner.
-    #[cfg(test)]
-    pub fn ensure(&mut self, n: usize) -> usize {
-        self.index.ensure(n, &mut self.reader)
-    }
-
-    /// See [`RowIndex::scan_all`] — a test driver, not the product's.
-    #[cfg(test)]
-    pub fn scan_all(&mut self, tick: &mut dyn FnMut(Progress) -> bool) -> Progress {
-        self.index.scan_all(&mut self.reader, tick)
-    }
-
-    /// Where the scan has got to.
-    pub fn progress(&self) -> Progress {
-        self.index.progress(&self.reader)
-    }
-
-    /// Pick up growth or truncation of the open file. See
-    /// [`RowIndex::refresh`].
-    #[cfg(test)]
-    pub fn refresh(&mut self) -> bool {
-        self.index.refresh(&mut self.reader)
-    }
-
-    /// The bytes of row `i`, terminator stripped, indexing on demand.
-    ///
-    /// O(1) once indexed: one seek and one read, normally served out of the
-    /// window so a screenful of rows costs a single syscall. `None` past the
-    /// last row. A row longer than [`super::read::MAX_ROW_BYTES`] comes back
-    /// clipped with [`Span::truncated`] set rather than allocated in full.
-    pub fn row(&mut self, i: usize) -> Option<Span> {
-        // Row `i` ends where row `i + 1` starts, so index one past it.
-        self.index.ensure(i.saturating_add(2), &mut self.reader);
-        let (start, end) = self.index.span(i)?;
-        let mut span = self.reader.bytes(start, end);
-        // Only strip bytes the parser actually consumed as a terminator. The
-        // last row of a file that ends mid-row has none, and its final byte can
-        // perfectly well be an `LF` inside a quoted field — stripping that by
-        // shape would silently eat data the field parser keeps. A clipped or
-        // short-read span is not the row's real tail either, so leave it alone.
-        if !span.truncated && self.index.terminated(i) {
-            parse::strip_terminator(&mut span.data);
-        }
-        Some(span)
-    }
-}
 
 #[cfg(test)]
 #[path = "index_tests.rs"]

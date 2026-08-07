@@ -65,7 +65,7 @@ run_one() {
 
 for dir in "$@"; do
     # shellcheck disable=SC2044
-    for doc in $(find "$dir" \( -name '*.md' -o -name '*.csv' -o -name '*.tsv' -o -name '*.json' -o -name '*.jsonl' -o -name '*.ndjson' \) | sort); do
+    for doc in $(find "$dir" \( -name '*.md' -o -name '*.csv' -o -name '*.tsv' -o -name '*.json' -o -name '*.jsonl' -o -name '*.ndjson' -o -name '*.txt' -o -name '*.log' -o -name '*.sh' -o -name '*.conf' \) | sort); do
         for w in $WIDTHS; do
             run_one "$doc" "$w"
         done

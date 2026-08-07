@@ -6,7 +6,7 @@
 //! * **The index is the CSV one.** A line-oriented file is a CSV without
 //!   quoting, so this reuses [`RowStore`] whole — the lazy byte-offset index,
 //!   the block-delta offset encoding, the sliding read window, the progress
-//!   report — through [`crate::csv::parse::Scanner::lines`], a scanner with
+//!   report — through [`crate::csv::index::RowStore::lines`], a scanner with
 //!   quoting turned off. Nothing about a multi-GB file is read on the open
 //!   path: a `stat` and a 3-byte BOM peek, exactly as a CSV.
 //! * **A record is parsed when it is shown, and only then.** The user's own
@@ -49,8 +49,7 @@ use std::path::Path;
 
 use super::search::{self, Dir};
 use super::{Anchor, End, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan, Source};
-use crate::csv::index::{self, RowIndex, RowStore};
-use crate::csv::parse::Scanner;
+use crate::csv::index::RowStore;
 use crate::csv::read::{self, Reader};
 use crate::json::{self, Value};
 use crate::lens::Lens;
@@ -182,12 +181,12 @@ impl JsonlSource {
     /// Open `path`. Stats it and reads three bytes; no line is indexed and no
     /// record is parsed until one is asked for.
     pub fn open(path: &Path) -> io::Result<JsonlSource> {
-        Ok(JsonlSource::new(store(Reader::open(path)?)))
+        Ok(JsonlSource::new(RowStore::lines(Reader::open(path)?)))
     }
 
     /// A source over bytes that arrived on a pipe.
     pub fn from_bytes(data: Vec<u8>) -> JsonlSource {
-        JsonlSource::new(store(Reader::memory(data)))
+        JsonlSource::new(RowStore::lines(Reader::memory(data)))
     }
 
     fn new(store: RowStore) -> JsonlSource {
@@ -387,18 +386,6 @@ impl JsonlSource {
             other => other.to_json(),
         })
     }
-}
-
-/// The CSV big-file access layer, driven by the *line* grammar: the same lazy
-/// index, sliding window and progress report, with quoting off.
-///
-/// A JSONL record is one line by definition — RFC 8259 forbids a raw newline
-/// inside a string — so the simpler grammar is the correct one here, and
-/// running the CSV grammar over it would let one `"` swallow the rest of the
-/// file. Everything else about a multi-GB file is inherited unchanged.
-fn store(mut reader: Reader) -> RowStore {
-    let index = RowIndex::with_scanner(index::origin(&mut reader), Scanner::lines());
-    RowStore { reader, index }
 }
 
 /// The fold id of record `r`, in the shared vocabulary

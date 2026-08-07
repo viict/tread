@@ -27,15 +27,20 @@ pub enum Format {
     Json,
     /// One JSON value per line: `.jsonl`, `.ndjson` (SPEC.md §JSON).
     Jsonl,
+    /// Lines, verbatim: anything whose extension names no parser
+    /// (SPEC.md §Plain text).
+    Text,
 }
 
-/// `--format <md|csv>`. Accepts the obvious spellings and nothing else.
+/// `--format <md|csv|json|jsonl|text>`. Accepts the obvious spellings and
+/// nothing else.
 pub fn parse_format(spec: &str) -> Option<Format> {
     match spec.to_ascii_lowercase().as_str() {
         "md" | "markdown" => Some(Format::Markdown),
         "csv" | "tsv" | "table" => Some(Format::Csv),
         "json" => Some(Format::Json),
         "jsonl" | "ndjson" | "jsonlines" => Some(Format::Jsonl),
+        "text" | "txt" | "plain" | "plaintext" => Some(Format::Text),
         _ => None,
     }
 }
@@ -47,17 +52,32 @@ pub fn name_of(format: Format) -> &'static str {
         Format::Csv => "CSV",
         Format::Json => "a JSON document",
         Format::Jsonl => "a record file",
+        Format::Text => "plain text",
     }
 }
 
-/// Format from a file name's extension, or `None` when it says nothing.
+/// Format from a file name's extension, or `None` when it names no parser.
+///
+/// `None` is not "unknown": [`decide`] reads it as plain text, because a named
+/// file whose extension claims no parser is exactly what plain text is for
+/// (SPEC.md §Plain text). This function stays the narrower question — *does
+/// this extension name a parser?* — because two callers need that one
+/// (`crate::open::lens`, which treats a named extension as evidence a `--lens`
+/// may not overrule, and `crate::open`, which reads only a BOM when it does).
+///
+/// `.txt` and `.text` name the text reader now that there is one. They used to
+/// name the markdown parser, which was only ever true for want of an
+/// alternative: `# TODO` at the top of a `notes.txt` is a comment, and
+/// rendering it as a banner heading is the exact failure SPEC.md §Plain text
+/// names.
 pub fn from_path(path: &Path) -> Option<Format> {
     let ext = path.extension()?.to_str()?.to_ascii_lowercase();
     match ext.as_str() {
         "csv" | "tsv" | "tab" => Some(Format::Csv),
         "json" => Some(Format::Json),
         "jsonl" | "ndjson" => Some(Format::Jsonl),
-        "md" | "markdown" | "mdown" | "mkd" | "text" | "txt" => Some(Format::Markdown),
+        "md" | "markdown" | "mdown" | "mkd" => Some(Format::Markdown),
+        "txt" | "text" => Some(Format::Text),
         _ => None,
     }
 }
@@ -209,17 +229,25 @@ fn json_or_markdown(bytes: &[u8]) -> Format {
 }
 
 /// The whole decision, in one place: `--format` wins, then the extension, then
-/// the content, then markdown.
+/// — only for input with no name at all — the content.
+///
+/// **A named file is never sniffed.** Its extension names a parser or it is
+/// plain text, and that is the whole rule (SPEC.md §Plain text). A file called
+/// `deploy` or `deploy.sh` full of `#` comments is indistinguishable from
+/// markdown to any sniffer worth writing, and guessing wrong turns a comment
+/// into a banner heading — strictly worse than the dumb rule, which renders it
+/// verbatim and is never surprising. `--format` is there for the file that
+/// really is markdown under another name.
+///
+/// The sniff survives for the one input that has no name to read: a pipe.
 pub fn decide(forced: Option<Format>, path: Option<&Path>, sample: &[u8]) -> Format {
     if let Some(f) = forced {
         return f;
     }
-    if let Some(f) = path.and_then(from_path) {
-        return f;
+    match path {
+        Some(p) => from_path(p).unwrap_or(Format::Text),
+        None => sniff(sample),
     }
-    // A named file whose extension says nothing still gets sniffed: a `data`
-    // with no suffix is as much a CSV as `data.csv`.
-    sniff(sample)
 }
 
 #[cfg(test)]
@@ -238,8 +266,35 @@ mod tests {
         assert_eq!(from_path(&p("a.md")), Some(Format::Markdown));
         assert_eq!(from_path(&p("a.jsonl")), Some(Format::Jsonl));
         assert_eq!(from_path(&p("a.NDJSON")), Some(Format::Jsonl));
+        // `.txt` names the text reader now that there is one; it used to name
+        // the markdown parser for want of an alternative (see `from_path`).
+        assert_eq!(from_path(&p("a.txt")), Some(Format::Text));
+        assert_eq!(from_path(&p("a.TEXT")), Some(Format::Text));
         assert_eq!(from_path(&p("a.rs")), None);
         assert_eq!(from_path(&p("plain")), None);
+    }
+
+    /// An extension that names no parser, and no extension at all, are both
+    /// plain text — decided by the *name*, never by the bytes (SPEC.md §Plain
+    /// text).
+    #[test]
+    fn a_file_no_parser_claims_is_plain_text() {
+        let shell = b"#!/bin/sh\n# deploy the thing\nset -eu\n";
+        assert_eq!(decide(None, Some(&p("deploy.sh")), shell), Format::Text);
+        assert_eq!(decide(None, Some(&p("deploy")), shell), Format::Text);
+        assert_eq!(decide(None, Some(&p("nginx.conf")), b"server { }\n"), Format::Text);
+        assert_eq!(decide(None, Some(&p("a.txt")), b"# not a heading\n"), Format::Text);
+        // And `--format text` forces it for a file whose extension would
+        // otherwise claim a parser.
+        assert_eq!(parse_format("text"), Some(Format::Text));
+        assert_eq!(parse_format("TXT"), Some(Format::Text));
+        assert_eq!(
+            decide(Some(Format::Text), Some(&p("notes.md")), b"# hi\n"),
+            Format::Text
+        );
+        // A known extension still keeps its parser.
+        assert_eq!(decide(None, Some(&p("notes.md")), shell), Format::Markdown);
+        assert_eq!(decide(None, Some(&p("d.csv")), shell), Format::Csv);
     }
 
     #[test]
@@ -382,11 +437,19 @@ mod tests {
         assert_eq!(sniff(b"a,b\n1,2,3\n4\n5,6\n"), Format::Markdown);
     }
 
+    /// Only *unnamed* input is sniffed.
+    ///
+    /// This test used to assert that `data` — a named file with no extension —
+    /// sniffed as CSV. That expectation is now wrong: SPEC.md §Plain text makes
+    /// a named file's extension the whole rule, precisely so that a file whose
+    /// content resembles a format it is not never gets read as one. Sniffing is
+    /// what a pipe gets, because a pipe has no name to read.
     #[test]
-    fn an_unnamed_or_odd_named_file_is_sniffed() {
+    fn only_unnamed_input_is_sniffed() {
         let csv = b"a,b\n1,2\n3,4\n5,6\n";
         assert_eq!(decide(None, None, csv), Format::Csv);
-        assert_eq!(decide(None, Some(&p("data")), csv), Format::Csv);
+        assert_eq!(decide(None, Some(&p("data")), csv), Format::Text);
+        assert_eq!(decide(None, Some(&p("data.csv")), csv), Format::Csv);
         assert_eq!(decide(None, Some(&p("notes.md")), csv), Format::Markdown);
         assert_eq!(decide(None, None, b"# hi\n"), Format::Markdown);
     }

@@ -1,6 +1,6 @@
 ---
 status: Active
-updated: 2026-08-06
+updated: 2026-08-07
 related:
   - layout.md
   - lenses.md
@@ -27,6 +27,7 @@ the whole project instead.
 | [lenses.md](lenses.md) — `--lens` | the seam, the `agent` dialect field by field, and what a new dialect must provide |
 | [testing.md](testing.md) — the suite | unit, golden and integration layers, plus the two soak harnesses |
 | [../install.sh](../install.sh) — the installer | what `curl \| sh` runs: platform detection, checksum verification, atomic install |
+| [../install.ps1](../install.ps1) — the Windows installer | what `irm \| iex` runs: the same contract in PowerShell 5.1 and 7, and see [windows.md](windows.md) for what about it is verified |
 
 ## Platforms
 

@@ -45,6 +45,29 @@ fn a_folded_heading_shows_a_line_count() {
     assert!(f.as_str().contains(crate::theme::MARKER_CLOSED));
 }
 
+/// The focused link keeps its own colour, so which link leaves the reader is
+/// visible even while it is the one under focus (SPEC.md §Navigation).
+#[test]
+fn the_focused_link_keeps_the_external_colour() {
+    let src = "one [in](models/A.md) two [out](https://example.com/x) three\n";
+    let mut p = pager(src, 80, 8);
+    let focused_fg = |p: &mut Pager| -> Option<u8> {
+        crate::pager::view::row_spans(p, p.cursor)
+            .iter()
+            .find(|s| s.style.has(crate::term::REVERSE))
+            .and_then(|s| s.style.fg)
+    };
+    // The first link on the cursor row is focused already; no `n` needed.
+    assert_eq!(p.focused_link().map(|s| s.url.clone()).as_deref(), Some("models/A.md"));
+    assert_eq!(focused_fg(&mut p), Some(crate::theme::LINK));
+    press(&mut p, "n");
+    assert_eq!(
+        p.focused_link().map(|s| s.url.clone()).as_deref(),
+        Some("https://example.com/x")
+    );
+    assert_eq!(focused_fg(&mut p), Some(crate::theme::LINK_EXTERNAL));
+}
+
 #[test]
 fn painting_never_writes_a_mouse_sequence() {
     let mut p = pager(DOC, 60, 12);
@@ -79,6 +102,8 @@ fn every_action_is_reachable_and_survives_being_fired_blind() {
         Action::Bottom,
         Action::ScrollLeft,
         Action::ScrollRight,
+        Action::ArrowLeft,
+        Action::ArrowRight,
         Action::ToggleCollapse,
         Action::OpenSection,
         Action::CloseSection,

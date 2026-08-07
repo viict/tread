@@ -18,7 +18,7 @@ Where everything lives, and the rule each module obeys.
 | [`src/render/`](../src/render/) | AST + width to styled wrapped lines |
 | [`src/theme.rs`](../src/theme.rs) | palette, heading styles, banner glyphs |
 | [`src/pager/`](../src/pager/) | viewport, scrolling, collapse tree, search, keymap |
-| [`src/nav/`](../src/nav/) | document stack, index parsing, link resolution |
+| [`src/nav/`](../src/nav/) | document stack, index parsing, link resolution; `external.rs` holds the scheme allowlist for links that leave the reader |
 | [`src/select/`](../src/select/) | visual selection, yank text, clipboard |
 | [`src/open.rs`](../src/open.rs) | resolving the input and building the source behind it; `open/lens.rs` pairs a `--lens` with a format |
 | [`src/dump.rs`](../src/dump.rs) | non-interactive render for pipes and `--no-alt` |

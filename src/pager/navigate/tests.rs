@@ -43,6 +43,12 @@ const README: &str = "\
 
 See [the site](https://example.com/x) and [escape](../../etc/passwd)
 and [deep](models/A.md#second-heading) and [back home](#models).
+
+## One Line
+
+Pick [alpha](models/A.md), [beta](models/B.md) or [site](https://example.com/s).
+
+Refused: [js](javascript:alert) then [f](file:///etc/passwd).
 ";
 
 const DOC_A: &str = "\
@@ -122,6 +128,8 @@ fn seek_status(p: &mut Pager, want: &str) {
     seek_link(p, want, |p| p.link_status().as_deref() == Some(want));
 }
 
+mod external;
+
 // -- the link cursor ---------------------------------------------------------
 
 #[test]
@@ -184,23 +192,6 @@ fn enter_without_a_link_still_toggles_the_section() {
     key(&mut p, Key::Enter);
     assert_eq!(p.folds(), vec!["second-heading".to_string()]);
     assert!(!p.visible_text().iter().any(|t| t == "buried text"));
-}
-
-#[test]
-fn external_links_are_shown_never_opened() {
-    let mut p = pager_at("/c/README.md");
-    seek_status(&mut p, "https://example.com/x");
-    let before = current(&p);
-    key(&mut p, Key::Enter);
-    assert_eq!(current(&p), before, "must not navigate");
-    assert_eq!(
-        p.message.as_deref(),
-        Some("external link (not opened): https://example.com/x")
-    );
-    assert_eq!(
-        p.focused_link_yank().as_deref(),
-        Some("https://example.com/x")
-    );
 }
 
 #[test]

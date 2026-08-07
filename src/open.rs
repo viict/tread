@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use crate::csv::read::Reader;
 use crate::source::detect::{self, Format};
 use crate::source::json::{self as json, JsonSource};
+use crate::source::text::TextSource;
 use crate::source::{csv::CsvSource, jsonl::JsonlSource, markdown::MarkdownSource, Source};
 use crate::{cli, md, sys};
 
@@ -80,7 +81,18 @@ pub fn build_source(input: &Input, args: &cli::Args) -> Result<Box<dyn Source>, 
         Format::Csv => Ok(Box::new(csv_source(input, args)?)),
         Format::Json => Ok(Box::new(json_source(input)?)),
         Format::Jsonl => Ok(Box::new(lens::jsonl_source_with(input, args)?)),
+        Format::Text => Ok(Box::new(text_source(input)?)),
         Format::Markdown => Ok(Box::new(MarkdownSource::new(markdown_document(input)?))),
+    }
+}
+
+/// The text source for this input: from the path when there is one, so a 2GB
+/// log is never read whole, and from the piped bytes when there is not.
+fn text_source(input: &Input) -> Result<TextSource, Fail> {
+    match &input.path {
+        Some(path) => TextSource::open(path)
+            .map_err(|e| Fail::runtime(format!("{}: {e}", path.display()))),
+        None => Ok(TextSource::from_bytes(input.bytes.clone().unwrap_or_default())),
     }
 }
 
@@ -157,6 +169,12 @@ pub fn toc_text(input: &Input, args: &cli::Args) -> Result<String, Fail> {
         let mut src = json_source(input)?;
         return Ok(src.toc().iter().map(|s| format!("{s}\n")).collect());
     }
+    // Plain text has no outline and will not invent one: `--toc` prints
+    // nothing and exits 0, which is what "this document has no headings"
+    // looks like to the script that asked (SPEC.md §Plain text).
+    if input.format == Format::Text {
+        return Ok(String::new());
+    }
     if input.format == Format::Jsonl {
         let mut src = lens::jsonl_source_with(input, args)?;
         return Ok(src.summaries(TOC_RECORDS).iter().map(|s| format!("{s}\n")).collect());
@@ -209,13 +227,12 @@ fn read_document(args: &cli::Args, path: &Path) -> Result<Input, Fail> {
     if !is_regular(path) {
         return stream_document(args, path);
     }
-    // Peeked at even when the extension already decided: four bytes are enough
-    // to refuse an encoding that would only render as mojibake, and a multi-GB
-    // CSV must not be read one byte further than that.
-    let head = match args.format.is_some() || detect::from_path(path).is_some() {
-        true => head_bytes(path, BOM_BYTES)?,
-        false => head_bytes(path, SNIFF_BYTES)?,
-    };
+    // Four bytes, whatever the name says: enough to refuse an encoding that
+    // would only render as mojibake, and a multi-GB file must not be read one
+    // byte further than that. A named file is never sniffed — its extension
+    // names a parser or it is plain text ([`detect::decide`]) — so there is
+    // nothing else the head is wanted for.
+    let head = head_bytes(path, BOM_BYTES)?;
     check_encoding(&path.display().to_string(), &head)?;
     let format = lens::format_for(args, Some(path), detect::decide(args.format, Some(path), &head));
     Ok(Input {

@@ -30,6 +30,7 @@ KEYS = (
     b"za za"           # toggle collapse
     b"zMzR"            # collapse all / expand all
     b"nn"              # next link
+    b"\x1b[C\x1b[C\x1b[D\x1b[D"  # arrows: links on the row, or scrolling
     b"o\x1b"           # outline overlay, then escape
     b"/the\r" b"nnN"   # search
     b"vjjy"            # visual select + yank
@@ -202,7 +203,8 @@ def main():
         os.path.join(d, f)
         for d, _, fs in os.walk(root)
         for f in fs
-        if f.endswith((".md", ".csv", ".tsv", ".json", ".jsonl", ".ndjson"))
+        if f.endswith((".md", ".csv", ".tsv", ".json", ".jsonl", ".ndjson",
+                       ".txt", ".log", ".sh", ".conf"))
     )
     if limit:
         docs = docs[:limit]

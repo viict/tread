@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 use super::{keys, search, Mode, Pager};
+use crate::url::is_external;
 use crate::render::{slice_spans, str_width, truncate_width, visible, Line, Span};
 use crate::term::{Frame, Style};
 use crate::theme;
@@ -131,9 +132,15 @@ fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
 }
 
 /// The focused link is drawn reversed, so it reads differently from the other
-/// (blue, underlined) links sharing the row.
-fn link_focus_style() -> Style {
-    Style::new().fg(theme::LINK).bold().reverse()
+/// (underlined) links sharing the row — in *its own* link colour, so a focused
+/// external link still says it leaves the reader (SPEC.md §Navigation: the
+/// distinction applies "wherever links are painted, including the focused-link
+/// style").
+fn link_focus_style(url: &str) -> Style {
+    Style::new()
+        .fg(theme::link_fg(is_external(url)))
+        .bold()
+        .reverse()
 }
 
 /// Tint the focused link on this row, if it is here.
@@ -147,7 +154,7 @@ fn focus_link(p: &Pager, cells: &mut Cells, row: usize, line: &Line, off: usize)
         return;
     }
     let start = site.col.saturating_sub(off);
-    cells.restyle(start, start + width, link_focus_style());
+    cells.restyle(start, start + width, link_focus_style(&site.url));
 }
 
 /// Display width of the run of spans carrying `url`, starting at column `col`.

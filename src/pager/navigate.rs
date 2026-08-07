@@ -15,10 +15,11 @@ use std::path::PathBuf;
 
 use super::{Mode, Pager};
 use crate::key::{Key, KeyEvent};
+use crate::nav::external;
 use crate::nav::history::Snapshot;
 use crate::nav::link::Target;
 use crate::nav::Navigator;
-use crate::source::{Anchor, LinkSite, Source};
+use crate::source::Source;
 
 impl Pager {
     /// Give the pager a corpus to walk. Relabels the status bar with the path
@@ -29,85 +30,6 @@ impl Pager {
         self.dirty = true;
     }
 
-    // -- the link cursor -----------------------------------------------------
-
-    /// The focused link: the one `n` last landed on if it is still under the
-    /// cursor row, otherwise the first link on that row.
-    pub(crate) fn focus_index(&self) -> Option<usize> {
-        let row = self.cursor_row()?;
-        let here = |site: &LinkSite| self.src.row_of(site.anchor) == Some(row);
-        if let Some(i) = self.link_cursor {
-            if self.src.links().get(i).map(&here).unwrap_or(false) {
-                return Some(i);
-            }
-        }
-        self.src.links().iter().position(here)
-    }
-
-    pub(crate) fn focused_link(&self) -> Option<&LinkSite> {
-        self.src.links().get(self.focus_index()?)
-    }
-
-    /// What the status bar shows for the focused link: the resolved path for
-    /// internal links, the raw URL for external ones.
-    pub(crate) fn link_status(&self) -> Option<String> {
-        let site = self.focused_link()?;
-        Some(match &self.nav {
-            Some(nav) => nav.resolve(&site.url).describe(nav.root()),
-            None => site.url.clone(),
-        })
-    }
-
-    /// Text `y` puts on the clipboard when a link is focused (SPEC.md: external
-    /// links are never opened, only shown and yanked).
-    pub fn focused_link_yank(&self) -> Option<String> {
-        let site = self.focused_link()?;
-        Some(match &self.nav {
-            Some(nav) => nav.resolve(&site.url).yank_text(nav.root()),
-            None => site.url.clone(),
-        })
-    }
-
-    /// `n` / `N`: move to the next or previous link and scroll it into view.
-    pub(super) fn step_link(&mut self, forward: bool) {
-        if self.src.links().is_empty() {
-            return self.notify("no links in this document");
-        }
-        let here = self.focus_index();
-        let next = match (here, forward) {
-            (Some(i), true) => i + 1,
-            (Some(0), false) => return self.notify("no previous link"),
-            (Some(i), false) => i - 1,
-            (None, _) => self.nearest_link(forward),
-        };
-        match self.src.links().get(next).map(|s| s.anchor) {
-            Some(anchor) => {
-                self.link_cursor = Some(next);
-                self.jump_to(anchor);
-            }
-            None => self.notify(match forward {
-                true => "no further link",
-                false => "no previous link",
-            }),
-        }
-    }
-
-    /// First link at or after (before) the cursor row when none is focused.
-    fn nearest_link(&self, forward: bool) -> usize {
-        let here = self.cursor_anchor().unwrap_or(Anchor(0));
-        let links = self.src.links();
-        match forward {
-            true => links
-                .iter()
-                .position(|s| s.anchor >= here)
-                .unwrap_or(links.len()),
-            false => links
-                .iter()
-                .rposition(|s| s.anchor <= here)
-                .unwrap_or(usize::MAX),
-        }
-    }
-
     // -- following -----------------------------------------------------------
 
     /// Enter: follow the focused link, or fall back to toggling the section.
@@ -116,19 +38,42 @@ impl Pager {
             Some(s) => s.url.clone(),
             None => return self.activate(),
         };
-        let nav = match &self.nav {
-            Some(n) => n,
+        let target = match &self.nav {
+            Some(n) => n.resolve(&url),
+            // No corpus — a piped document, or a format that is not part of one
+            // — so no path can be resolved. A link that leaves the reader needs
+            // no corpus, though, and the whole rule still applies to it.
+            None if external::is_external(&url) => Target::External(url.clone()),
             None => return self.notify(url),
         };
-        match nav.resolve(&url) {
+        match target {
             Target::Anchor(slug) => self.goto_anchor(&slug),
             Target::Doc { path, anchor } => self.open_doc(path, anchor, true),
-            Target::External(u) => self.notify(format!("external link (not opened): {u}")),
-            Target::Other(p) => {
-                let rel = nav.label(&p);
-                self.notify(format!("not markdown: {rel}"))
-            }
+            Target::External(u) => self.open_external(u),
             Target::Broken { raw, why } => self.notify(format!("{raw}: {why}")),
+        }
+    }
+
+    /// `Enter` on a link that leaves the reader (SPEC.md §"Opening a link
+    /// outside the reader").
+    ///
+    /// Three gates, in this order, and the pager itself spawns nothing: it queues
+    /// the URL and `main` hands it to [`crate::sys::browser`], exactly as a yank
+    /// is queued for the clipboard. The pager owns no file descriptors and starts
+    /// no processes, which is also what keeps every test on this path from
+    /// launching a browser.
+    ///
+    /// 1. `--no-browser` restores the old refuse-and-show behaviour.
+    /// 2. The scheme allowlist. A refusal names the scheme, because a document
+    ///    that wrote `javascript:` should be readable as having done so.
+    /// 3. Otherwise the URL is queued, verbatim.
+    fn open_external(&mut self, url: String) {
+        if !self.browser {
+            return self.notify(format!("external link (not opened): {url}"));
+        }
+        match external::openable(&url) {
+            Err(why) => self.notify(why.message(&url)),
+            Ok(_) => self.queue_open(url),
         }
     }
 

@@ -93,6 +93,8 @@ impl Pager {
             Action::Bottom => self.goto_end(),
             Action::ScrollLeft => self.scroll_h(-(HSTEP as isize)),
             Action::ScrollRight => self.scroll_h(HSTEP as isize),
+            Action::ArrowLeft => self.arrow(false),
+            Action::ArrowRight => self.arrow(true),
             Action::Widen => self.widen(),
             other => self.nav_action(other),
         }
@@ -178,7 +180,7 @@ impl Pager {
     /// The format is told the *viewport* width, the same `cols` the painter
     /// slices rows to and [`Pager::max_hoff`] measures against — not the layout
     /// width, which `--width` can set far wider than the terminal.
-    fn scroll_h(&mut self, delta: isize) {
+    pub(super) fn scroll_h(&mut self, delta: isize) {
         let max = self.max_hoff();
         let hoff = self.hoff;
         let view = self.cols.max(1);

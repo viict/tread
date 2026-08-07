@@ -58,6 +58,7 @@ src/md/block.rs    block-level parser -> Vec<Block>
 src/md/inline.rs   inline parser -> Vec<Inline>
 src/md/ast.rs      Block / Inline / ListKind / TableAlign types
 src/render.rs      AST + width -> Vec<Line> (styled, wrapped) layout engine
+src/url.rs         URL syntax: scheme_of / is_external (a leaf; no imports)
 src/theme.rs       color palette, heading styles, banner glyph font
 src/pager.rs       viewport state, scrolling, collapse tree, search
 src/nav.rs         document stack, index parsing, relative link resolution
@@ -143,7 +144,8 @@ crate. Never slice a String on a non-char boundary.
 ```
 j/k ↓/↑        line down/up            d/u        half page
 space/f, b     page down/up            g/G        top/bottom
-h/l ←/→        horizontal scroll (code blocks, wide tables)
+h/l            horizontal scroll (code blocks, wide tables)
+←/→            select a link on the row; scrolls where the row scrolls
 za / Enter     toggle collapse at cursor heading
 zM / zR        collapse all / expand all
 zo / zc        open / close current section
@@ -169,6 +171,7 @@ tread [OPTIONS] [FILE]
                      corpus index; opening with no FILE starts here
   --no-alt           render into scrollback instead of the alternate screen
   --plain            no color (also honor NO_COLOR and non-tty stdout)
+  --no-browser       never hand an external link to the system opener
   --width <N>        force wrap width
   --toc              print the outline and exit
   -h, --help / -V, --version
@@ -185,12 +188,21 @@ Primary target corpus: `~/notes` — 106 markdown files, a
 
 - Relative links resolve against the current document's directory.
 - Following a link pushes onto a history stack; Backspace pops.
-- `i` jumps to the index; the index view lists every linked doc, grouped by
-  the H2 section it appeared under, and is navigable with j/k/Enter.
+- `i` jumps to the index; the index view lists every linked *document*, grouped
+  by the H2 section it appeared under, and is navigable with j/k/Enter. A link
+  to something that is not a document — a script, an image, a data file — still
+  resolves and still opens from the body of the document that wrote it, since
+  the reader can show any file; it is simply not an entry in the corpus's table
+  of contents, which is what this listing, `]`/`[` and the outline overlay all
+  read.
 - Anchor links (`#some-heading`) scroll to the matching heading, GitHub-style
   slug matching.
-- Non-markdown / external (`http`) links are not opened; show the URL in the
-  status bar and allow yanking it.
+- External (`http`, `https`, `mailto`) links open in the system browser on
+  `Enter`, and are coloured apart from links that stay inside the reader, so it
+  is visible before pressing which links leave. `--no-browser` restores the
+  old behaviour of showing the URL and refusing to open it.
+- Links to files the reader can show — any file, since unknown types render as
+  plain text — open in the reader. The URL is always yankable.
 
 ## Status bar
 
@@ -366,3 +378,73 @@ mechanics folded away. Messages stay visible; consecutive tool calls and their
 results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that opens.
 Other dialects — and the ATIF interchange format — are later work; the seam is
 what this phase must get right.
+
+## Plain text
+
+A file whose extension names no parser renders **verbatim**: no headings, no
+wrapping, no inline markup, nothing invented. A shell script is not markdown,
+and parsing it as markdown turns `# comment` into a banner heading — which is
+worse than doing nothing at all.
+
+Everything that does not depend on structure still works: scrolling, search,
+selection, yank, horizontal scrolling of long lines. What a text file has no
+answer for — an outline, folds, links — says so rather than pretending.
+
+`--toc` on a format with no outline prints **nothing** and exits 0. That is the
+honest empty answer, and it is the one a script can use: prose on stdout saying
+"this has no headings" would corrupt the pipeline that asked.
+
+`--format text` forces it for a file whose extension would otherwise claim a
+parser. This is also what makes a corpus link to a `.sh` or a `.conf`
+followable, instead of refusing it as "not markdown".
+
+## Selecting links on a line
+
+`←`/`→` move the link focus along the current row, so a line holding several
+links can be walked without `n` carrying the cursor off it.
+
+The two cases **do** apply to the same row: a markdown table wider than the
+terminal marks every one of its rows horizontally scrollable, links and all, and
+so does any row under a `--width` greater than the terminal's. The rule is
+therefore "links win where there is a choice to make":
+
+- A row carrying **more than one link** gets the link walk. That is the motion
+  nothing else can make, and a table row holding four links is the case the
+  binding exists for.
+- Every other row **scrolls if it can** — a code block, a CSV row, a text line,
+  a table row with one link or none.
+- `h`/`l` scroll everywhere regardless, so a wide linked table is still
+  scrollable with one keypress.
+
+The walk stops at the row's ends rather than carrying onto the next row, and is
+silent at both ends and on a row with nothing to do: these are held-down keys.
+
+## Opening a link outside the reader
+
+`Enter` on an external link hands the URL to the system's opener. The rules
+exist because a document is untrusted input:
+
+- **Scheme allowlist**: `http`, `https`, `mailto`. Nothing else is ever handed
+  over — a `file:`, `javascript:` or `vbscript:` URL in a document is refused
+  by name.
+- **Never through a shell.** The URL is one argument to one process
+  (`xdg-open`, `open`, or `rundll32 url.dll,FileProtocolHandler`), never a
+  string a shell will re-interpret. On Windows in particular, `cmd /c start`
+  is not used: its quoting rules make a hostile URL a command-injection.
+- The reader does not wait for the browser, does not read its output, and a
+  missing opener is a status-bar message rather than an error.
+- `--no-browser` disables it entirely.
+
+## Installing on Windows
+
+`install.ps1`, invoked the way Windows users expect:
+
+```powershell
+irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
+```
+
+Same contract as `install.sh`: pick the build for the machine's architecture,
+verify it against the release's `SHA256SUMS`, refuse to install anything that
+does not match, and install to a per-user location on `PATH`
+(`%LOCALAPPDATA%\Programs\tread` by default, `$env:INSTALL_PATH` to change it).
+It reports how to add the directory to `PATH` when it is not already there.

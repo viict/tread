@@ -9,6 +9,7 @@ use std::io::Write;
 use std::time::Instant;
 
 use super::*;
+use crate::csv::read::MAX_ROW_BYTES;
 
 // -- laziness, progress, interruption ---------------------------------------
 
@@ -268,4 +269,105 @@ fn a_hundred_megabyte_file_opens_instantly() {
     if grew > 0 {
         assert!(grew < budget, "rss grew {grew}B, budget {budget}B");
     }
+}
+
+// -- a file whose tail holds no terminator ----------------------------------
+
+/// A big file holding exactly one row: no `LF`, no `CR`, anywhere. A `.bin`, a
+/// `.zip`, a minified bundle — since SPEC.md §Plain text made every unknown
+/// extension a text file, this is a shape the reader now opens routinely.
+///
+/// Written a megabyte at a time so the test measures the reader and not the
+/// fixture builder.
+fn no_terminator_fixture(name: &str) -> (Tmp, u64) {
+    let t = tmp_path(name);
+    let chunk = vec![b'x'; 1 << 20];
+    {
+        let mut f = std::fs::File::create(&t.path).expect("create fixture");
+        for _ in 0..64 {
+            f.write_all(&chunk).expect("write fixture");
+        }
+        f.flush().expect("flush fixture");
+    }
+    let size = std::fs::metadata(&t.path).expect("stat").len();
+    assert_eq!(size, 64 << 20);
+    (t, size)
+}
+
+/// Regression, SPEC.md §CSV — inherited verbatim by SPEC.md §Plain text: "a
+/// multi-GB file must open instantly and quit instantly; nothing may read the
+/// whole file on the open path, and `q` must never wait on a scan."
+///
+/// Every *budgeted* entry point obeyed that. [`RowStore::row`] did not: it called
+/// the unbounded `RowIndex::ensure(i + 2)`, and to paint the last known row the
+/// index has to prove row `i + 1` does not exist — which on a file with no
+/// terminator in its tail is a scan to end-of-file, in one call, on the paint
+/// path. The first frame was never flushed and the keystroke queue was never
+/// read: measured through a real pty on a 2GB `.bin`, the alt-screen bytes
+/// appeared at 3ms, `q` was written at 2s and ignored, and the first and only
+/// frame arrived 17.3s later having read all 2GiB.
+///
+/// The fix is that a row is clipped at [`MAX_ROW_BYTES`] anyway, so its end only
+/// has to be looked for within that budget.
+#[test]
+fn painting_a_row_never_scans_a_file_that_holds_no_terminator() {
+    let (t, size) = no_terminator_fixture("nolf");
+    let mut s = RowStore::lines(Reader::open(&t.path).expect("open fixture"));
+    let t0 = Instant::now();
+    let got = s.row(0).expect("row 0 is paintable");
+    let took = t0.elapsed();
+
+    let read = s.progress().bytes;
+    assert!(!s.complete(), "the file must not have been indexed to its end");
+    assert_eq!(s.known(), 1, "one row, and it is the one we asked for");
+    assert!(read <= MAX_ROW_BYTES as u64, "painting one row read {read} bytes");
+    assert!(read * 8 < size, "read {read} of {size} bytes");
+    // Clipped and flagged, exactly as a genuinely megabyte-long row is.
+    assert!(got.truncated, "an unsettled row is a clipped row");
+    assert_eq!(got.data.len(), MAX_ROW_BYTES);
+    assert!(got.data.iter().all(|&b| b == b'x'), "and it is the file's bytes");
+    // Asking again spends at most one more budget: the index kept what it
+    // scanned, and no call can turn into a full scan however often it is made.
+    let again = s.row(0).expect("row 0 again");
+    assert_eq!(again.data.len(), MAX_ROW_BYTES);
+    assert!(s.progress().bytes <= read + MAX_ROW_BYTES as u64);
+    eprintln!("{size}B with no terminator: painted row 0 in {took:?}, read {read}B");
+}
+
+/// The same file through the CSV grammar rather than the line grammar: the
+/// defect and the fix both live in the shared access layer, so neither format
+/// gets its own answer.
+#[test]
+fn the_same_bound_applies_to_the_csv_grammar() {
+    let (t, size) = no_terminator_fixture("nolf-csv");
+    let mut s = store(&t);
+    assert!(s.row(0).expect("row 0").truncated);
+    assert!(!s.complete());
+    assert!(s.progress().bytes * 8 < size);
+    // And row 1 does not exist, which must also be answerable without a scan:
+    // the budget is spent, no boundary was found, so there is no row 1 to serve.
+    let before = s.progress().bytes;
+    assert!(s.row(1).is_none(), "there is no second row");
+    assert!(
+        s.progress().bytes <= before + MAX_ROW_BYTES as u64,
+        "asking for a row past the end must not scan the file either"
+    );
+    assert!(!s.complete());
+}
+
+/// The bound must not make a *normal* file lie. Every row of a file whose rows
+/// are ordinary comes back settled — terminator stripped, `truncated` clear —
+/// which is what says the clipped path is only ever reached by a row that really
+/// is longer than the cap.
+#[test]
+fn ordinary_rows_are_never_reported_as_clipped() {
+    let body = gen(5_000, 0);
+    let t = tmp("settled", &body);
+    let mut s = store(&t);
+    for i in 0..5_000 {
+        let sp = s.row(i).unwrap_or_else(|| panic!("row {i} must exist"));
+        assert!(!sp.truncated, "row {i} was reported clipped");
+        assert!(!sp.data.ends_with(b"\n"), "row {i} kept its terminator");
+    }
+    assert!(s.row(5_000).is_none(), "and there is no row past the last");
 }

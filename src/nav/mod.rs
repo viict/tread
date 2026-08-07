@@ -7,10 +7,15 @@
 //! next document, and never touches a path itself.
 #![deny(unsafe_code)]
 
+pub mod external;
 pub mod history;
 pub mod index;
 pub mod link;
 
+#[cfg(test)]
+mod corpus_tests;
+#[cfg(test)]
+mod open_tests;
 #[cfg(test)]
 mod tests;
 
@@ -18,7 +23,12 @@ use std::path::{Path, PathBuf};
 
 use crate::md::{self, Document};
 use crate::plat::{path as ppath, Platform};
+use crate::source::csv::CsvSource;
+use crate::source::detect::{self, Format};
+use crate::source::json::JsonSource;
+use crate::source::jsonl::JsonlSource;
 use crate::source::markdown::MarkdownSource;
+use crate::source::text::TextSource;
 use crate::source::Source;
 use history::{History, Snapshot};
 use index::Entry;
@@ -126,13 +136,30 @@ impl Navigator {
 
     /// Read a corpus document and hand it back behind the format seam.
     ///
-    /// The corpus is a web of markdown links (`link::resolve` only ever yields
-    /// a `Doc` target for a markdown file), so this is where "a corpus document
-    /// is markdown" is decided — the pager never learns it (SPEC.md §The
-    /// `Source` seam).
+    /// A corpus is no longer only markdown: a link to a `.sh`, a `.csv` or a
+    /// `.jsonl` resolves and opens (SPEC.md §Navigation), so this is where a
+    /// followed link becomes the right kind of [`Source`] — by the same rule
+    /// `tread` applies to argv, [`detect::decide`], and with no sample, because
+    /// a named file is never sniffed. The pager still never learns which format
+    /// it got (SPEC.md §The `Source` seam).
+    ///
+    /// Markdown keeps going through [`Navigator::load`] and the [`Fs`] seam, so
+    /// it stays unit-testable without a disk. The lazily indexed formats need a
+    /// real path — that is what makes a 2GB log open instantly — so a fake
+    /// filesystem gets an honest open error for those rather than a fake file.
     pub fn load_source(&self, path: &Path) -> Result<Box<dyn Source>, String> {
-        self.load(path)
-            .map(|doc| Box::new(MarkdownSource::new(doc)) as Box<dyn Source>)
+        let opened = |r: std::io::Result<Box<dyn Source>>| {
+            r.map_err(|e| format!("{}: {e}", path.display()))
+        };
+        match detect::decide(None, Some(path), &[]) {
+            Format::Markdown => self
+                .load(path)
+                .map(|doc| Box::new(MarkdownSource::new(doc)) as Box<dyn Source>),
+            Format::Csv => opened(CsvSource::open(path, None).map(|s| Box::new(s) as _)),
+            Format::Json => opened(JsonSource::open(path).map(|s| Box::new(s) as _)),
+            Format::Jsonl => opened(JsonlSource::open(path).map(|s| Box::new(s) as _)),
+            Format::Text => opened(TextSource::open(path).map(|s| Box::new(s) as _)),
+        }
     }
 
     pub fn set_current(&mut self, path: PathBuf) {

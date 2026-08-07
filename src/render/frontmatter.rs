@@ -16,6 +16,7 @@
 
 use super::block::{Ctx, Pfx};
 use super::{str_width, HeadingLine, LineKind, Span};
+use crate::term::Style;
 use crate::md::ast::{Field, FieldValue};
 use crate::theme;
 
@@ -150,6 +151,16 @@ fn row(key: &str, value: &str, label_w: usize, is_status: bool) -> Vec<Span> {
 
 /// The value itself: a link when it points at a document, a status colour when
 /// it is one, plain text otherwise.
+///
+/// A linked value is coloured by [`crate::render::link_style`], the same function
+/// the inline renderer paints `[text](url)` with, so a frontmatter value that
+/// turns out to leave the reader (`docs: https://elsewhere/notes.md` satisfies
+/// [`looks_like_doc`] as readily as a relative path does) is painted in the
+/// external colour rather than in the internal blue. This used to be a hardcoded
+/// `theme::link()`, which made the one field a reader would check before
+/// following claim it stayed inside the corpus while `Enter` handed it to the
+/// system opener — the exact "painted as one thing, opened as another" SPEC.md
+/// §Navigation asks the colour to prevent.
 fn value_span(value: &str, is_status: bool) -> Span {
     if is_status {
         return Span::new(value.to_string(), theme::status_of(value));
@@ -157,7 +168,7 @@ fn value_span(value: &str, is_status: bool) -> Span {
     match looks_like_doc(value) {
         true => Span {
             text: value.to_string(),
-            style: theme::link(),
+            style: super::inline::link_style(Style::new(), value),
             link: Some(value.to_string()),
         },
         false => Span::new(value.to_string(), theme::text()),
@@ -170,6 +181,10 @@ fn value_span(value: &str, is_status: bool) -> Span {
 /// paths, but `notes:` holds prose that may well mention a filename, and
 /// turning a sentence into a link because it ends in `.md` would be worse than
 /// leaving a path unlinked.
+///
+/// An `https://host/notes.md` passes, and is meant to: it is a cross-reference
+/// like any other and is reachable with `n` and `Enter`. What matters is that it
+/// is *painted* as leaving — see [`value_span`].
 fn looks_like_doc(value: &str) -> bool {
     !value.contains(char::is_whitespace)
         && !value.contains(char::is_control)
@@ -193,6 +208,38 @@ fn rule(ctx: &mut Ctx, source_line: usize, pfx: &Pfx) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression, SPEC.md §Navigation ("coloured apart ... so it is visible
+    /// before pressing which links leave"). `value_span` hardcoded
+    /// `theme::link()`, so `docs: https://elsewhere/notes.md` — which
+    /// `looks_like_doc` accepts as readily as a relative path — was painted in
+    /// the *internal* blue while `Enter` handed it to the system opener. The one
+    /// place SPEC.md asks for the distinction was the one place it was not made.
+    #[test]
+    fn a_frontmatter_value_that_leaves_the_reader_is_coloured_as_leaving() {
+        let inside = value_span("models/A.md", false);
+        let outside = value_span("https://evil.example.com/notes.md", false);
+        assert_eq!(inside.link.as_deref(), Some("models/A.md"));
+        assert_eq!(outside.link.as_deref(), Some("https://evil.example.com/notes.md"));
+        assert_eq!(inside.style.fg, Some(theme::link_fg(false)));
+        assert_eq!(outside.style.fg, Some(theme::link_fg(true)));
+        assert_ne!(inside.style.fg, outside.style.fg, "the whole point");
+        // Both are still links: underlined, and reachable with `n`.
+        assert_eq!(inside.style.attrs, outside.style.attrs);
+    }
+
+    /// The same colour the inline renderer would give the same URL, because it is
+    /// literally the same function — a second copy is how the two drift apart.
+    #[test]
+    fn a_frontmatter_link_is_coloured_like_an_inline_one() {
+        for url in ["models/A.md", "https://x/a.md", "mailto:a@b.md", "javascript:x.md"] {
+            assert_eq!(
+                value_span(url, false).style,
+                super::super::inline::link_style(Style::new(), url),
+                "{url}"
+            );
+        }
+    }
 
     #[test]
     fn only_a_document_path_becomes_a_link() {
