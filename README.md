@@ -574,8 +574,10 @@ any UI path.
 ## Docs
 
 How it is built and how it is proven lives in [`docs/`](docs/) — the module
-map, the test layers, and what is and is not verified about the Windows
-console backend. [`SPEC.md`](SPEC.md) is the binding contract for behaviour.
+map, the test layers, how to cut a release, and what is and is not verified about
+the Windows console backend. [`SPEC.md`](SPEC.md) is the binding contract for
+behaviour, and [`CONTRIBUTING.md`](CONTRIBUTING.md) says what a patch must not
+do — chiefly add a dependency or capture the mouse.
 
 ## License
 

@@ -1,0 +1,62 @@
+name: Bug report
+description: Something renders wrong, behaves wrong, or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        `tread` is a terminal program, so the terminal matters as much as the OS.
+        Those two fields are usually what makes a report reproducible.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `tread --version`.
+      placeholder: tread 0.2.0
+    validations:
+      required: true
+
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal
+      description: >
+        Which terminal emulator, and its version if you know it. On Windows,
+        Windows Terminal and conhost behave differently and it matters.
+      placeholder: Windows Terminal 1.21 / iTerm2 3.5 / xterm / VS Code
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: Windows 11 arm64 / macOS 15 Apple Silicon / Ubuntu 24.04 x86_64
+    validations:
+      required: true
+
+  - type: textarea
+    id: file
+    attributes:
+      label: A file that reproduces it
+      description: >
+        The smallest markdown/CSV/JSON that shows the problem, pasted or
+        attached. For a rendering bug this is usually the whole report.
+      render: text
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: >
+        `--plain --width 80` output is often useful, since it shows the render
+        without the terminal in the way.

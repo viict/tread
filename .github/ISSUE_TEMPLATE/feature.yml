@@ -1,0 +1,26 @@
+name: Feature or format request
+description: Something tread should be able to read or do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check `CONTRIBUTING.md` first — a few things are settled and will
+        be declined regardless of implementation, notably adding a dependency
+        and capturing the mouse.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What you want
+      description: The behaviour, and what you are trying to read or do with it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why the current behaviour is not enough
+      description: What you do today instead, and where it falls short.
+    validations:
+      required: true
