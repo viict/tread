@@ -2,12 +2,13 @@
 
 `less`, but it understands file types.
 
-A terminal reader with collapsible headings, banner H1s, real box-drawn tables,
-colored links, and navigation across a corpus of linked documents. It also
-reads CSV: multi-GB files open instantly, with a pinned header and column-wise
-scrolling. One static binary, no runtime, no configuration, **no dependencies
-at all** — not even `libc`. Every format is compiled in; nothing is ever loaded
-at runtime.
+A terminal reader for markdown, CSV, JSON and JSON Lines. Collapsible
+headings, banner H1s, real box-drawn tables, colored links, and navigation
+across a corpus of linked documents — and for data, files far too big to load:
+a multi-GB CSV or JSON opens in milliseconds, because nothing reads the whole
+file. One static binary, no runtime, no configuration, **no dependencies at
+all** — not even `libc`. Every format is compiled in; nothing is ever loaded at
+runtime.
 
 ![tread reading a markdown document](docs/img/markdown.svg)
 
@@ -56,6 +57,15 @@ $ tread --index ~/notes
   coloured by whether the doc is live, in flight or historical, every `related:`
   path is a link you reach with `n` and follow with `Enter`, and `y` copies the
   field under the cursor.
+- **Data files that are too big to load.** A CSV or JSON of any size opens in
+  milliseconds and quits instantly, because nothing reads the whole file:
+  containers are indexed by byte range, lazily and at every level, and a value
+  is parsed only when it is on screen. A 25 MB object wrapping one enormous
+  array opens as fast as a small one.
+- **JSON that says what the file says.** Numbers keep their source text, so
+  `1e999` and a 40-digit integer are not quietly rounded through `f64`.
+  Duplicate keys are kept in order. Strings are shown as the literal, escapes
+  and all, so what is on screen re-parses to the value on screen.
 - **A document tree.** Relative links resolve against the current file.
   `Enter` follows one, `Backspace` goes back, `i` opens the corpus index
   grouped by the section each link appeared under.
@@ -70,8 +80,14 @@ $ tread --index ~/notes
 
 ## Currently supported file-types
 
-- Markdown (Github variation, frontmatter yaml support)
-- CSV (big files supported)
+| Format | Extensions | Notes |
+| --- | --- | --- |
+| Markdown | `.md`, `.markdown` | GitHub flavour, tables, YAML frontmatter |
+| CSV | `.csv`, `.tsv` | any size; sniffed delimiter, `sep=` directive |
+| JSON | `.json` | any size; foldable tree, source-faithful values |
+| JSON Lines | `.jsonl`, `.ndjson` | any size; one record per line, lenses |
+
+Anything unnamed — a pipe — is sniffed. `--format` forces the choice.
 
 ## Build from source
 
@@ -268,6 +284,8 @@ of pretending — and `Enter`, which follows a link in markdown and folds a
 section when there is none, opens the row here.
 
 ## Reading JSON
+
+![tread reading a JSON document as a foldable tree](docs/img/json.svg)
 
 ```sh
 tread big.json

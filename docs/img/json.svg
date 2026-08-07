@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="801" height="424" viewBox="0 0 801 424" font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="13">
+<rect width="801" height="424" rx="8" fill="#12141a"/>
+<rect x="14.0" y="86.0" width="134.4" height="18.0" fill="#444444"/>
+<rect x="14.0" y="392.0" width="772.8" height="18.0" fill="#444444"/>
+<text x="14.0" y="27.5" fill="#808080" xml:space="preserve">▾</text>
+<text x="30.8" y="27.5" fill="#585858" xml:space="preserve">{</text>
+<text x="47.6" y="45.5" fill="#5fd7ff" xml:space="preserve">"name"</text>
+<text x="98.0" y="45.5" fill="#585858" xml:space="preserve">:</text>
+<text x="114.8" y="45.5" fill="#afd787" xml:space="preserve">"tread"</text>
+<text x="47.6" y="63.5" fill="#5fd7ff" xml:space="preserve">"version"</text>
+<text x="123.2" y="63.5" fill="#585858" xml:space="preserve">:</text>
+<text x="140.0" y="63.5" fill="#afd787" xml:space="preserve">"0.1.0"</text>
+<text x="47.6" y="81.5" fill="#5fd7ff" xml:space="preserve">"static"</text>
+<text x="114.8" y="81.5" fill="#585858" xml:space="preserve">:</text>
+<text x="131.6" y="81.5" fill="#af87ff" font-weight="bold" xml:space="preserve">true</text>
+<text x="30.8" y="99.5" fill="#808080" xml:space="preserve">▾</text>
+<text x="47.6" y="99.5" fill="#5fd7ff" xml:space="preserve">"targets"</text>
+<text x="123.2" y="99.5" fill="#585858" xml:space="preserve">: [</text>
+<text x="64.4" y="117.5" fill="#afd787" xml:space="preserve">"x86_64-unknown-linux-musl"</text>
+<text x="64.4" y="135.5" fill="#afd787" xml:space="preserve">"aarch64-unknown-linux-musl"</text>
+<text x="64.4" y="153.5" fill="#afd787" xml:space="preserve">"aarch64-apple-darwin"</text>
+<text x="64.4" y="171.5" fill="#afd787" xml:space="preserve">"x86_64-apple-darwin"</text>
+<text x="64.4" y="189.5" fill="#afd787" xml:space="preserve">"x86_64-pc-windows-msvc"</text>
+<text x="64.4" y="207.5" fill="#afd787" xml:space="preserve">"aarch64-pc-windows-msvc"</text>
+<text x="47.6" y="225.5" fill="#585858" xml:space="preserve">]</text>
+<text x="30.8" y="243.5" fill="#808080" xml:space="preserve">▸</text>
+<text x="47.6" y="243.5" fill="#5fd7ff" xml:space="preserve">"formats"</text>
+<text x="123.2" y="243.5" fill="#585858" xml:space="preserve">:</text>
+<text x="140.0" y="243.5" fill="#8a8a8a" xml:space="preserve">{…3 keys}</text>
+<text x="30.8" y="261.5" fill="#808080" xml:space="preserve">▸</text>
+<text x="47.6" y="261.5" fill="#5fd7ff" xml:space="preserve">"dependencies"</text>
+<text x="165.2" y="261.5" fill="#585858" xml:space="preserve">:</text>
+<text x="182.0" y="261.5" fill="#8a8a8a" xml:space="preserve">[]</text>
+<text x="47.6" y="279.5" fill="#5fd7ff" xml:space="preserve">"exact"</text>
+<text x="106.4" y="279.5" fill="#585858" xml:space="preserve">:</text>
+<text x="123.2" y="279.5" fill="#ffaf5f" xml:space="preserve">12345678901234567890123456789</text>
+<text x="47.6" y="297.5" fill="#5fd7ff" xml:space="preserve">"big"</text>
+<text x="89.6" y="297.5" fill="#585858" xml:space="preserve">:</text>
+<text x="106.4" y="297.5" fill="#ffaf5f" xml:space="preserve">1e999</text>
+<text x="47.6" y="315.5" fill="#5fd7ff" xml:space="preserve">"note"</text>
+<text x="98.0" y="315.5" fill="#585858" xml:space="preserve">:</text>
+<text x="114.8" y="315.5" fill="#afd787" xml:space="preserve">"strings show as the literal: \"quoted\" stays quoted"</text>
+<text x="30.8" y="333.5" fill="#585858" xml:space="preserve">}</text>
+<text x="14.0" y="405.5" fill="#d0d0d0" xml:space="preserve">shot.json  ·  row 5/18  ·  .targets</text>
+</svg>
