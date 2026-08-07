@@ -125,7 +125,7 @@ jobs:
           else
             cp "target/${{ matrix.target }}/release/tread" "dist/$NAME/"
           fi
-          cp README.md "dist/$NAME/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/$NAME/"
           cp -r docs "dist/$NAME/"
           cd dist
           if [ "${{ runner.os }}" = "Windows" ]; then

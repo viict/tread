@@ -432,3 +432,18 @@ any UI path.
 How it is built and how it is proven lives in [`docs/`](docs/) — the module
 map, the test layers, and what is and is not verified about the Windows
 console backend. [`SPEC.md`](SPEC.md) is the binding contract for behaviour.
+
+## License
+
+Licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or
+  <https://www.apache.org/licenses/LICENSE-2.0>)
+- MIT license ([LICENSE-MIT](LICENSE-MIT) or
+  <https://opensource.org/licenses/MIT>)
+
+at your option. Copyright © 2026 Victor Simonetti.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted
+for inclusion in this work by you, as defined in the Apache-2.0 license, shall
+be dual licensed as above, without any additional terms or conditions.

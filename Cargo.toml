@@ -3,6 +3,12 @@ name = "tread"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.75"
+description = "A terminal reader for markdown, CSV and JSON. Zero dependencies."
+repository = "https://github.com/viict/tread"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+keywords = ["pager", "markdown", "csv", "json", "tui"]
+categories = ["command-line-utilities", "text-processing"]
 
 [[bin]]
 name = "tread"
