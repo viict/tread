@@ -141,9 +141,15 @@ fn yanking_an_entry_gives_its_name() {
 fn searching_a_listing_finds_and_highlights_a_name() {
     let t = populated("search");
     let mut s = DirSource::open(&t.0);
-    s.set_query("data");
-    assert_eq!(s.match_count(), 1);
+    // A full filename, not a bare word: the header row carries the directory's
+    // path and is searchable like any other row, and on Windows a temp path
+    // lives under `AppData` — which contains "data". A needle that can appear
+    // in the path makes this test depend on where the OS puts temp files.
+    s.set_query("data.csv");
+    assert_eq!(s.match_count(), 1, "rows: {:?}", text(&mut s));
     let hit = s.cycle_match(Anchor(0), crate::source::search::Dir::Forward).expect("hit");
+    // The hit is the entry itself, not the header.
+    assert!(s.lines(hit.anchor.0..hit.anchor.0 + 1)[0].text().contains("data.csv"));
     let spans = s.matches_on(hit.anchor.0);
     assert_eq!(spans.len(), 1);
     assert!(spans[0].end > spans[0].start);
