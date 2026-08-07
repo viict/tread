@@ -497,7 +497,7 @@ every syscall is a hand-written `extern "C"` declaration.
 
 ```
 $ cargo tree
-tread v0.1.0
+tread v0.2.0
 ```
 
 All `unsafe` lives in the platform backends under [`src/sys/`](src/sys/); every
