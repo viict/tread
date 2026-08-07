@@ -1,0 +1,139 @@
+name: ci
+
+# Every push and every pull request, so a change is proven before it is tagged.
+#
+# This exists because it did not: `release.yml` ran the Windows suite for the
+# first time *at publish time*, which is how a test that passed on Linux and
+# failed on Windows reached a release tag and cost a tag deletion. Tagging
+# should be a formality over code that is already green.
+#
+# The `native` matrix deliberately mirrors `release.yml`'s. Keep them in step —
+# if a target is added there, add it here, or the gate stops covering what ships.
+# CI does not package or publish; that stays release-only.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # The cheap gate, first: lints and the cross-compilation type-check for every
+  # OS this builder is not. Most mistakes die here in under a minute, and the
+  # `plat`/`abi`/`layout` split means the other OSes' pure logic is covered by
+  # `cargo test` on Linux too.
+  check:
+    name: lint + cross-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup component add clippy
+          rustc -vV
+
+      # `cargo fmt --check` is deliberately absent: the tree follows a hand
+      # style and rustfmt would rewrite ~6.5k lines. Enforcing it is a
+      # standalone decision, not something to smuggle in behind a CI job.
+      #
+      # This runs on whatever `stable` is *today*, so a Rust release can add a
+      # lint and fail a commit that touched nothing — which is exactly what
+      # happened the first time this workflow ran, against a local toolchain
+      # five releases behind. That is the intended trade: the new lints are
+      # worth having, and the fix is to fix the code. `rustup update` before
+      # trusting a local clean run.
+      - name: Clippy
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --locked
+
+      - name: Cross-check every other target
+        run: |
+          for t in \
+            x86_64-apple-darwin aarch64-apple-darwin \
+            x86_64-pc-windows-msvc aarch64-pc-windows-msvc \
+            x86_64-pc-windows-gnu x86_64-unknown-linux-musl; do
+            rustup target add "$t"
+            echo "::group::$t"
+            cargo check --locked --target "$t"
+            echo "::endgroup::"
+          done
+
+  # Then the real thing: the suite on the hardware it ships for. This is the
+  # job that would have caught the Windows failure on the pull request.
+  native:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+          rustup target add ${{ matrix.target }}
+          rustc -vV
+        shell: bash
+
+      - name: Test
+        run: cargo test --locked --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Build
+        run: cargo build --locked --release --target ${{ matrix.target }}
+        shell: bash
+
+      # A binary that compiles but cannot open a console dies here and nowhere
+      # earlier. Non-interactive paths only — the dump paths and piped stdin.
+      - name: Smoke test
+        run: |
+          BIN=target/${{ matrix.target }}/release/tread
+          [ "${{ runner.os }}" = "Windows" ] && BIN="$BIN.exe"
+          "$BIN" --version
+          "$BIN" --help > /dev/null
+          "$BIN" --toc README.md
+          "$BIN" --plain --width 80 tests/fixtures/kitchen-sink.md > /dev/null
+          "$BIN" --plain --width 40 tests/fixtures/unicode.md      > /dev/null
+          "$BIN" --plain --width 200 tests/fixtures/hostile.md     > /dev/null
+          cat README.md | "$BIN" --plain --width 100 > /dev/null
+          echo "smoke ok on ${{ matrix.target }}"
+        shell: bash
+
+      # The interactive pager through a real terminal: raw mode, teardown on
+      # every exit path, and that no mouse-tracking sequence is ever emitted.
+      # Windows has no pty here — ConPTY needs its own harness — so the
+      # interactive path on that platform stays hand-verified (docs/windows.md).
+      - name: Interactive soak through a pty
+        if: runner.os != 'Windows'
+        run: python3 tools/soak_pty.py target/${{ matrix.target }}/release/tread tests/fixtures
+        shell: bash

@@ -14,7 +14,7 @@
 use super::parse::{Records, QUOTE};
 
 /// The delimiters [`sniff`] considers, in tie-break preference order.
-pub const CANDIDATES: [u8; 4] = [b',', b'\t', b';', b'|'];
+pub const CANDIDATES: [u8; 4] = *b",\t;|";
 
 /// Used when a file gives the sniffer nothing to go on.
 pub const DEFAULT_DELIM: u8 = b',';
