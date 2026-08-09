@@ -78,7 +78,7 @@ impl fmt::Display for CliError {
 pub fn help_text() -> String {
     format!(
         "\
-{BIN} {VERSION} — a terminal reader for markdown, CSV and JSON
+{BIN} {VERSION} — a terminal reader for markdown, CSV, JSON and code
 
 USAGE
     {BIN} [OPTIONS] [FILE]

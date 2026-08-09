@@ -2,9 +2,11 @@
 
 `less`, but it understands file types.
 
-A terminal reader for markdown, CSV, JSON and JSON Lines. Collapsible
-headings, banner H1s, real box-drawn tables, colored links, and navigation
-across a corpus of linked documents — and for data, files far too big to load:
+A terminal reader for markdown, CSV, JSON, JSON Lines and source code.
+Collapsible headings, banner H1s, real box-drawn tables, colored links, and
+navigation across a corpus of linked documents — in code, the same folds over
+declarations and the same `Enter` over an import — and for data, files far too
+big to load:
 a multi-GB CSV or JSON opens in milliseconds, because nothing reads the whole
 file. One static binary, no runtime, no configuration, **no dependencies at
 all** — not even `libc`. Every format is compiled in; nothing is ever loaded at
@@ -107,8 +109,12 @@ $ tread --index ~/notes
 | CSV | `.csv`, `.tsv` | any size; sniffed delimiter, `sep=` directive |
 | JSON | `.json` | any size; foldable tree, source-faithful values |
 | JSON Lines | `.jsonl`, `.ndjson` | any size; one record per line, lenses |
+| Code | `.rs`, `.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs`, `.py` `.pyi`, `.java` | folds over declarations, `Enter` follows an import |
+| Plain text | `.txt`, `.text`, and any extension naming no parser | the file's lines, verbatim |
 
-Anything unnamed — a pipe — is sniffed. `--format` forces the choice.
+Anything unnamed — a pipe — is sniffed. `--format` forces the choice among
+`md`, `csv`, `json`, `jsonl` and `text`; code is chosen by extension, since a
+file that does not lex cleanly falls back to plain source on its own.
 
 ## Build from source
 
@@ -563,7 +569,7 @@ every syscall is a hand-written `extern "C"` declaration.
 
 ```
 $ cargo tree
-tread v0.2.0
+tread v0.3.0
 ```
 
 All `unsafe` lives in the platform backends under [`src/sys/`](src/sys/); every

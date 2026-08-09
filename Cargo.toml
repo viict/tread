@@ -1,13 +1,13 @@
 [package]
 name = "tread"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 rust-version = "1.75"
-description = "A terminal reader for markdown, CSV and JSON. Zero dependencies."
+description = "A terminal reader for markdown, CSV, JSON and source code. Zero dependencies."
 repository = "https://github.com/viict/tread"
 license = "MIT OR Apache-2.0"
 readme = "README.md"
-keywords = ["pager", "markdown", "csv", "json", "tui"]
+keywords = ["pager", "markdown", "csv", "json", "code"]
 categories = ["command-line-utilities", "text-processing"]
 
 [[bin]]
