@@ -17,7 +17,9 @@ corpus of linked documents. Crate `tread`, binary `tread`.
   `src/sys/windows.rs`, `src/sys/windows/io.rs` and the four pure
   `abi.rs`/`layout.rs` files, carries `#![deny(unsafe_code)]` or contains none.
 - **Must build for `x86_64-unknown-linux-musl`** (static) **and check clean for
-  `{x86_64,aarch64}-apple-darwin` and `x86_64-pc-windows-{msvc,gnu}`.** No
+  `{x86_64,aarch64}-apple-darwin`, `{x86_64,aarch64}-pc-windows-msvc` and
+  `x86_64-pc-windows-gnu`.** That list is `ci.yml`'s cross-check loop; keep the
+  two in step. No
   glibc-only APIs, no Linux constant reused for Darwin without being verified
   against the `xnu` headers first, and no Win32 constant that is not re-derived
   from the SDK headers and pinned by a host test.
@@ -30,6 +32,20 @@ corpus of linked documents. Crate `tread`, binary `tread`.
 - No `println!`/`eprintln!` for UI; frames go through `Term`. `eprintln!` is
   allowed only for fatal startup errors, as `tread: <message>`.
 - Exit codes: `0` ok, `1` runtime error, `2` usage error.
+
+## Commits and history
+
+- **`scope: imperative description`** — `code: read python and java`, `nav: root a
+  corpus at its project`. The scope is where the change lives, not what kind it
+  is; there is no `feat:`/`fix:` vocabulary because nothing is generated from
+  the log.
+- **One logical change per commit**, each building and passing on its own. Fold
+  a fix-up into the commit it repairs (`git rebase -i`) before the branch is
+  merged, rather than leaving "fix the thing I just added" in the history.
+- **Do not squash a feature branch to one commit.** A large feature is exactly
+  what someone will `git bisect` through later.
+- **Never rewrite published history.** Once a branch is on `master`, it stays.
+- Say what changed in behaviour, not which files moved. The diff shows the files.
 
 ## Module layout
 
@@ -92,8 +108,10 @@ cargo run -- README.md      # native run
 cargo musl                  # static release (alias in .cargo/config.toml)
 cargo test                  # unit + integration tests, must be green
 cargo test --lib cli        # one module
+cargo clippy --all-targets -- -D warnings      # CI gates on this
 cargo check --target aarch64-apple-darwin      # and x86_64-apple-darwin
-cargo check --target x86_64-pc-windows-msvc    # and x86_64-pc-windows-gnu
+cargo check --target x86_64-pc-windows-msvc    # and aarch64-pc-windows-msvc,
+                                               # and x86_64-pc-windows-gnu
 cargo build --release --target aarch64-apple-darwin   # needs a Mac / Apple SDK
 
 # against the target corpus (106 files, table-heavy, README.md index)
@@ -102,11 +120,47 @@ cargo run -- ~/notes/README.md --toc
 cat ~/notes/README.md | cargo run -- --plain
 ```
 
+`cargo fmt` is **not** run on this tree — it follows a hand style and rustfmt
+would rewrite thousands of lines. Match the surrounding code instead.
+
 Unit tests live beside the code in `#[cfg(test)]`; golden renders live in
 `tests/`. Assert on ANSI-stripped text plus separate style spans so palette
 changes do not break every test. Goldens are checked in under `tests/golden/`
 from fixtures in `tests/fixtures/`; regenerate with
 `UPDATE_GOLDEN=1 cargo test --test golden_files`.
+
+### Traps that have already cost a day
+
+- **`grep -c FAILED` does not catch a suite that failed to *compile*.** Check the
+  test **count** instead — it collapsing from 1300 to 7 is the signal.
+- **CI's clippy is newer than the local one.** A clean `cargo clippy` here proves
+  nothing about CI; `rustup update` first, or run the toolchain CI uses. A lint
+  that only exists upstream has reddened a release build.
+- **The pty capture composites stale rows.** "The key did nothing" read off a
+  reconstructed frame has been wrong every time. Prove interaction with a
+  deterministic `Pager` test, or grep the *raw* stream for content that could
+  only appear after the key.
+- **Verify a claim before repeating it.** "This has never run on Windows" was
+  asserted three times before anyone read `release.yml`, which had been running
+  it natively all along.
+
+### Measure against real code, not fixtures
+
+Fixtures only prove the shapes someone thought of. These checks are in the
+suite, skipped unless pointed at a corpus, and each has found bugs no unit test
+could:
+
+```sh
+TREAD_JS_CORPUS=~/some/node_project   cargo test --bin tread a_real_javascript_corpus -- --nocapture
+TREAD_PY_CORPUS=/usr/lib/python3.11   cargo test --bin tread a_real_python_corpus -- --nocapture
+TREAD_JAVA_CORPUS=~/some/java_project cargo test --bin tread a_real_java_corpus -- --nocapture
+TREAD_TS_PROJECT=~/some/ts_project    cargo test --bin tread a_real_project_resolves -- --nocapture
+```
+
+The last reports what fraction of a project's own imports resolve; run it after
+touching resolution. It caught an absolute path where a relative one was needed,
+a corpus rooted at the wrong directory, and an extension substituted rather than
+appended — none of which the unit tests saw.
 
 Soak harnesses run outside `cargo test` and must stay green before shipping:
 
