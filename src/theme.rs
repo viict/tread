@@ -44,6 +44,13 @@ pub const TABLE_BORDER_FG: u8 = 240;
 pub const TABLE_HEAD_FG: u8 = 231;
 /// Muted text: footnotes, HTML literals, language labels, image alts.
 pub const MUTED_FG: u8 = 245;
+
+// Syntax colouring (SPEC.md §Code). Four hues and no more: a reader is scanning
+// for shape, and every extra colour competes with the search highlight and the
+// cursor row. Comments reuse `MUTED_FG` — they are prose, not a fifth category.
+pub const SYNTAX_KEYWORD: u8 = 176;
+pub const SYNTAX_STRING: u8 = 114;
+pub const SYNTAX_NUMBER: u8 = 216;
 pub const SEARCH_BG: u8 = 226;
 pub const SEARCH_FG: u8 = 16;
 pub const SEARCH_CURRENT_BG: u8 = 208;

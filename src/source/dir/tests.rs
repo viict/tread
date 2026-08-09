@@ -178,3 +178,44 @@ fn enter_on_a_directory_entry_opens_that_directory() {
         p.message
     );
 }
+
+/// A directory opened with the navigator `main` gives it and no `--index`, on
+/// a directory with no `README.md` — the shape a source tree actually has.
+///
+/// This covers the *navigation*: resolution against the listing's own
+/// directory, and Enter swapping the document. It does **not** cover the wiring
+/// bug that made Enter do nothing in real use, because it attaches the
+/// navigator itself; `open::tests::everything_that_produces_links_gets_a_corpus`
+/// is the test for that decision.
+#[test]
+fn enter_opens_a_file_from_a_directory_opened_on_the_command_line() {
+    // Deliberately *no* README.md: a source directory has none, and that is
+    // what decides where the corpus root lands.
+    let t = tmp("cli");
+    fs::create_dir(t.0.join("sub")).unwrap();
+    fs::write(t.0.join("page.tsx"), "export function P() {}\n").unwrap();
+    let src = DirSource::open(&t.0);
+    let mut p = crate::pager::Pager::new(
+        Box::new(src),
+        t.0.display().to_string(),
+        80,
+        24,
+        Some(80),
+    );
+    // Exactly what `main` does: no explicit index, cwd is wherever we are.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    p.attach_nav(crate::nav::Navigator::new(&t.0, None, &cwd));
+
+    // Directories sort first, so the file is the second link.
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Enter));
+
+    let shown = p.visible_text().join("\n");
+    assert!(
+        shown.contains("export function P"),
+        "Enter opened the file; message={:?}\n{shown}",
+        p.message
+    );
+}
+

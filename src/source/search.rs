@@ -181,10 +181,13 @@ mod tests {
         let ls = lines("## A\n\nhidden needle\n\n## B\n");
         let ms = find_all(&ls, "needle");
         assert_eq!(ms.len(), 1);
-        let folds = super::super::collapse::folds(&ls, &[ls
+        use crate::source::fold::{Folds, Sections};
+        let shut = vec![ls
             .iter()
             .find_map(|l| l.heading.as_ref().map(|h| h.id.clone()))
-            .unwrap()]);
+            .unwrap()];
+        let regions = Sections.regions(&ls);
+        let folds = crate::source::fold::active(&regions, &shut);
         // The hit is inside the folded range: the pager must expand to show it.
         assert!(ms[0].line >= folds[0].body && ms[0].line < folds[0].end);
     }

@@ -171,6 +171,9 @@ impl Navigator {
             Format::Csv => opened(CsvSource::open(path, None).map(|s| Box::new(s) as _)),
             Format::Json => opened(JsonSource::open(path).map(|s| Box::new(s) as _)),
             Format::Jsonl => opened(JsonlSource::open(path).map(|s| Box::new(s) as _)),
+            Format::Code => opened(
+                crate::source::code::CodeSource::open(path).map(|s| Box::new(s) as _),
+            ),
             Format::Text => opened(TextSource::open(path).map(|s| Box::new(s) as _)),
         }
     }

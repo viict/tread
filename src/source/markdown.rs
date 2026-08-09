@@ -15,6 +15,7 @@
 use std::ops::Range;
 
 use super::collapse::{self, HeadingRef};
+use super::fold::{self, Folds, Region, Sections};
 use super::search::{self, Dir, Match};
 use super::{Anchor, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan, Source};
 use crate::md::Document;
@@ -25,6 +26,9 @@ pub struct MarkdownSource {
     doc: Document,
     /// The whole document, laid out at `width`, folds *not* applied.
     lines: Vec<Line>,
+    /// What can fold, in the prose model: a heading owns everything up to the
+    /// next heading of equal or shallower level (`source::fold`).
+    regions: Vec<Region>,
     /// Indices into `lines` that a fold does not hide. Rows index this.
     visible: Vec<usize>,
     /// `(line index of a folded heading, rows it hides)`.
@@ -57,6 +61,7 @@ impl MarkdownSource {
         MarkdownSource {
             doc,
             lines: Vec::new(),
+            regions: Vec::new(),
             visible: Vec::new(),
             counts: Vec::new(),
             collapsed,
@@ -75,8 +80,9 @@ impl MarkdownSource {
 
     /// Recompute the visible list and the fold summaries from `collapsed`.
     fn refresh_view(&mut self) {
-        self.visible = collapse::visible_lines(&self.lines, &self.collapsed);
-        self.counts = collapse::fold_counts(&self.lines, &self.collapsed);
+        self.regions = Sections.regions(&self.lines);
+        self.visible = fold::visible(self.lines.len(), &self.regions, &self.collapsed);
+        self.counts = fold::counts(&self.regions, &self.collapsed, fold::Note::Head);
         for e in self.outline.iter_mut() {
             e.folded = self.collapsed.contains(&e.id);
         }
@@ -166,7 +172,7 @@ impl Source for MarkdownSource {
     }
 
     fn reveal(&mut self, anchor: Anchor) -> Option<usize> {
-        if collapse::reveal(&self.lines, &mut self.collapsed, anchor.0) {
+        if fold::reveal(&self.regions, &mut self.collapsed, anchor.0) {
             self.refresh_view();
         }
         if self.visible.is_empty() {
@@ -202,7 +208,7 @@ impl Source for MarkdownSource {
 
     fn section_at(&self, row: usize) -> Option<usize> {
         let line = self.at(row)?;
-        let head = collapse::heading_at_or_above(&self.lines, line)?;
+        let head = fold::at(&self.regions, line)?.head;
         self.outline.iter().position(|e| e.anchor == Anchor(head))
     }
 
@@ -224,7 +230,7 @@ impl Source for MarkdownSource {
 
     fn fold_all(&mut self, closed: bool) {
         self.collapsed = match closed {
-            true => collapse::all_ids(&self.lines),
+            true => self.regions.iter().map(|r| r.id.clone()).collect(),
             false => Vec::new(),
         };
         self.refresh_view();

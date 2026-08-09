@@ -245,6 +245,16 @@ impl Pager {
         if self.len() == 0 {
             return;
         }
+        // A format with regions of its own answers first: code folds the branch
+        // the cursor is in, which is not an outline entry and could not be
+        // reached through one (`Source::fold_here`).
+        if want.is_none() {
+            if let Some(closed) = self.src.fold_here(self.cursor) {
+                self.folds_changed();
+                let _ = closed;
+                return;
+            }
+        }
         let entry = match self.src.section_at(self.cursor) {
             Some(e) => e,
             None => return self.notify("no heading here"),

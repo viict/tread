@@ -1,7 +1,8 @@
 ---
 status: Active
-updated: 2026-08-07
+updated: 2026-08-09
 related:
+  - code.md
   - layout.md
   - lenses.md
   - testing.md
@@ -25,6 +26,7 @@ the whole project instead.
 | --- | --- |
 | [layout.md](layout.md) — module map | where every module lives and the one rule it obeys |
 | [lenses.md](lenses.md) — `--lens` | the seam, the `agent` dialect field by field, and what a new dialect must provide |
+| [code.md](code.md) — reading code | the four layers, how to add a language, and what each one has been proven against |
 | [testing.md](testing.md) — the suite | unit, golden and integration layers, plus the two soak harnesses |
 | [../install.sh](../install.sh) — the installer | what `curl \| sh` runs: platform detection, checksum verification, atomic install |
 | [../install.ps1](../install.ps1) — the Windows installer | what `irm \| iex` runs: the same contract in PowerShell 5.1 and 7, and see [windows.md](windows.md) for what about it is verified |

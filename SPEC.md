@@ -472,3 +472,122 @@ what is missing rather than showing them what is there.
   because for a listing the directory *is* the document's location.
 - A directory that cannot be read (permissions) says so and stays a listing with
   no entries, rather than becoming a fatal error.
+
+## Code
+
+A source file is read as its comments and declarations, not as 400 lines of
+text. `tread src/csv/delim.rs` shows the file's comments, every declaration's
+doc comment and signature, and nothing else; each body is folded shut behind its
+signature with a count of what it hides.
+
+- **Any block folds, not only a declaration.** `za` on an `if`, a `for`, a
+  `match` arm or a bare `{` folds that block and nothing else: a region ends
+  where it closes, so the statement after the closing brace stays on screen.
+  Blocks are foldable but never folded on open — a reader opens a function *to*
+  read it — and a block under three lines is not foldable at all, since the
+  marker would be no shorter than what it hid.
+  In **Python** a block is a line ending in `:` and the lines indented under
+  it — there are no braces to count — and `def`/`class` are excluded, because a
+  declaration already owns its body and a second region over the same lines
+  would be two folds for one thing.
+- Blocks are not outline entries. Listing every branch under `o` would bury the
+  declarations the outline exists for, so the fold key reaches them directly
+  (`Source::fold_here`).
+- **A declaration is a heading and its body is what that heading hides.** This
+  is the whole design: folding, the `o` outline, `zo`/`zc`/`zR`/`zM`, `]`/`[`,
+  `#anchor` jumps and the fold counts are the machinery markdown already used,
+  so a code file needs no view of its own.
+- The doc comment belongs to the heading, not to the line above it — it is what
+  the collapsed view exists to show, and a comment left outside the heading
+  falls inside the *previous* symbol's fold.
+- **`a` toggles the summary and the source.** Every line of the file is
+  rendered; unfolding everything *is* the raw file, so the two views cannot
+  disagree.
+- A method is nested one level under its `impl` or `trait`, so folding the
+  container folds its members. An item declared inside a function is not listed.
+- **A file that does not lex cleanly has no outline at all** and is shown as
+  plain source, with the status bar saying so. This is deliberate: a mis-read
+  brace swallows the rest of the file into one body and *hides* it, so a wrong
+  outline is worse than none.
+- Code is never reflowed. A row wider than the viewport scrolls sideways, the
+  way a fenced code block already does.
+- **Colouring is the lexer's, and there are four colours**: keyword, string,
+  number, comment. The same tokens that find the declarations say which bytes
+  are a comment or a literal, so a block comment spanning twenty lines is a
+  comment on all twenty and a `fn` inside a string is never a keyword — neither
+  of which a line-by-line highlighter can know. Four hues is a limit, not a
+  starting point: a reader is scanning for shape, and every extra colour
+  competes with the search highlight and the cursor row.
+- The whole file is laid out at open, like markdown and unlike CSV. A source
+  file is small; a generated bundle of 200k lines would cost memory in
+  proportion, and that is a stated trade rather than an oversight.
+- **An import that names a file in this tree is a link, one per imported
+  name.** `use super::parse::{Records, QUOTE}` is two links, and `Enter` on
+  either lands on *that declaration* in the target rather than at the top of the
+  file — the url carries the name as an anchor, and the target's fold ids are
+  its symbol paths, so nothing new is needed on the other side. `n` walks them
+  and `Backspace` comes back.
+- Rust resolves `crate::`, `super::` and `self::` against the nearest `src/`,
+  and **`mod foo;` is a link like any import**. TypeScript resolves `./` and
+  `../` through the extensions it knows and a directory's `index`, and reads
+  `X as Y` as `X` — the anchor must match what the *target* declares. A bare
+  specifier (`react`, `std::fs`) is left as text: its source is not here.
+- **`tsconfig.json` path aliases are read**, including `baseUrl`, exact and
+  wildcard patterns, and `extends`. Without them the reader is useless on real
+  application code, which is written `@/components/…` rather than `../../`. The
+  file is JSON with comments and trailing commas, so it is sanitised by the
+  JavaScript lexer — the one that knows a `//` inside a string is not a comment
+  — before being parsed. The search stops at a `node_modules` boundary: a
+  dependency's config says nothing about this file.
+- **A link is a relative path, never an absolute one.** A leading `/` means
+  *relative to the corpus root*, so an absolute path would be looked for beneath
+  the root and reported missing.
+- **A code file's corpus is its project** — the nearest ancestor holding `.git`,
+  `Cargo.toml`, `package.json`, `tsconfig.json`, `go.mod` or `pyproject.toml`.
+  Markdown discovers its corpus from a `README.md` that links to the document;
+  nothing links to `page.tsx`, so without this the root would be the folder the
+  file happens to sit in and every import of a sibling directory would be
+  refused for escaping it.
+- **A workspace package is followed like any other import.** In a monorepo a
+  package's own code is imported by *name*, and nothing in `tsconfig.json` says
+  where that name lives. Members come from `pnpm-workspace.yaml` or from
+  `workspaces` in `package.json` (npm, yarn, bun; turbo declares none of its own
+  and rides on whichever is there), and the subpath is resolved through the
+  package's `exports` map — exact keys before wildcards, and `types` before a
+  build output, because the source is what a reader wants. A package naming no
+  entry point at all opens as its directory listing.
+- An extension is **appended** when probing, never substituted: `payload.config`
+  is `payload.config.ts` and `storyblok` may be `storyblok.d.ts`. Substituting
+  is tried only for a real module extension, which is the `./x.js` that means
+  `x.ts` case.
+- In **Rust**, a name equal to the target file's own stem carries no anchor:
+  `use crate::theme` names the module, so it opens at the top rather than
+  chasing a symbol called `theme`. The rule is Rust's alone — TypeScript names
+  a file after the thing it exports, so `Widget.tsx` exporting `Widget` is the
+  commonest import in the language and must keep its anchor.
+- **An identifier is never a link.** Resolving one to its definition needs
+  types, and a jump to the wrong `new` is worse than no jump. Within a file the
+  outline already goes anywhere, since every fold id is a symbol path.
+- **Nothing here is semantic.** The reader never compiles anything: items
+  produced by a macro do not exist, `cfg`-ed out code is still listed, and two
+  declarations of one name are two entries.
+- Languages are compiled in, never loaded: Rust, JavaScript/TypeScript, Python
+  and Java. An extension that names no known language stays plain text
+  (§Plain text).
+- **Python is measured in columns, not braces.** Blocks are indentation, so
+  every `def` sits at brace depth zero and depth has to come from the indent.
+  Its docstring is the first statement of the *body* — the part that folds — so
+  it is pulled up into the signature rows; folding a Python function leaves
+  `def f(x):` with its documentation under it, which is the point of the view.
+  Indentation itself is never judged: a file indented oddly still outlines,
+  because refusing it would invent a rule Python does not have.
+- **Imports fold as a run, never one at a time.** A block of them is a wall a
+  reader scrolls past, so consecutive imports (and Rust's `mod`) collapse behind
+  one fold that is shut on open, the way frontmatter is. A single import is left
+  alone: folding it would hide nothing worth hiding.
+- A folded run says **what** it hides rather than how much — `38 symbols from 12
+  modules` — because the useful figure for imports is how many names came from
+  how many places, not how many lines they took. Any source may answer this;
+  the line count is the default.
+- An import names the module it pulls from rather than the bindings it
+  introduces — that is what a reader follows.

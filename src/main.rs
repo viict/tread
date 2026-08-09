@@ -13,6 +13,7 @@
 mod sys;
 
 mod cli;
+mod code;
 mod lens;
 mod csv;
 mod open;
@@ -35,7 +36,6 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use open::{build_source, resolve_input, toc_text, Fail, Input};
-use source::detect::Format;
 use source::Source;
 
 const EXIT_OK: i32 = 0;
@@ -187,12 +187,22 @@ fn interactive(
     // `--no-browser` restores refuse-and-show (SPEC.md §"Opening a link outside
     // the reader"). The pager holds the policy; the spawn happens below.
     pager.set_browser(!args.no_browser);
-    // A markdown document read from a real file gets a corpus: relative links,
-    // history and the index all hang off it. Piped stdin has no location, and
-    // a CSV is not part of a linked corpus (SPEC.md §Navigation).
-    if let Some(path) = input.path.as_ref().filter(|_| input.format == Format::Markdown) {
+    // Anything that produces links gets a corpus: relative links, history and
+    // the index all hang off it. That is markdown, a code file (its imports)
+    // and a directory listing (its entries) — see `open::navigable`.
+    if let Some(path) = input.path.as_ref().filter(|_| open::navigable(input)) {
         let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        pager.attach_nav(nav::Navigator::new(path, args.index.as_deref(), &cwd));
+        // Markdown finds its own corpus from a README that links to the
+        // document. Code and directory listings have no such index, so their
+        // corpus is the project they sit in — without it the root is whatever
+        // folder the file is in, and every import of a sibling directory is
+        // refused for escaping it (`open::corpus_root`).
+        let index = match (&args.index, input.format) {
+            (Some(i), _) => Some(i.clone()),
+            (None, source::detect::Format::Markdown) => None,
+            (None, _) => open::corpus_root(path),
+        };
+        pager.attach_nav(nav::Navigator::new(path, index.as_deref(), &cwd));
     }
     let result = event_loop(&mut term, &mut pager);
     // Runs on the error path too: `result` is only unwrapped afterwards.

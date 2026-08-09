@@ -217,7 +217,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `←` | previous link on this row (scrolls left on a scrollable row) |
 | `→` | next link on this row (scrolls right on a scrollable row) |
 | `w` | widen the column under the cursor to fit the screen |
-| `a` | show or hide the entries a listing hides |
+| `a` | show or hide what this view hides (dotfiles, code bodies) |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, open the row, else fold |
 | `zo` | open the section at the cursor |
@@ -409,6 +409,72 @@ records fold into 633 rows, and every one of them is still reachable.
 
 [`docs/lenses.md`](docs/lenses.md) documents the `agent` dialect field by field
 and what a new one has to provide.
+
+## Reading code
+
+```sh
+tread src/csv/delim.rs     # the file as its comments and declarations
+```
+
+A source file opens collapsed to the things worth scanning — the comments and
+the declarations — with every body folded shut:
+
+```
+/// Columns the name is padded to before the size, unless a name is longer.
+const NAME_W: usize = 32;
+
+/// One entry, as the listing needs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Item {  (7 lines)
+impl Item {  (16 lines)
+pub struct DirSource {  (13 lines)
+impl DirSource {  (99 lines)
+fn entries(n: usize) -> &'static str {  (6 lines)
+```
+
+- Keywords, strings, numbers and comments are coloured — by the same lexer that
+  finds the declarations, so a multi-line comment is dim all the way down and a
+  keyword inside a string stays a string.
+- **`za` folds the block the cursor is in** — a branch, a loop, a `match` arm —
+  and stops where the block ends — its closing brace, or in Python the end of
+  the indented suite — so the code after it stays put. Blocks start
+  open; only bodies and imports are shut when a file opens.
+- `zo` opens one body, `zc` shuts it, `zR` opens everything and `zM` shuts it
+  again — the fold keys markdown already had, because a declaration *is* a
+  heading and its body is what the heading hides.
+- **`a` toggles between the summary and the whole file.** Unfolding everything
+  is the raw source, so there is no second view to drift out of step.
+- `o` lists the symbols; `]` and `[` step between declarations; `Y` copies the
+  symbol under the cursor with its body, and `c` copies its path.
+- A method is nested under its `impl`, so folding the block folds its methods.
+- **The imports fold into one line**, shut when the file opens, saying what
+  they bring in: `import { TriangleAlert } from "lucide-react";  · 18 symbols
+  from 11 modules`. `zo` opens the block; `n` onto a link opens it for you.
+- **Every imported name is its own link.** `use super::parse::{Records, QUOTE}`
+  gives two: `n` steps between them and `Enter` lands on that declaration in the
+  target file, not at the top of it. `import { A, B } from './x'` behaves the
+  same, `mod foo;` opens `foo.rs`, and `Backspace` comes back. Imports naming a
+  package rather than a file in your tree stay plain text.
+- **Workspace packages are followed too** — `@ww/ui/utils/locale-slugs` opens
+  `packages/ui/src/utils/locale-slugs.ts` — reading members from
+  `pnpm-workspace.yaml` or `workspaces`, and subpaths from the package's
+  `exports`.
+- **`tsconfig.json` aliases are followed**, so `@/components/ui/button` goes
+  where your project says it goes — `paths`, `baseUrl` and `extends` included.
+  Measured against three real Next.js projects, every import naming local code
+  resolves except two pointing at files `next dev` generates.
+- **A file that does not lex cleanly gets no outline at all** and opens as plain
+  source, saying so in the status bar. A wrong outline hides code; no outline
+  only fails to help.
+
+Rust (`.rs`), JavaScript/TypeScript (`.ts` `.tsx` `.js` `.jsx` `.mjs` `.cjs`),
+Python (`.py` `.pyi`) and Java (`.java`). Python folds around its docstrings, so
+a folded function still shows what it is for. Adding a language is a grammar module plus one line in the registry —
+no dependency, and nothing here understands types, expands a macro or resolves a
+name across files.
+
+Imports are never folded — a multi-line `import {` collapses to less than it
+replaced — and in TypeScript they are listed by the module they pull from.
 
 ## Listing a directory
 

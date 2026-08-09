@@ -27,6 +27,9 @@ pub enum Format {
     Json,
     /// One JSON value per line: `.jsonl`, `.ndjson` (SPEC.md §JSON).
     Jsonl,
+    /// A source file, read as its comments and declarations
+    /// (SPEC.md §Code).
+    Code,
     /// Lines, verbatim: anything whose extension names no parser
     /// (SPEC.md §Plain text).
     Text,
@@ -52,6 +55,7 @@ pub fn name_of(format: Format) -> &'static str {
         Format::Csv => "CSV",
         Format::Json => "a JSON document",
         Format::Jsonl => "a record file",
+        Format::Code => "code",
         Format::Text => "plain text",
     }
 }
@@ -77,6 +81,9 @@ pub fn from_path(path: &Path) -> Option<Format> {
         "json" => Some(Format::Json),
         "jsonl" | "ndjson" => Some(Format::Jsonl),
         "md" | "markdown" | "mdown" | "mkd" => Some(Format::Markdown),
+        "rs" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "py" | "pyi" | "java" => {
+            Some(Format::Code)
+        }
         "txt" | "text" => Some(Format::Text),
         _ => None,
     }
@@ -270,7 +277,14 @@ mod tests {
         // the markdown parser for want of an alternative (see `from_path`).
         assert_eq!(from_path(&p("a.txt")), Some(Format::Text));
         assert_eq!(from_path(&p("a.TEXT")), Some(Format::Text));
-        assert_eq!(from_path(&p("a.rs")), None);
+        // `.rs` names the code reader now that there is one; like `.txt`
+        // before it, it used to fall through to plain text.
+        assert_eq!(from_path(&p("a.rs")), Some(Format::Code));
+        assert_eq!(from_path(&p("a.RS")), Some(Format::Code));
+        assert_eq!(from_path(&p("a.py")), Some(Format::Code));
+        assert_eq!(from_path(&p("a.java")), Some(Format::Code));
+        // A language this build does not know is still plain text.
+        assert_eq!(from_path(&p("a.rb")), None);
         assert_eq!(from_path(&p("plain")), None);
     }
 

@@ -38,8 +38,10 @@
 #![deny(unsafe_code)]
 
 pub mod collapse;
+pub mod code;
 pub mod csv;
 pub mod detect;
+pub mod fold;
 pub mod dir;
 pub mod json;
 pub mod jsonl;
@@ -393,6 +395,27 @@ pub trait Source {
     fn yank_block(&self, row: usize) -> Option<Yank>;
 
     // -- row detail -----------------------------------------------------------
+
+    /// Fold or unfold whatever region sits at `row`, returning its new state.
+    ///
+    /// `None` — the default — means this format has no regions of its own and
+    /// the pager should fall back to the outline: a section, chosen by heading.
+    /// Code answers, because a branch inside a function is foldable without
+    /// being an outline entry; listing every `if` under `o` would bury the
+    /// declarations the outline exists for.
+    fn fold_here(&mut self, _row: usize) -> Option<bool> {
+        None
+    }
+
+    /// What a folded row says instead of `(N lines)`.
+    ///
+    /// A line count is the right summary for a function body. It is the wrong
+    /// one for a block of imports, where the useful figure is how many names
+    /// came from how many modules — `38 symbols from 12 modules`. `None`, the
+    /// default, keeps the count.
+    fn fold_note(&self, _row: usize) -> Option<String> {
+        None
+    }
 
     /// `a`: show or hide whatever this format hides by default, returning what
     /// to say about it. `None` — the default — means the format hides nothing,

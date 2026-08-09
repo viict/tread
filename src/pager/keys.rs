@@ -192,7 +192,7 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         keys: "a",
-        desc: "show or hide the entries a listing hides",
+        desc: "show or hide what this view hides (dotfiles, code bodies)",
         action: A::ToggleHidden,
         triggers: &[Trigger::c('a')],
     },

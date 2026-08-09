@@ -126,6 +126,11 @@ fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
     if line.heading.as_ref().is_some_and(|h| h.summarised) {
         return Some(spans);
     }
+    // A source may describe what it hides better than a line count can.
+    if let Some(note) = p.src.fold_note(row) {
+        spans.push(Span::new(format!("  \u{b7} {note}"), theme::muted()));
+        return Some(spans);
+    }
     let unit = if hidden == 1 { "line" } else { "lines" };
     spans.push(Span::new(format!("  ({hidden} {unit})"), theme::muted()));
     Some(spans)

@@ -258,6 +258,7 @@ fn format_of(name: &str) -> Option<&'static str> {
         detect::Format::Csv => Some("csv"),
         detect::Format::Json => Some("json"),
         detect::Format::Jsonl => Some("records"),
+        detect::Format::Code => Some("code"),
         detect::Format::Text => None,
     }
 }
