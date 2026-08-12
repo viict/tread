@@ -46,6 +46,7 @@ pub mod detect;
 pub mod fold;
 pub mod dir;
 pub mod json;
+pub mod jsonarray;
 pub mod jsonl;
 pub mod jsonrow;
 pub mod markdown;

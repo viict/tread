@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::source::Source;
+use crate::source::{Anchor, Dir};
 
 /// A small trajectory in the shape a Claude Code session file has: a prompt,
 /// an answer, a run of mechanics, another answer, and one record from a

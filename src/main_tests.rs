@@ -4,7 +4,8 @@
 #![deny(unsafe_code)]
 
 use super::*;
-use crate::open::{index_path, outline, render_outline};
+use crate::open::input::index_path;
+use crate::open::{outline, render_outline};
 
 #[test]
 fn plain_mode_rules() {

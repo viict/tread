@@ -376,8 +376,38 @@ The first is agent trajectories, where the generic tree is close to useless: a
 run is a conversation, and what a reader wants is the conversation with the
 mechanics folded away. Messages stay visible; consecutive tool calls and their
 results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that opens.
-Other dialects — and the ATIF interchange format — are later work; the seam is
-what this phase must get right.
+Two dialects read one today — `agent` for Claude Code session logs, `atif` for
+ATIF trajectories — and a third is a module and a line.
+
+**Records inside a document.** A record file is usually one record per line, but
+a trajectory in the ATIF interchange format is a single JSON document whose
+records are the elements of a named array, alongside top-level keys describing
+the run. A dialect therefore *declares* where its records live, and `--lens`
+reads whichever file that names: a `.jsonl` for a record-per-line dialect, one
+`.json` document for a records-in-a-document one. Pointing either at the other
+is refused by name rather than rendered wrongly — a document read as records is
+one enormous record, which is not an error a reader can see.
+
+Two rules follow from a document holding more than its records:
+
+- **The keys that are not the records are record 0.** `schema_version`,
+  `session_id`, `agent` — whatever the envelope holds — get a summary row above
+  the first record, which opens into their generic tree. A lens adds
+  interpretation and never hides data, and that applies to the document around
+  the records as much as to the records. The cost is that record numbering is
+  shifted by one against the array's own indices, which the status bar and `#n`
+  say plainly.
+- **Finding the records costs one structural scan, and no parse.** The
+  structural index knows a member only once it has walked past that member's
+  last byte, and the array is one member — so the first row of a document lens
+  waits on a byte walk of the file, reported as `≥N (indexing P%)` like every
+  other scan, with nothing parsed and nothing held in memory. After that it is
+  the ordinary contract: a record is parsed when it is painted and not before,
+  at any file size. A record per line has no such wait, which is the reason to
+  prefer that envelope when a format is being designed rather than read.
+  A **batch** — `--toc`, `--plain` — waits for that scan rather than printing
+  what one slice happened to reach: a short list and a zero exit status is the
+  one answer a script cannot tell from "this file has no records".
 
 ## Plain text
 

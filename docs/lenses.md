@@ -1,6 +1,6 @@
 ---
 status: Active
-updated: 2026-08-06
+updated: 2026-08-12
 related:
   - layout.md
   - testing.md
@@ -15,7 +15,8 @@ scan, and consecutive mechanical records fold into one row that opens.
 
 ```sh
 tread --lens agent ~/.claude/projects/<slug>/<session>.jsonl
-tread --lens list          # what there is; exits 2
+tread --lens atif  trajectory.json          # records inside a document
+tread --lens list                           # what there is; exits 2
 ```
 
 ```text
@@ -44,7 +45,7 @@ Two rules the seam is built around, and neither is negotiable:
 | `zR` / `zM` | open the runs the viewport has reached / shut every run |
 | `Tab` / `S-Tab` | next / previous **item** — a message or a run, skipping what a run folded |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
-| `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the source line verbatim |
+| `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
 
 The status bar reads `agent · record 412/2354 · .message.content[0].text`.
 `--toc --lens agent` prints the same reading as a list — `line, actor, time,
@@ -89,14 +90,73 @@ the API calls it a user turn. That is precisely why the generic tree is close to
 useless on a trajectory — half the "user messages" are machine output — and why
 a `user` record whose only content is a `tool_result` is mechanics here.
 
+## The `atif` dialect
+
+Agent trajectories in the ATIF interchange format (`ATIF-v1.7`, as written by
+`opencode`). One JSON **document**, not a record per line: `schema_version`,
+`session_id` and `agent` describe the run, and the records are the elements of
+`steps`. That is all the lens says about the envelope —
+`records_at() -> RecordsAt::Member("steps")` — and `src/source/jsonarray/` does
+the rest, knowing nothing about ATIF.
+
+```text
+▾ session            ATIF-v1.7 · opencode 1.2.3 · vendor/model · sxs_…
+▾ user               build the parser from the sources in /app…
+▾ assistant  10:55   Configuring first, then building. · 2 tool calls
+▾ tool       10:55   thinking · bash(autoreconf -i) → 32 lines
+  ▸ ⟨4 steps · 6 tool calls⟩            10:56
+```
+
+**Record 0 is the session**: the document's top-level keys that are not `steps`,
+as one row that opens into their tree. Nothing the document says is lost, and
+the price is that record numbering is shifted by one — `steps[0]` is record 2,
+which is what `record n/N` and `#n` mean.
+
+**Top-level keys of a step.** `step_id` (an integer, and the recogniser),
+`source` (`user` / `agent`), `timestamp` (ISO-8601 with a numeric `+00:00`
+offset — the row shows `HH:MM`, as recorded), `message`, `reasoning_content`,
+`tool_calls[]`, `observation.results[]`, plus `model_name`, `metrics` and
+`llm_call_count`, which the summary leaves to the opened tree.
+
+| A step whose… | Rows as |
+| --- | --- |
+| `message` says something | **message** — never folded away. Its tool calls collapse to a count on the row (`· 3 tool calls`) rather than becoming rows: the message is what the reader came for |
+| `message` is empty | **step** — folds into a run with its neighbours |
+
+A step row is what it did: `thinking`, then each call as
+`bash(make -j8) → 42 lines`. The argument is named by `command`, `filePath`,
+`pattern`, `query`, `url`, in that order — a `glob` carrying both `path` and
+`pattern` shows the pattern — and a tool whose arguments name none of them
+shows `todowrite()`. A result is matched to its call by `source_call_id`
+**within the step**, which is where every answer sits; an orphan result is
+counted (`· 1 result`) rather than dropped. Adjacent entries that read
+identically collapse: `bash(pkg-config --exists onig) ×2`.
+
+**The first step of a real trajectory carries `message`, `source` and `step_id`
+and nothing else** — no timestamp. The row leaves the clock empty rather than
+inventing one, and that is the first row on the first screen. Absent, `null` and
+`[]` all mean the same thing, `arguments` is read as an object *or* as the
+JSON-encoded string the wire format this schema descends from emits, and a step
+this does not recognise keeps its generic row.
+
+Measured on a real 200KB, 49-step trajectory (`TREAD_ATIF_TRAJECTORY`): 50
+records, 50 read by the lens, 36 rows shut and 1089 open. `--toc --lens atif`
+prints the whole run as 50 tab-separated lines.
+
 ## Adding a dialect
 
-opencode and OpenAI Codex logs are wanted and **not implemented**. Adding one is
-a module and a line, and nothing else:
+opencode's own logs and OpenAI Codex logs are wanted and **not implemented**.
+Adding one is a module and a line, and nothing else:
 
 1. **A module under `src/lens/`** with a struct implementing `lens::Lens`:
    * `name()` — the `--lens` word.
    * `about()` — one line for `--lens list`.
+   * `records_at()` — where the records are: `RecordsAt::Lines` (the default, a
+     `.jsonl`), `RecordsAt::Root` (a document whose root array is the records)
+     or `RecordsAt::Member("steps")` (a document whose records are one of its
+     keys, every *other* key becoming record 0). This is the only thing a
+     dialect says about files, and the routing in `src/open/lens.rs` turns it
+     into a format and a refusal.
    * `read(&mut self, &Value) -> Option<Summary>` — called **once per record, in
      file order**, so a dialect may carry state (the agent lens keeps a bounded
      ring of `tool_use` ids so a result can name its call). Return `None` for
@@ -121,10 +181,14 @@ What a dialect **never** touches: rows, folding, row arithmetic, search,
 yanking, the outline or the status bar. Grouping is
 `src/source/record/plan.rs`, painting is `src/source/record/lensrow.rs`, the
 fold keys are `src/source/record/ops.rs`, and all three are dialect-agnostic —
-and format-agnostic with it: they reach records
-through the `Records` trait, so they never learn which file the records came
-out of. If a new dialect needs a change there, that change is about *all*
-lenses and belongs in the seam.
+and format-agnostic with it. There is one record source
+(`src/source/record/source.rs`), and what a record *format* provides is the
+`Store` trait: how many records the index has found, how to push it along
+inside a byte budget, and record `i` as bytes or as a value.
+`src/source/jsonl/` is a record per line over the CSV line index;
+`src/source/jsonarray/` is an array inside a document over the JSON structural
+index. Neither holds a row number. If a new dialect needs a change there, that
+change is about *all* lenses and belongs in the seam.
 
 ## What a lens costs
 
@@ -138,3 +202,12 @@ Measured on a real 4.0 MB, 2354-record session (release build, 140 columns):
 open plus the first screen **25–30 ms**, reading the whole file through the
 lens ~65 ms, painting the last screen under 1 ms. 2354 of 2354 records
 reachable, folded into 633 rows.
+
+A **document** lens pays one thing more, and SPEC.md §Lenses states it: the
+records are one member of the document, and the structural index only knows a
+member once it has walked past its last byte, so the first row waits on a byte
+walk of the file. No record is parsed for it and nothing is held in memory —
+the wait is a scan, reported as `≥N (indexing P%)` — but it is O(file) where a
+record per line is O(screen). `--toc` and `--plain` are batches and wait for it:
+they spend slice after slice until the index has what they asked for, because a
+truncated list that exits 0 reads as an empty file.

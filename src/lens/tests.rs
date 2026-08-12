@@ -27,6 +27,49 @@ fn every_lens_agrees_with_its_entry() {
     }
 }
 
+/// A dialect declares where its records live, and the default is the one every
+/// dialect written before documents were readable still means: a record per
+/// line. Getting this wrong routes `--lens` at the wrong reader, so it is
+/// pinned for the default *and* for a dialect that overrides it.
+#[test]
+fn a_dialect_says_where_its_records_are_and_lines_is_the_default() {
+    struct Quiet;
+    impl Lens for Quiet {
+        fn name(&self) -> &'static str {
+            "quiet"
+        }
+        fn about(&self) -> &'static str {
+            "a dialect that says nothing about where it lives"
+        }
+        fn read(&mut self, _: &Value) -> Option<Summary> {
+            None
+        }
+    }
+    assert_eq!(Quiet.records_at(), RecordsAt::Lines);
+
+    struct Rooted;
+    impl Lens for Rooted {
+        fn name(&self) -> &'static str {
+            "rooted"
+        }
+        fn about(&self) -> &'static str {
+            "a dialect whose records are a document's root array"
+        }
+        fn records_at(&self) -> RecordsAt {
+            RecordsAt::Root
+        }
+        fn read(&mut self, _: &Value) -> Option<Summary> {
+            None
+        }
+    }
+    assert_eq!(Rooted.records_at(), RecordsAt::Root);
+
+    // And the registered ones, which is what routing actually asks.
+    assert_eq!(records_at("agent"), Some(RecordsAt::Lines));
+    assert_eq!(records_at("atif"), Some(RecordsAt::Member("steps")));
+    assert_eq!(records_at("nope"), None);
+}
+
 /// Two lenses built from the same entry are independent: a lens carries state
 /// across records, so sharing one between two open files would cross them.
 #[test]

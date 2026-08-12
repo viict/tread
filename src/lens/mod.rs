@@ -32,6 +32,7 @@
 #![deny(unsafe_code)]
 
 pub mod agent;
+pub mod atif;
 
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -119,6 +120,34 @@ impl Summary {
     }
 }
 
+/// Where a dialect's records live.
+///
+/// A lens is a transform over records, and this is the one thing it says about
+/// where they come from — because that decides which *file* the flag can be
+/// pointed at, and nothing else about the dialect does. It is a declaration,
+/// not a reader: `src/open/lens.rs` turns it into a format, and
+/// `src/source/record/` reaches the records the same way whichever it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordsAt {
+    /// One record per line: a `.jsonl` / `.ndjson` file. The default, and what
+    /// every dialect meant before there was a second answer.
+    Lines,
+    /// The root of one JSON document is the array of records.
+    ///
+    /// No dialect declares this yet — `atif`, the only document dialect, names
+    /// a member. The source implements it all the same
+    /// ([`crate::source::jsonarray::At::Root`], exercised by its tests),
+    /// because "the records are the whole document" is the *simpler* of the two
+    /// shapes and leaving it out would mean the next dialect to want it had to
+    /// add a variant, a routing arm and a source path at once.
+    #[allow(dead_code)]
+    Root,
+    /// The records are the array under this top-level key of one JSON
+    /// document; every *other* top-level key is record 0, so nothing the
+    /// document says about the run is lost (SPEC.md §Lenses).
+    Member(&'static str),
+}
+
 /// One dialect of record file.
 pub trait Lens {
     /// The name `--lens` takes.
@@ -126,6 +155,13 @@ pub trait Lens {
 
     /// One line for `--lens list`.
     fn about(&self) -> &'static str;
+
+    /// Where this dialect's records are. A record per line unless the dialect
+    /// says otherwise, which is what every dialect written before documents
+    /// were readable still means.
+    fn records_at(&self) -> RecordsAt {
+        RecordsAt::Lines
+    }
 
     /// Read one record. `None` means "not mine" — the record renders as the
     /// generic tree, whole.
@@ -140,7 +176,10 @@ type Make = fn() -> Box<dyn Lens>;
 
 /// Every lens there is. **Adding a dialect is one module and one line here**
 /// (docs/lenses.md says what the module has to provide).
-const LENSES: &[(&str, Make)] = &[(agent::NAME, || Box::new(agent::Agent::default()))];
+const LENSES: &[(&str, Make)] = &[
+    (agent::NAME, || Box::new(agent::Agent::default())),
+    (atif::NAME, || Box::new(atif::Atif)),
+];
 
 /// The lens called `name`, or `None`.
 pub fn find(name: &str) -> Option<Box<dyn Lens>> {
@@ -148,6 +187,13 @@ pub fn find(name: &str) -> Option<Box<dyn Lens>> {
         .iter()
         .find(|(n, _)| *n == name)
         .map(|(_, make)| make())
+}
+
+/// Where the lens called `name` keeps its records. The routing asks before the
+/// file is opened, because the answer decides which formats `--lens <name>`
+/// will accept.
+pub fn records_at(name: &str) -> Option<RecordsAt> {
+    find(name).map(|l| l.records_at())
 }
 
 /// Is `name` a lens? The CLI asks before the file is opened.

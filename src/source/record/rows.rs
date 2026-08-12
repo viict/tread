@@ -1,17 +1,17 @@
 //! Turning records into rows: the summary row, the expanded tree, the window
 //! and the outline over it.
 //!
-//! A second `impl JsonlSource` rather than a second type, split out of `mod.rs`
-//! so both stay under the size limit. Everything here is `&self` where it can
-//! be: laying a row out is a read of the file behind a [`RefCell`], not a
-//! change to the document.
+//! A second `impl RecordSource` rather than a second type, split out of
+//! `source.rs` so both stay under the size limit. Everything here is `&self`
+//! where it can be: laying a row out is a read of the file behind the store's
+//! own `RefCell`, not a change to the document.
 #![deny(unsafe_code)]
 
 use std::ops::Range;
 
 use super::*;
 
-impl JsonlSource {
+impl<S: Store> RecordSource<S> {
     // -- rows -------------------------------------------------------------------
 
     /// A record's own row: the lens's reading of it when there is one, and the
@@ -36,7 +36,7 @@ impl JsonlSource {
                 _ => marker(tree::record_spans(v)),
             },
             Record::Bad(why) => leaf(vec![Span::new(
-                format!("line {}: {why}", record + 1),
+                format!("{} {}: {why}", self.store.unit(), record + 1),
                 tree::style::error(),
             )]),
         });
@@ -208,7 +208,7 @@ impl JsonlSource {
             self.outline.push(Entry {
                 level: 1,
                 id: fold_id(record),
-                text: format!("line {}  {text}", record + 1),
+                text: format!("{} {}  {text}", self.store.unit(), record + 1),
                 anchor: Anchor(self.row_of_record(record)),
                 folded: !self.map.is_open(record),
             });
@@ -252,7 +252,21 @@ impl JsonlSource {
     /// Through the lens when there is one, so `--toc --lens agent` is the
     /// conversation as a list rather than a column of `{…12 keys}`.
     pub fn summaries(&mut self, n: usize) -> Vec<String> {
-        self.index_to(n, FRAME_BYTES);
+        // A `--toc` is a batch, not a frame: it may spend slice after slice,
+        // because printing nothing is the one answer a script cannot tell from
+        // "this file has no records". One budgeted slice was enough for a
+        // record per line and not for records inside a *document*, where the
+        // store serves nothing at all until the top level has been walked — a
+        // 6MB trajectory printed zero lines and exited 0. Ended the way
+        // `dump::write_source` ends: only "no more work *and* no new records"
+        // stops it, since the slice that finishes the index is also the one
+        // that finds the last records.
+        while self.known() < n && !self.complete() {
+            let before = self.known();
+            if !self.store.extend(FRAME_BYTES) && self.known() <= before {
+                break;
+            }
+        }
         self.classify_to(n);
         let take = n.min(self.known());
         (0..take)

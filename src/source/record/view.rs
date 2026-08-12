@@ -1,16 +1,18 @@
 //! The [`Source`] implementation itself: what the pager sees.
 //!
-//! Split from `mod.rs`, which holds the state and the file access, so both stay
-//! under the size limit. The order of the sections below is the order of the
-//! trait's own (`src/source/mod.rs`), and every method a record file has no
-//! honest answer for says so rather than inventing one.
+//! Split from `source.rs`, which holds the state and the reads, so both stay
+//! under the size limit. Written once for every record format: what a `.jsonl`
+//! and an array inside a document disagree about is [`Store`] and nothing here.
+//! The order of the sections below is the order of the trait's own
+//! (`src/source/mod.rs`), and every method a record file has no honest answer
+//! for says so rather than inventing one.
 #![deny(unsafe_code)]
 
 use std::ops::Range;
 
 use super::*;
 
-impl Source for JsonlSource {
+impl<S: Store> Source for RecordSource<S> {
     // -- layout ---------------------------------------------------------------
 
     /// Width changes nothing about the row *count*: a tree row is never
@@ -65,7 +67,7 @@ impl Source for JsonlSource {
         let total = match self.complete() {
             true => format!("{known}"),
             false => {
-                let pct = self.store.borrow().progress().percent();
+                let pct = self.store.progress();
                 format!("\u{2265}{known} (indexing {pct}%)")
             }
         };
@@ -89,7 +91,7 @@ impl Source for JsonlSource {
     /// drive it (SPEC.md §CSV, the same contract).
     fn end(&self) -> End {
         if !self.complete() {
-            return End::Scanning(self.store.borrow().progress().percent());
+            return End::Scanning(self.store.progress());
         }
         // The index has read the file, but the lens decides how many rows
         // those records make: answering now would put `G` in the middle.
@@ -108,18 +110,7 @@ impl Source for JsonlSource {
     /// asks again only while this says yes, and the slice that finishes the
     /// index is also the one that produces most of its rows.
     fn extend(&mut self) -> bool {
-        let more = {
-            let mut guard = self.store.borrow_mut();
-            let s = &mut *guard;
-            match s.index.complete() {
-                true => false,
-                false => {
-                    let before = s.index.known();
-                    s.index.ensure_bytes(IDLE_BYTES, &mut s.reader);
-                    !s.index.complete() || s.index.known() > before
-                }
-            }
-        };
+        let more = self.store.extend(IDLE_BYTES);
         // The lens gets its own bounded slice of the same idle tick: a record
         // is only grouped once it has been read, and `G` waits on that.
         let done = self.plan.as_ref().map(|p| p.classified());
@@ -165,7 +156,7 @@ impl Source for JsonlSource {
     // -- structure ---------------------------------------------------------------
 
     /// The records the last frame painted, not the whole file — see
-    /// [`JsonlSource::rebuild_outline`] for why a million-record outline is a
+    /// [`RecordSource::rebuild_outline`] for why a million-record outline is a
     /// million parses.
     fn outline(&self) -> &[Entry] {
         &self.outline
@@ -372,7 +363,7 @@ impl Source for JsonlSource {
             1 => "1 value".to_string(),
             n => format!("{n} values"),
         };
-        JsonlSource::yank(out, what)
+        RecordSource::<S>::yank(out, what)
     }
 
     /// `y`: the value under the cursor (SPEC.md §JSON).
@@ -386,7 +377,7 @@ impl Source for JsonlSource {
             Some(p) if sub > 0 => format!("{p} \u{b7} record {}", record + 1),
             _ => format!("record {}", record + 1),
         };
-        JsonlSource::yank(format!("{text}\n"), what)
+        RecordSource::<S>::yank(format!("{text}\n"), what)
     }
 
     /// `Y`: the whole record as one line of valid JSON, wherever in it the
@@ -403,17 +394,19 @@ impl Source for JsonlSource {
             return None;
         }
         let text = self.with_record(record, |r| r.value().map(|v| v.to_json()))?;
-        JsonlSource::yank(format!("{text}\n"), format!("record {}", record + 1))
+        RecordSource::<S>::yank(format!("{text}\n"), format!("record {}", record + 1))
     }
 
-    /// `c`: the record's source line, verbatim — the bytes the file holds,
-    /// not this reader's re-serialisation of them.
+    /// `c`: the record's source text, verbatim — the bytes the file holds, not
+    /// this reader's re-serialisation of them. A `.jsonl` record is a line and
+    /// says so; a record inside a document is a member and says that.
     fn yank_block(&self, row: usize) -> Option<Yank> {
         let record = self.record_at(row);
         if record >= self.known() {
             return None;
         }
         let raw = String::from_utf8_lossy(&self.raw(record)).into_owned();
-        JsonlSource::yank(format!("{raw}\n"), format!("line {} verbatim", record + 1))
+        let what = format!("{} {} verbatim", self.store.unit(), record + 1);
+        RecordSource::<S>::yank(format!("{raw}\n"), what)
     }
 }

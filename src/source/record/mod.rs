@@ -2,21 +2,25 @@
 //!
 //! # What lives here
 //!
-//! Everything a lens does to a document that is a sequence of records:
-//! [`plan`] (which records share a row, and the two-level row arithmetic),
-//! [`rowmap`] (which rows an open record owns), [`lensrow`] (the who/when/what
-//! rows a lens paints, and the row-to-record translation under them), [`ops`]
-//! (what `zR`, `zM`, `Tab`, `Y` and a fold id off the outline do to a plan), and
-//! the shared gutter and fold vocabulary below — [`marker`], [`leaf`], and `/4`
-//! for a record beside [`plan::group_id`]'s `g4` for a group, the two spellings
-//! that must not collide.
+//! **The** record source, and everything a lens does to it: [`RecordSource`]
+//! ([`source`], with [`view`][`source`]'s `Source` impl and its rows beside
+//! it), [`tree`] (one record laid out as tree rows), [`plan`] (which records
+//! share a row, and the two-level row arithmetic), [`rowmap`] (which rows an
+//! open record owns), [`lensrow`] (the who/when/what rows a lens paints, and
+//! the row-to-record translation under them), [`ops`] (what `zR`, `zM`, `Tab`,
+//! `Y` and a fold id off the outline do to a plan), and the shared gutter and
+//! fold vocabulary below — [`marker`], [`leaf`], and `/4` for a record beside
+//! [`plan::group_id`]'s `g4` for a group, the two spellings that must not
+//! collide.
 //!
-//! Nothing here opens a file, names a format, or mentions `.jsonl`. A record
-//! format implements [`Records`] and gets grouping, group folding, row
-//! arithmetic and painting for nothing; `src/source/jsonl/` is the first such
-//! format, over the CSV lazy line index, and a JSON array inside a document
-//! would be the second. A change all lenses need belongs here, not in a dialect
-//! under `src/lens/`.
+//! Nothing here opens a file, names a format, or mentions a line. What a record
+//! *format* supplies is [`Store`]: how many records the index has found, how to
+//! push it along inside a byte budget, and record `i` as bytes or as a value.
+//! `src/source/jsonl/` is a record per line over the CSV lazy line index and
+//! `src/source/jsonarray/` is an array inside a JSON document over the
+//! structural one; both get rows, grouping, folding, search, yanking and the
+//! outline for nothing, and neither holds a row number. A change all lenses
+//! need belongs here, not in a dialect under `src/lens/`.
 //!
 //! What the format still owns is what costs a *parse*: opening one record into
 //! its own tree, and how many rows that tree has. That is the line — grouping
@@ -44,6 +48,12 @@ pub mod lensrow;
 pub mod ops;
 pub mod plan;
 pub mod rowmap;
+mod source;
+pub mod store;
+pub mod tree;
+
+pub use source::RecordSource;
+pub use store::{Record, Store};
 
 use crate::json::Value;
 use crate::render::Span;

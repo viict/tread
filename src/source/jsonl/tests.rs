@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::source::Source;
+use crate::source::{Anchor, Dir, End, Mark};
 
 // -- fixtures ----------------------------------------------------------------
 
