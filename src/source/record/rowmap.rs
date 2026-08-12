@@ -1,6 +1,6 @@
 //! Which record a screen row belongs to, when some records are expanded.
 //!
-//! A `.jsonl` document is one row per record until the reader opens one, at
+//! A record document is one row per record until the reader opens one, at
 //! which point that record's tree rows are spliced in under it. The mapping has
 //! to work both ways and it has to be O(log n): `lines()` turns rows into
 //! records, and `end`, `goto_id` and the fold code turn records back into rows.

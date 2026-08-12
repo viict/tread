@@ -1,8 +1,8 @@
-//! What a lens does to the *shape* of a record file (SPEC.md §Lenses).
+//! What a lens does to the *shape* of a record document (SPEC.md §Lenses).
 //!
 //! # Items, not records
 //!
-//! Without a lens a record file is one row per record. With one, consecutive
+//! Without a lens a record document is one row per record. With one, consecutive
 //! mechanical records — a tool call, its result, a thought — collapse into a
 //! single row that opens:
 //!
@@ -38,7 +38,7 @@
 //! past one record closes the record it swallows — but only while that run is
 //! shut. A member of an open group is visible and keeps its own tree.
 //!
-//! Nothing here parses, reads a file, or recurses.
+//! Nothing here parses, reads a file, names a record format, or recurses.
 #![deny(unsafe_code)]
 
 use crate::lens::{Class, Lens, Summary};

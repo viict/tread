@@ -28,18 +28,6 @@ impl JsonlSource {
         }
     }
 
-    /// Is this record a member of a group that is currently open? Its row is
-    /// then indented under the group's, so a run reads as one thing.
-    pub(super) fn in_open_group(&self, record: usize) -> bool {
-        let Some(plan) = self.plan.as_ref() else {
-            return false;
-        };
-        plan.item_of_record(record)
-            .and_then(|i| plan.item(i))
-            .map(|it| it.is_group() && it.open)
-            .unwrap_or(false)
-    }
-
     /// The summary row of record `n`: the fold marker, then what the record is.
     pub(super) fn record_row(&self, record: usize, inset: bool) -> Line {
         let spans = self.with_record(record, |r| match r {
@@ -132,16 +120,6 @@ impl JsonlSource {
         }
     }
 
-    /// The record a row belongs to. A group's row stands for its first record,
-    /// which is what keeps `record N/M`, search and yanking agreeing with what
-    /// the cursor is on.
-    pub(crate) fn record_at(&self, row: usize) -> usize {
-        match self.spot(row) {
-            Spot::Record { record, .. } => record,
-            Spot::Group { item } => self.item_first(item),
-        }
-    }
-
     /// The value (and its path) on a tree row, or the whole record on a
     /// summary row. What `y` copies and what the status bar names.
     pub(super) fn at_row<T>(&self, row: usize, f: impl FnOnce(&str, &Value) -> T) -> Option<T> {
@@ -197,104 +175,6 @@ impl JsonlSource {
         }
     }
 
-    /// `zR` under a lens opens the groups the viewport has reached, the same
-    /// bounded way it opens records.
-    pub(super) fn open_groups(&mut self, upto_row: usize) {
-        let Some(mut plan) = self.plan.take() else {
-            return;
-        };
-        let mut map = std::mem::take(&mut self.map);
-        plan.open_upto(upto_row, &mut map);
-        self.plan = Some(plan);
-        self.map = map;
-    }
-
-    /// Open the group holding `record`, so a search hit is never left behind a
-    /// fold. Does nothing when there is no lens, or the record is not in one.
-    pub(super) fn reveal_record(&mut self, record: usize) {
-        let Some(mut plan) = self.plan.take() else {
-            return;
-        };
-        let mut map = std::mem::take(&mut self.map);
-        if let Some(item) = plan.item_of_record(record) {
-            plan.set_open(item, true, &mut map);
-            plan.sync();
-        }
-        self.plan = Some(plan);
-        self.map = map;
-    }
-
-    /// The first record of a plan item.
-    pub(crate) fn item_first(&self, item: usize) -> usize {
-        self.plan
-            .as_ref()
-            .and_then(|p| p.item(item))
-            .map(|it| it.first)
-            .unwrap_or(0)
-    }
-
-    /// Open or close the group whose first record is `first`.
-    pub(super) fn set_group(&mut self, first: usize, open: bool) -> bool {
-        let Some(mut plan) = self.plan.take() else {
-            return false;
-        };
-        let mut map = std::mem::take(&mut self.map);
-        let changed = match plan.item_of_record(first) {
-            Some(item) => plan.set_open(item, open, &mut map),
-            None => false,
-        };
-        plan.sync();
-        self.plan = Some(plan);
-        self.map = map;
-        changed
-    }
-
-    /// `zM`: shut every group, which is free — nothing is parsed to close one.
-    pub(super) fn close_groups(&mut self) {
-        let Some(mut plan) = self.plan.take() else {
-            return;
-        };
-        let mut map = std::mem::take(&mut self.map);
-        plan.close_all(&mut map);
-        plan.sync();
-        self.plan = Some(plan);
-        self.map = map;
-    }
-
-    /// `Tab` / `S-Tab` under a lens: the next thing that stands on its own —
-    /// a message, or a folded run — rather than the next record, most of which
-    /// a lens has deliberately folded away.
-    pub(super) fn next_item(&self, row: usize, forward: bool) -> Option<usize> {
-        let plan = self.plan.as_ref()?;
-        let record = self.record_at(row);
-        let cur = plan.item_of_record(record)?;
-        let base = plan.row_of_item(cur, &self.map);
-        match forward {
-            true if cur + 1 < plan.items().len() => Some(plan.row_of_item(cur + 1, &self.map)),
-            true => None,
-            // Inside an item, the first press goes back to its header row.
-            false if row > base => Some(base),
-            false if cur > 0 => Some(plan.row_of_item(cur - 1, &self.map)),
-            false => None,
-        }
-    }
-
-    /// `Y` on a group's row: every record the run holds, one JSON document per
-    /// line — the folded rows as data, so what was copied is what was hidden.
-    pub(super) fn yank_group(&self, item: usize) -> Option<Yank> {
-        let plan = self.plan.as_ref()?;
-        let it = plan.item(item)?;
-        let (first, count) = (it.first, it.count);
-        let mut out = String::new();
-        for record in first..first + count {
-            if let Some(text) = self.with_record(record, |r| r.value().map(|v| v.to_json())) {
-                out.push_str(&text);
-                out.push('\n');
-            }
-        }
-        JsonlSource::yank(out, format!("{count} records"))
-    }
-
     // -- the outline ---------------------------------------------------------------
 
     /// Rebuild the outline over the records the last frame painted.
@@ -341,27 +221,21 @@ impl JsonlSource {
     fn rebuild_lens_outline(&mut self, rows: Range<usize>) {
         let mut entries: Vec<Entry> = Vec::new();
         for row in rows.start..rows.end.min(self.len_rows()) {
-            match self.spot(row) {
+            let at = self.spot(row);
+            match at {
                 Spot::Group { item } => {
-                    let open = self
-                        .plan
-                        .as_ref()
-                        .and_then(|p| p.item(item))
-                        .map(|it| it.open)
-                        .unwrap_or(false);
-                    let first = self.record_at(row);
                     entries.push(Entry {
                         level: 1,
-                        id: plan::group_id(first),
+                        id: self.fold_id_at(at),
                         text: self.group_row(item).text().trim_end().to_string(),
                         anchor: Anchor(row),
-                        folded: !open,
+                        folded: !lensrow::item_open(self.plan.as_ref(), item),
                     });
                 }
                 Spot::Record { record, sub: 0 } if self.tree_len(record) > 0 => {
                     entries.push(Entry {
                         level: u8::from(self.in_open_group(record)) + 1,
-                        id: fold_id(record),
+                        id: self.fold_id_at(at),
                         text: self.summary_row(record).text().trim_end().to_string(),
                         anchor: Anchor(row),
                         folded: !self.map.is_open(record),
@@ -383,14 +257,8 @@ impl JsonlSource {
         let take = n.min(self.known());
         (0..take)
             .map(|r| {
-                if let Some(sum) = self.plan.as_ref().and_then(|p| p.summary(r)) {
-                    let time = sum.time.clone().unwrap_or_default();
-                    // Through the sanitiser, exactly as the painted row is: a
-                    // record may hold any byte, and `--toc` writes straight to
-                    // a terminal (SPEC.md §JSON, the shared sanitiser).
-                    let actor = crate::render::visible(&sum.actor);
-                    let what = crate::render::visible(&sum.what);
-                    return format!("{}\t{actor}\t{time}\t{what}", r + 1);
+                if let Some(line) = lensrow::toc_line(self.plan.as_ref(), r) {
+                    return line;
                 }
                 let body = self.with_record(r, |rec| match rec {
                     Record::Value(v) => tree::record_spans(v)

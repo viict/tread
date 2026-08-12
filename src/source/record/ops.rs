@@ -1,0 +1,157 @@
+//! What the fold keys do to a plan: `zR`, `zM`, a fold id off the outline,
+//! `Tab`, `Y` on a group's row, and revealing a search hit.
+//!
+//! # Why these are here and not on the format
+//!
+//! Every function below touches a [`Plan`] and a [`RowMap`] and nothing else —
+//! no file, no parser, no `.jsonl`. They were methods on the record source once,
+//! which meant a second record format would have implemented [`Records`],
+//! watched `zR`, `zM`, `Tab` and fold-state restore do nothing, and copied them
+//! across; two copies of the group arithmetic is exactly the drift the seam
+//! exists to prevent.
+//!
+//! # The `Option<&mut Plan>` in every signature
+//!
+//! A document with no `--lens` has no plan, and "no lens" is the answer these
+//! give: nothing to open, nothing to close, no group ids in the fold state. The
+//! `None` arm lives here rather than at each call site so a format cannot get it
+//! wrong in one place out of six.
+//!
+//! # The fold-id vocabulary
+//!
+//! [`id_at`] is the one place a group's `g4` and a record's `/4` meet
+//! ([`super::fold_id`], [`plan::group_id`]), and [`set_by_id`] is the one place
+//! an id off the outline is told apart: `None` is "this names no group", which
+//! the format then reads as one of its own records — the only half of folding
+//! that needs the format at all, because opening a record costs a parse.
+#![deny(unsafe_code)]
+
+use crate::select::Yank;
+
+use super::plan::{self, Plan, Spot};
+use super::rowmap::RowMap;
+use super::{fold_id, lensrow, Records};
+
+/// `zR`: open the groups the viewport has reached, the same bounded way a
+/// format opens records. Opening *every* group of a million-record log would
+/// mean classifying all of it, which is the one thing a lens must never do.
+pub(crate) fn open_upto(plan: Option<&mut Plan>, map: &mut RowMap, upto_row: usize) {
+    if let Some(plan) = plan {
+        plan.open_upto(upto_row, map);
+    }
+}
+
+/// `zM`: shut every group, which is free — nothing is parsed to close one.
+pub(crate) fn close_all(plan: Option<&mut Plan>, map: &mut RowMap) {
+    if let Some(plan) = plan {
+        plan.close_all(map);
+        plan.sync();
+    }
+}
+
+/// Open the group holding `record`, so a search hit is never left behind a
+/// fold (SPEC.md §Lenses: a lens may fold, but it may never lose a record).
+/// Does nothing when there is no lens, or the record is not in a group.
+pub(crate) fn reveal(plan: Option<&mut Plan>, map: &mut RowMap, record: usize) {
+    let Some(plan) = plan else {
+        return;
+    };
+    if let Some(item) = plan.item_of_record(record) {
+        plan.set_open(item, true, map);
+        plan.sync();
+    }
+}
+
+/// Open or close the group whose first record is `first`.
+pub(crate) fn set_group(plan: Option<&mut Plan>, map: &mut RowMap, first: usize, open: bool) -> bool {
+    let Some(plan) = plan else {
+        return false;
+    };
+    let changed = match plan.item_of_record(first) {
+        Some(item) => plan.set_open(item, open, map),
+        None => false,
+    };
+    plan.sync();
+    changed
+}
+
+/// The fold id of whatever sits on `at`: a group's `g4`, or a record's `/4`.
+pub(crate) fn id_at(plan: Option<&Plan>, at: Spot) -> String {
+    match at {
+        Spot::Group { item } => plan::group_id(lensrow::item_first(plan, item)),
+        Spot::Record { record, .. } => fold_id(record),
+    }
+}
+
+/// Apply a fold id that may name a group, returning whether anything changed.
+///
+/// `None` is an id that names no group — the format reads it as one of its own
+/// records, which is the half of folding it has to own because opening a record
+/// costs a parse.
+pub(crate) fn set_by_id(plan: Option<&mut Plan>, map: &mut RowMap, id: &str, open: bool) -> Option<bool> {
+    let first = plan::group_first(id)?;
+    Some(set_group(plan, map, first, open))
+}
+
+/// The ids of the groups that are open: the exceptions a `FoldState` carries,
+/// since a group starts shut.
+pub(crate) fn open_ids(plan: Option<&Plan>) -> Vec<String> {
+    let Some(plan) = plan else {
+        return Vec::new();
+    };
+    let open = plan.items().iter().filter(|it| it.is_group() && it.open);
+    open.map(|it| plan::group_id(it.first)).collect()
+}
+
+/// Restore group folds from a `FoldState`: everything shut, then the ids that
+/// disagree opened. Ids naming no group are left for the format.
+pub(crate) fn restore(plan: Option<&mut Plan>, map: &mut RowMap, folds: &[String]) {
+    let Some(plan) = plan else {
+        return;
+    };
+    close_all(Some(&mut *plan), map);
+    for id in folds {
+        if let Some(first) = plan::group_first(id) {
+            set_group(Some(&mut *plan), map, first, true);
+        }
+    }
+}
+
+/// `Tab` / `S-Tab` under a lens: the next thing that stands on its own — a
+/// message, or a folded run — rather than the next record, most of which a lens
+/// has deliberately folded away.
+pub(crate) fn next_item(
+    plan: Option<&Plan>,
+    map: &RowMap,
+    known: usize,
+    row: usize,
+    forward: bool,
+) -> Option<usize> {
+    let plan = plan?;
+    let record = lensrow::record_at(Some(plan), map, known, row);
+    let cur = plan.item_of_record(record)?;
+    let base = plan.row_of_item(cur, map);
+    match forward {
+        true if cur + 1 < plan.items().len() => Some(plan.row_of_item(cur + 1, map)),
+        true => None,
+        // Inside an item, the first press goes back to its header row.
+        false if row > base => Some(base),
+        false if cur > 0 => Some(plan.row_of_item(cur - 1, map)),
+        false => None,
+    }
+}
+
+/// `Y` on a group's row: every record the run holds, one JSON document per
+/// line — the folded rows as data, so what was copied is what was hidden.
+pub(crate) fn yank_group<R: Records>(src: &R, plan: Option<&Plan>, item: usize) -> Option<Yank> {
+    let it = plan?.item(item)?;
+    let (first, count) = (it.first, it.count);
+    let mut out = String::new();
+    for record in first..first + count {
+        if let Some(text) = src.with_value(record, |v| v.map(|v| v.to_json())) {
+            out.push_str(&text);
+            out.push('\n');
+        }
+    }
+    (!out.is_empty()).then(|| Yank { text: out, what: format!("{count} records") })
+}

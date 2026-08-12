@@ -31,9 +31,7 @@
 //! list of records, so record 4 is `/4`. One scheme, two sources.
 #![deny(unsafe_code)]
 
-pub mod lensrow;
-pub mod plan;
-pub mod rowmap;
+mod lens;
 mod rows;
 pub mod tree;
 mod view;
@@ -55,9 +53,12 @@ use crate::json::{self, Value};
 use crate::lens::Lens;
 use crate::render::{Line, LineKind, Span};
 use crate::source::jsonrow;
+// The lens machinery itself is not here: it is `src/source/record/`, which
+// speaks to this file only through the `Records` impl in `lens.rs`.
+use crate::source::record::plan::{Plan, Spot};
+use crate::source::record::rowmap::RowMap;
+use crate::source::record::{fold_id, leaf, lensrow, marker, ops, Records};
 use crate::select::Yank;
-use plan::{Plan, Spot};
-use rowmap::RowMap;
 
 /// Records the index is pushed past the painted window on every frame.
 const LOOKAHEAD: usize = 1024;
@@ -386,30 +387,4 @@ impl JsonlSource {
             other => other.to_json(),
         })
     }
-}
-
-/// The fold id of record `r`, in the shared vocabulary
-/// ([`jsonrow::ALL_OPEN`]): a record file's root is the implicit list of
-/// records, so record 4 is `/4`.
-fn fold_id(record: usize) -> String {
-    jsonrow::child_id("", record)
-}
-
-/// A row that can be opened: the fold marker the painter rewrites to `\u{25b8}`
-/// when the record is shut, then the summary.
-fn marker(mut rest: Vec<Span>) -> Vec<Span> {
-    // Always the *open* glyph: the painter rewrites it to `\u{25b8}` on any row
-    // `hidden_at` claims, so emitting the closed one here would double-negate.
-    let glyph = crate::theme::MARKER_OPEN;
-    let mut spans = vec![Span::new(format!("{glyph} "), crate::theme::json_marker())];
-    spans.append(&mut rest);
-    spans
-}
-
-/// A row with nothing under it: the gutter stays, empty, so the values on it
-/// line up with the ones on rows that do open.
-fn leaf(mut rest: Vec<Span>) -> Vec<Span> {
-    let mut spans = vec![Span::plain("  ")];
-    spans.append(&mut rest);
-    spans
 }

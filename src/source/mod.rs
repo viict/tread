@@ -5,6 +5,8 @@
 //! format they are showing — the same discipline that lets the whole crate
 //! above `sys` stay platform-agnostic. Adding a format is one module here plus
 //! one arm in the detector; formats are compiled in, never loaded at runtime.
+//! Not every module here is a format: [`record`] is the seam *between* the
+//! record formats — it has no detector arm and never opens a file.
 //!
 //! # Coordinate systems
 //!
@@ -47,6 +49,7 @@ pub mod json;
 pub mod jsonl;
 pub mod jsonrow;
 pub mod markdown;
+pub mod record;
 pub mod search;
 pub mod text;
 

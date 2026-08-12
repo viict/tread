@@ -119,9 +119,12 @@ A `Summary` is five fields and no styling:
 
 What a dialect **never** touches: rows, folding, row arithmetic, search,
 yanking, the outline or the status bar. Grouping is
-`src/source/jsonl/plan.rs`, painting is `src/source/jsonl/lensrow.rs`, and both
-are dialect-agnostic. If a new dialect needs a change there, that change is
-about *all* lenses and belongs in the seam.
+`src/source/record/plan.rs`, painting is `src/source/record/lensrow.rs`, the
+fold keys are `src/source/record/ops.rs`, and all three are dialect-agnostic —
+and format-agnostic with it: they reach records
+through the `Records` trait, so they never learn which file the records came
+out of. If a new dialect needs a change there, that change is about *all*
+lenses and belongs in the seam.
 
 ## What a lens costs
 

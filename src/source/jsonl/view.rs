@@ -172,10 +172,7 @@ impl Source for JsonlSource {
     }
 
     fn section_at(&self, row: usize) -> Option<usize> {
-        let id = match self.spot(row) {
-            Spot::Group { item } => plan::group_id(self.item_first(item)),
-            Spot::Record { record, .. } => fold_id(record),
-        };
+        let id = self.fold_id_at(self.spot(row));
         self.outline.iter().position(|e| e.id == id)
     }
 
@@ -184,10 +181,10 @@ impl Source for JsonlSource {
             Some(e) => e.id.clone(),
             None => return false,
         };
-        // A group id (`g12`) cannot collide with a record id (`/12`), so one
-        // outline holds both and this is the only place that tells them apart.
-        if let Some(first) = plan::group_first(&id) {
-            let changed = self.set_group(first, !closed);
+        // A group id (`g12`) cannot collide with a record id (`/12`); the seam
+        // tells them apart, and `None` is "not a group" — this file only has to
+        // answer for its own records, which is the half that costs a parse.
+        if let Some(changed) = self.set_group_by_id(&id, !closed) {
             if changed {
                 if let Some(e) = self.outline.get_mut(entry) {
                     e.folded = closed;
@@ -242,10 +239,7 @@ impl Source for JsonlSource {
         if self.expand_all {
             out.push(jsonrow::ALL_OPEN.to_string());
         }
-        if let Some(p) = self.plan.as_ref() {
-            let open = p.items().iter().filter(|it| it.is_group() && it.open);
-            out.extend(open.map(|it| plan::group_id(it.first)));
-        }
+        out.extend(self.group_folds());
         out.extend(self.map.records().map(fold_id));
         out
     }
@@ -254,12 +248,7 @@ impl Source for JsonlSource {
         self.map.clear();
         self.expand_all = folds.iter().any(|s| s == jsonrow::ALL_OPEN);
         self.filled = 0;
-        self.close_groups();
-        for id in &folds {
-            if let Some(first) = plan::group_first(id) {
-                self.set_group(first, true);
-            }
-        }
+        self.restore_groups(&folds);
         for id in &folds {
             if let Some(record) = jsonrow::top_index(id) {
                 self.open_record(record);

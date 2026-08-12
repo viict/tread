@@ -6,7 +6,7 @@
 //! never owns a [`crate::source::Source`], and never decides where a row goes
 //! on the screen: given one parsed record it says *what that record is* — who
 //! spoke, when, what happened, and whether the record is conversation or
-//! mechanics. The record source ([`crate::source::jsonl`]) does the rest: it
+//! mechanics. The record seam ([`crate::source::record`]) does the rest: it
 //! turns runs of mechanics into one foldable group row and leaves the
 //! conversation alone.
 //!
