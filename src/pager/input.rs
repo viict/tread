@@ -132,6 +132,7 @@ impl Pager {
     fn view_action(&mut self, a: Action) {
         match a {
             Action::ToggleCollapse => self.fold(None),
+            Action::OpenTree => self.open_tree(),
             Action::OpenSection => self.fold(Some(false)),
             Action::CloseSection => self.fold(Some(true)),
             Action::CollapseAll => self.fold_all(true),

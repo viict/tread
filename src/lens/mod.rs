@@ -28,7 +28,9 @@
 //!   whose state is wrong (a record read out of order, a truncated log) must
 //!   still return a usable summary rather than nothing.
 //! * Nothing here allocates per *document*: a summary is built from one record
-//!   and thrown away with it.
+//!   and thrown away with it — and a [`Body`] keeps that true for the message
+//!   text as well, by holding a bounded head and *where the rest is* rather
+//!   than a copy of it.
 #![deny(unsafe_code)]
 
 pub mod agent;
@@ -76,6 +78,112 @@ impl Who {
     }
 }
 
+/// One step of the way back to a message inside its own record: a key, or an
+/// index into an array. Static keys because a dialect names them in its own
+/// source (`message`, `content`, `text`) — nothing is allocated to remember
+/// where a message lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Step {
+    Key(&'static str),
+    At(usize),
+}
+
+/// Bytes of a message the seam keeps in memory, per record.
+///
+/// The ceiling on what a summary costs: a 40 KB message contributes 1 KB and a
+/// path, not 40 KB. Enough to lay a clipped body out at any width up to about
+/// 190 columns, and past that the clip shows fewer rows and still says what it
+/// is not showing — which is the half that may not slip.
+pub const BODY_KEEP: usize = 1024;
+
+/// The message text under a summary row (SPEC.md §Lenses).
+///
+/// # Why this is a head and a path, not the text
+///
+/// A summary is kept for **every** classified record, and this module's
+/// contract is that nothing here allocates per document. Holding each message
+/// in full would make a long log's summaries as big as the log. So a `Body`
+/// keeps:
+///
+/// * `head` — the first [`BODY_KEEP`] bytes, which is what a clipped row paints
+///   and what the row *arithmetic* measures, so a resize re-lays every body
+///   without reading a file;
+/// * `bytes` and `lines` — what the whole message is, so a clipped body can say
+///   what it is not showing, and so its height at a width can be *derived*
+///   rather than measured;
+/// * `at` — where the text sits inside the record, so painting reads the whole
+///   of it back out of the record that is being painted anyway.
+///
+/// The dialect supplies text and a path and makes no layout decision: how many
+/// rows this becomes is [`crate::source::record::body`]'s answer, and it
+/// depends on the width.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Body {
+    /// The first [`BODY_KEEP`] bytes of the message, on a character boundary.
+    pub head: String,
+    /// Bytes the whole message has.
+    pub bytes: usize,
+    /// Lines the whole message has, counted as the file wrote them.
+    pub lines: usize,
+    /// The path from the record's root to the text.
+    pub at: Vec<Step>,
+}
+
+impl Body {
+    /// The body of `text`, which lives at `at` inside its record.
+    pub fn new(text: &str, at: Vec<Step>) -> Body {
+        Body {
+            head: head_of(text, BODY_KEEP).to_string(),
+            bytes: text.len(),
+            lines: text.lines().count().max(1),
+            at,
+        }
+    }
+
+    /// Is the head the whole message? Then the record never has to be read
+    /// again to paint it.
+    pub fn whole(&self) -> bool {
+        self.head.len() == self.bytes
+    }
+
+    /// The whole message: out of the record when the head is short of it, and
+    /// out of the head when it is not. `record` is `None` where the caller has
+    /// no record in hand, and the head is then the honest answer it can give.
+    pub fn text_in<'a>(&'a self, record: Option<&'a Value>) -> &'a str {
+        if self.whole() {
+            return &self.head;
+        }
+        match record.and_then(|v| self.walk(v)) {
+            Some(text) if text.len() == self.bytes => text,
+            _ => &self.head,
+        }
+    }
+
+    fn walk<'a>(&self, root: &'a Value) -> Option<&'a str> {
+        let mut at = root;
+        for step in &self.at {
+            at = match step {
+                Step::Key(k) => at.get(k)?,
+                Step::At(n) => at.index(*n)?,
+            };
+        }
+        at.as_str()
+    }
+}
+
+/// The first `bytes` of `text`, cut on a character boundary: a message may be
+/// any UTF-8 at all, and cutting mid-character would panic.
+fn head_of(text: &str, bytes: usize) -> &str {
+    if text.len() <= bytes {
+        return text;
+    }
+    let mut cut = bytes;
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    &text[..cut]
+}
+
 /// One record, as a lens reads it.
 ///
 /// Everything on it is display text the source paints; no styling and no
@@ -97,6 +205,10 @@ pub struct Summary {
     pub what: String,
     /// Tool calls this record makes, for the group row's `· 4 tool calls`.
     pub calls: usize,
+    /// What was said, in full, under the row. `None` on a step: mechanics stay
+    /// one line. Only a [`Class::Message`] ever carries one, which is what
+    /// keeps a folded run exactly as tall as the records it holds.
+    pub body: Option<Body>,
 }
 
 impl Summary {
@@ -110,6 +222,7 @@ impl Summary {
             time: None,
             what: what.into(),
             calls: 0,
+            body: None,
         }
     }
 

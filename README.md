@@ -226,6 +226,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `a` | show or hide what this view hides (dotfiles, code bodies) |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, open the row, else fold |
+| `zt` | open the raw record under the cursor |
 | `zo` | open the section at the cursor |
 | `zc` | close the section at the cursor |
 | `zM` | collapse every section |

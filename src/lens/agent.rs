@@ -35,7 +35,7 @@
 //! renders as the generic tree with nothing hidden.
 #![deny(unsafe_code)]
 
-use super::{excerpt, record_clock, record_type, Class, Lens, Summary, Who, ARG, EXCERPT};
+use super::{excerpt, record_clock, record_type, Body, Class, Lens, Step, Summary, Who, ARG, EXCERPT};
 use crate::json::Value;
 
 pub const NAME: &str = "agent";
@@ -52,6 +52,10 @@ const RECENT_CALLS: usize = 64;
 struct Blocks {
     /// Text blocks — the only thing that makes a record a message.
     spoken: Vec<String>,
+    /// The first text block, whole, as the row's body. The first because it is
+    /// the one the excerpt on the row came from; the others are in the record,
+    /// which every row still opens into.
+    body: Option<Body>,
     calls: Vec<String>,
     results: Vec<String>,
     thoughts: usize,
@@ -96,7 +100,9 @@ impl Agent {
         };
         // A prompt typed by a person: `content` is a bare string.
         if let Some(text) = msg.get("content").and_then(|c| c.as_str()) {
-            return Some(said(who, actor, excerpt(text, EXCERPT)));
+            let at = vec![Step::Key("message"), Step::Key("content")];
+            let body = Body::new(text, at);
+            return Some(said(who, actor, excerpt(text, EXCERPT), Some(body)));
         }
         let blocks = msg.get("content")?.as_array()?;
         Some(self.blocks_row(blocks, who, actor))
@@ -104,7 +110,8 @@ impl Agent {
 
     /// The block array of one message, read into one row.
     fn blocks_row(&mut self, blocks: &[Value], who: Who, actor: String) -> Summary {
-        let seen = self.scan(blocks);
+        let mut seen = self.scan(blocks);
+        let body = seen.body.take();
         // Anything a person would read keeps the record on screen; everything
         // else is a step, however many blocks it took.
         if !seen.spoken.is_empty() {
@@ -113,7 +120,7 @@ impl Agent {
                 what.push_str(" \u{b7} ");
                 what.push_str(&seen.calls.join(" \u{b7} "));
             }
-            return Summary { calls: seen.calls.len(), ..said(who, actor, what) };
+            return Summary { calls: seen.calls.len(), ..said(who, actor, what, body) };
         }
         let what = match (seen.calls.is_empty(), seen.results.is_empty()) {
             (false, _) => seen.calls.join(" \u{b7} "),
@@ -127,16 +134,20 @@ impl Agent {
             true => (who, actor),
             false => (Who::Tool, "tool".to_string()),
         };
-        Summary { class: Class::Step, who, actor, time: None, what, calls: seen.calls.len() }
+        // A step has no body: mechanics stay one line.
+        Summary { class: Class::Step, who, actor, time: None, what, calls: seen.calls.len(), body: None }
     }
 
     /// Read the blocks of one message into the four things a row can say.
     fn scan(&mut self, blocks: &[Value]) -> Blocks {
         let mut seen = Blocks::default();
-        for b in blocks {
+        for (i, b) in blocks.iter().enumerate() {
             match b.get("type").and_then(|t| t.as_str()).unwrap_or("") {
                 "text" => match b.get("text").and_then(|t| t.as_str()) {
-                    Some(t) if !t.trim().is_empty() => seen.spoken.push(excerpt(t, EXCERPT)),
+                    Some(t) if !t.trim().is_empty() => {
+                        seen.spoken.push(excerpt(t, EXCERPT));
+                        seen.body.get_or_insert_with(|| Body::new(t, text_at(i)));
+                    }
                     _ => {}
                 },
                 "thinking" => seen.thoughts += 1,
@@ -193,7 +204,7 @@ impl Agent {
 }
 
 /// A record someone would read.
-fn said(who: Who, actor: String, what: String) -> Summary {
+fn said(who: Who, actor: String, what: String, body: Option<Body>) -> Summary {
     Summary {
         class: Class::Message,
         who,
@@ -201,7 +212,19 @@ fn said(who: Who, actor: String, what: String) -> Summary {
         time: None,
         what,
         calls: 0,
+        body,
     }
+}
+
+/// Where block `i`'s text sits inside its record, so the whole of it can be
+/// read back when the reader opens the body.
+fn text_at(i: usize) -> Vec<Step> {
+    vec![
+        Step::Key("message"),
+        Step::Key("content"),
+        Step::At(i),
+        Step::Key("text"),
+    ]
 }
 
 /// The speaker's name, with a subagent's conversation marked: `isSidechain` is

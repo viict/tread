@@ -79,7 +79,9 @@ pub(crate) fn set_group(plan: Option<&mut Plan>, map: &mut RowMap, first: usize,
 pub(crate) fn id_at(plan: Option<&Plan>, at: Spot) -> String {
     match at {
         Spot::Group { item } => plan::group_id(lensrow::item_first(plan, item)),
-        Spot::Record { record, .. } => fold_id(record),
+        // A body row answers with its record's id, so `za` on the message and
+        // `za` on the row above it are the same fold.
+        Spot::Record { record, .. } | Spot::Body { record, .. } => fold_id(record),
     }
 }
 

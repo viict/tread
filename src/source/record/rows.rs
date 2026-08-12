@@ -4,7 +4,9 @@
 //! A second `impl RecordSource` rather than a second type, split out of
 //! `source.rs` so both stay under the size limit. Everything here is `&self`
 //! where it can be: laying a row out is a read of the file behind the store's
-//! own `RefCell`, not a change to the document.
+//! own `RefCell`, not a change to the document. The exceptions are the three
+//! things that *re-lay* rows — a resize, a body toggled open, `zt` — and they
+//! are here because they are the same arithmetic seen from the other side.
 #![deny(unsafe_code)]
 
 use std::ops::Range;
@@ -59,6 +61,7 @@ impl<S: Store> RecordSource<S> {
         }
         match self.spot(row) {
             Spot::Group { item } => Some(self.group_row(item)),
+            Spot::Body { record, line } => self.with_body(record, |rows| rows.get(line).cloned()),
             Spot::Record { record, sub } => match sub {
                 0 => Some(self.summary_row(record)),
                 n => self.with_tree(record, |rows| rows.get(n - 1).cloned()),
@@ -125,6 +128,9 @@ impl<S: Store> RecordSource<S> {
     pub(super) fn at_row<T>(&self, row: usize, f: impl FnOnce(&str, &Value) -> T) -> Option<T> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
+            // A body row is the record talking; the value under the cursor
+            // there is the record, exactly as on its summary row.
+            Spot::Body { record, .. } => (record, 0),
             // A group's row stands for the run it holds; the value under the
             // cursor there is its first record.
             Spot::Group { item } => (self.item_first(item), 0),
@@ -173,6 +179,124 @@ impl<S: Store> RecordSource<S> {
             self.open_record(record);
             self.filled += 1;
         }
+    }
+
+    // -- the message under a row -------------------------------------------------
+
+    /// Re-lay every body at the current width, then bring the totals up to
+    /// date. Classification is untouched: a record is read once, in file order,
+    /// and a resize only changes how what it said is wrapped.
+    ///
+    /// **Only when the width actually moved.** `Source::set_width` runs on
+    /// every resize the pager sees, including a height-only one where nothing
+    /// wraps differently, and re-laying is O(classified records) — O(the file),
+    /// with a record read apiece once `zR` has opened the bodies. Dragging a
+    /// terminal's bottom edge may not cost half a second per SIGWINCH.
+    pub(crate) fn remeasure(&mut self) {
+        let Some(mut plan) = self.plan.take() else {
+            return;
+        };
+        match plan.set_width(self.view) {
+            true => lensrow::remeasure(&*self, &mut plan),
+            false => plan.sync(),
+        }
+        self.plan = Some(plan);
+        self.body_laid.borrow_mut().take();
+    }
+
+    /// Re-lay one body — what a toggle of that message costs.
+    fn remeasure_item(&mut self, item: usize) {
+        let Some(mut plan) = self.plan.take() else {
+            return;
+        };
+        lensrow::measure(&*self, &mut plan, item);
+        plan.sync();
+        self.plan = Some(plan);
+        self.body_laid.borrow_mut().take();
+    }
+
+    /// Run `f` against the wrapped rows of the message under `record`.
+    pub(crate) fn with_body<T>(&self, record: usize, f: impl FnOnce(&[Line]) -> T) -> T {
+        let width = self.view;
+        let hit = matches!(&*self.body_laid.borrow(), Some((r, w, _)) if *r == record && *w == width);
+        if !hit {
+            let rows = lensrow::body_rows(self, self.plan.as_ref(), record, width);
+            *self.body_laid.borrow_mut() = Some((record, width, rows));
+        }
+        match &*self.body_laid.borrow() {
+            Some((_, _, rows)) => f(rows),
+            None => f(&[]),
+        }
+    }
+
+    /// Every message whole, or every message back to its clip: `zR` / `zM`,
+    /// and what a dump asks for.
+    pub(crate) fn set_all_bodies(&mut self, full: bool) {
+        let Some(mut plan) = self.plan.take() else {
+            return;
+        };
+        plan.set_all_full(full);
+        lensrow::remeasure(&*self, &mut plan);
+        self.plan = Some(plan);
+        self.body_laid.borrow_mut().take();
+    }
+
+    /// The whole message under `record`, when there is one.
+    pub(crate) fn body_text(&self, record: usize) -> Option<String> {
+        lensrow::body_text(self, self.plan.as_ref(), record)
+    }
+
+    /// `Enter` / `za` on a message: its body clipped, or whole. `None` when
+    /// this row has no message under it, which sends the key back to the
+    /// outline and its folds.
+    ///
+    /// A message the clip already shows in full has one state, not two, and
+    /// says `None` as well: consuming the key there would be a row that paints
+    /// a fold marker, promises the records's tree under it, and does nothing at
+    /// all when it is pressed.
+    pub(crate) fn toggle_body(&mut self, row: usize) -> Option<bool> {
+        let record = match self.spot(row) {
+            Spot::Body { record, .. } => record,
+            Spot::Record { record, sub: 0 } => record,
+            _ => return None,
+        };
+        let plan = self.plan.as_mut()?;
+        let item = plan.item_of_record(record)?;
+        let (body, full) = plan.body_at(item)?;
+        if !body::clips(body, body.text_in(None), plan.width()) {
+            return None;
+        }
+        if !plan.set_full(item, !full) {
+            return None;
+        }
+        self.remeasure_item(item);
+        Some(full)
+    }
+
+    /// `zt`: the record's own tree, open or shut, whatever its body is doing.
+    /// `None` when there is nothing there to open — a group's row (which
+    /// `Enter` opens), or a record with no tree under it.
+    pub(crate) fn open_tree_at(&mut self, row: usize) -> Option<String> {
+        if let Spot::Group { .. } = self.spot(row) {
+            return None;
+        }
+        let record = self.record_at(row);
+        if record >= self.known() || !self.record_visible(record) || self.tree_len(record) == 0 {
+            return None;
+        }
+        let shut = self.map.is_open(record);
+        match shut {
+            true => self.map.close(record),
+            false => self.open_record(record),
+        };
+        Some(format!(
+            "record {} {}",
+            record + 1,
+            match shut {
+                true => "shut",
+                false => "opened",
+            }
+        ))
     }
 
     // -- the outline ---------------------------------------------------------------

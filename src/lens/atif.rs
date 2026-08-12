@@ -36,7 +36,7 @@
 //! does not recognise returns `None` and renders as the generic tree.
 #![deny(unsafe_code)]
 
-use super::{excerpt, record_clock, Class, Lens, RecordsAt, Summary, Who, ARG, EXCERPT};
+use super::{excerpt, record_clock, Body, Class, Lens, RecordsAt, Step, Summary, Who, ARG, EXCERPT};
 use crate::json::Value;
 
 pub const NAME: &str = "atif";
@@ -106,6 +106,9 @@ fn session(v: &Value) -> Option<Summary> {
         time: None,
         what: parts.join(" \u{b7} "),
         calls: 0,
+        // The envelope is a headline over a tree, not something anyone said:
+        // its keys are the row, and `Enter` opens them.
+        body: None,
     })
 }
 
@@ -129,6 +132,9 @@ fn step(v: &Value) -> Option<Summary> {
 /// A step that says something: the message, and a count of what it did
 /// alongside. The calls are deliberately *not* rows — a message is the thing a
 /// reader came for, and its mechanics are one clause on the end of it.
+///
+/// The message itself goes under the row as the [`Body`], read straight back
+/// out of `message` when the reader opens it.
 fn spoken(source: &str, said: &str, thinking: bool, calls: usize) -> Summary {
     let (who, actor) = speaker(source);
     let mut what = excerpt(said, EXCERPT);
@@ -138,7 +144,8 @@ fn spoken(source: &str, said: &str, thinking: bool, calls: usize) -> Summary {
     if calls > 0 {
         what.push_str(&format!(" \u{b7} {}", call_count(calls)));
     }
-    Summary { class: Class::Message, who, actor, time: None, what, calls }
+    let body = Body::new(said, vec![Step::Key("message")]);
+    Summary { class: Class::Message, who, actor, time: None, what, calls, body: Some(body) }
 }
 
 /// A step that only did things: the thought and the calls it made, each with
@@ -177,6 +184,9 @@ fn worked(source: &str, v: &Value, thinking: bool, calls: Vec<Call>) -> Summary 
         time: None,
         what: collapse(parts).join(" \u{b7} "),
         calls: n,
+        // Mechanics stay one line: a step has no body, which is also what keeps
+        // a folded run exactly as tall as the steps inside it.
+        body: None,
     }
 }
 

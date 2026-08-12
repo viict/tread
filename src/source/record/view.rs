@@ -15,9 +15,11 @@ use super::*;
 impl<S: Store> Source for RecordSource<S> {
     // -- layout ---------------------------------------------------------------
 
-    /// Width changes nothing about the row *count*: a tree row is never
-    /// wrapped, so one node stays one row at any width and every [`Mark`]
-    /// survives a resize.
+    /// A tree row is never wrapped, so one node stays one row at any width —
+    /// but the **message** under a lens row is wrapped, so a width change
+    /// re-lays every body and moves every row below the first of them. That is
+    /// why [`Mark`] here is a *record* rather than a row: the cursor comes back
+    /// to what it was reading, not to row 41 of a different layout.
     fn set_width(&mut self, cols: usize) {
         self.view = cols.max(1);
         // Index a first slice so `len()` is not zero before the first paint.
@@ -27,6 +29,11 @@ impl<S: Store> Source for RecordSource<S> {
         // And read that slice through the lens, so the first frame is already
         // grouped rather than re-flowing under the reader.
         self.classify_to(FIRST_CLASS);
+        // Re-wrap what is already classified. No record is re-read and none is
+        // re-classified: the summaries hold what the measurement needs.
+        self.remeasure();
+        // The last search hit was a row in the old layout.
+        self.found = None;
     }
 
     fn len(&self) -> usize {
@@ -61,6 +68,9 @@ impl<S: Store> Source for RecordSource<S> {
     fn position_text(&self, row: usize) -> Option<String> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
+            // A body row is still that record's row: the message is what the
+            // summary above it said, not a place inside the record.
+            Spot::Body { record, .. } => (record, 0),
             Spot::Group { item } => (self.item_first(item), 0),
         };
         let known = self.known();
@@ -144,13 +154,41 @@ impl<S: Store> Source for RecordSource<S> {
         (n > 0).then(|| anchor.0.min(n - 1))
     }
 
+    /// Under a lens a mark is the **record**, not the row: a body is wrapped,
+    /// so a resize moves rows and a row number would mean somewhere else
+    /// afterwards (`src/source/mod.rs`: a mark is the same *content*).
+    ///
+    /// What that costs is the offset *inside* a record: the cursor on tree row
+    /// seven of an open record, or on line four of a message, comes back to
+    /// that record's summary row. A `Mark` is one number, and packing an offset
+    /// into it would be a lie about which record a bigger number is in.
+    ///
+    /// With no lens there is no body and nothing wraps — a tree row is one row
+    /// at every width — so the row *is* the same content, and paying that cost
+    /// would throw away the place inside an open record for nothing.
     fn mark(&self, row: usize) -> Option<Mark> {
-        (row < self.len_rows()).then_some(Mark(row))
+        if row >= self.len_rows() {
+            return None;
+        }
+        Some(match self.plan.is_some() {
+            true => Mark(self.record_at(row)),
+            false => Mark(row),
+        })
     }
 
     fn locate(&self, mark: Mark) -> Option<usize> {
-        let n = self.len_rows();
-        (n > 0).then(|| mark.0.min(n - 1))
+        let rows = self.len_rows();
+        if rows == 0 {
+            return None;
+        }
+        if self.plan.is_none() {
+            return Some(mark.0.min(rows - 1));
+        }
+        let known = self.known();
+        if known == 0 {
+            return None;
+        }
+        Some(self.row_of_record(mark.0.min(known - 1)))
     }
 
     // -- structure ---------------------------------------------------------------
@@ -207,6 +245,10 @@ impl<S: Store> Source for RecordSource<S> {
         self.expand_all = !closed;
         self.filled = 0;
         self.map.clear();
+        // Messages go with it: `zR` is "show me everything here", and a dump
+        // (`--plain`, which is `fold_all(false)` and nothing else) must print
+        // the whole of what was said rather than a viewport's clip of it.
+        self.set_all_bodies(!closed);
         if closed {
             self.close_groups();
         }
@@ -214,6 +256,19 @@ impl<S: Store> Source for RecordSource<S> {
             let upto = self.window.end.max(1).saturating_add(LOOKAHEAD);
             self.fill_expansion(upto);
         }
+    }
+
+    /// `Enter` / `za` on a message shows what was said, whole or clipped —
+    /// the row's own fold, which is not an outline entry and could not be
+    /// reached through one. Everything else falls through to the outline, so
+    /// a group row still opens its run and a record row still opens its tree.
+    fn fold_here(&mut self, row: usize) -> Option<bool> {
+        self.toggle_body(row)
+    }
+
+    /// `zt`: the raw record under the cursor, whatever its body is doing.
+    fn toggle_tree(&mut self, row: usize) -> Option<String> {
+        self.open_tree_at(row)
     }
 
     /// The shared fold-id vocabulary ([`jsonrow::ALL_OPEN`]): a default plus the
@@ -252,6 +307,9 @@ impl<S: Store> Source for RecordSource<S> {
 
     fn hidden_at(&self, row: usize) -> Option<usize> {
         let (record, sub) = match self.spot(row) {
+            // A body row hides nothing: the clip says what it is not showing,
+            // on its own last row, in the message's own lines.
+            Spot::Body { .. } => return None,
             // A closed group hides one row per record it holds; their trees
             // are closed with it, so there is nothing else under it.
             Spot::Group { item } => {
@@ -370,6 +428,7 @@ impl<S: Store> Source for RecordSource<S> {
     fn yank_point(&self, row: usize) -> Option<Yank> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
+            Spot::Body { record, .. } => (record, 0),
             Spot::Group { item } => (self.item_first(item), 0),
         };
         let text = self.row_json(row)?;

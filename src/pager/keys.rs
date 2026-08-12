@@ -33,6 +33,8 @@ pub enum Action {
     /// Show or hide what the format hides by default (a listing's dotfiles).
     ToggleHidden,
     ToggleCollapse,
+    /// `zt`: open the raw record under the cursor, where a row stands for one.
+    OpenTree,
     OpenSection,
     CloseSection,
     CollapseAll,
@@ -207,6 +209,12 @@ pub const BINDINGS: &[Binding] = &[
         desc: "follow the focused link, open the row, else fold",
         action: A::Follow,
         triggers: &[Trigger::k(Key::Enter)],
+    },
+    Binding {
+        keys: "zt",
+        desc: "open the raw record under the cursor",
+        action: A::OpenTree,
+        triggers: &[Trigger::z('t')],
     },
     Binding {
         keys: "zo",

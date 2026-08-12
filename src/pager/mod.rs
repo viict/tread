@@ -391,6 +391,20 @@ impl Pager {
         self.clamp();
     }
 
+    /// `zt`: the raw thing under the cursor, where the format has one — a
+    /// record behind a lens row. The same shape `a` has, and for the same
+    /// reason: the source answers, or the pager says there was nothing there
+    /// rather than appearing to do nothing.
+    fn open_tree(&mut self) {
+        match self.src.toggle_tree(self.cursor) {
+            Some(msg) => {
+                self.folds_changed();
+                self.notify(msg);
+            }
+            None => self.notify("nothing to open here"),
+        }
+    }
+
     fn clamp(&mut self) {
         let n = self.src.len();
         self.cursor = self.cursor.min(n.saturating_sub(1));

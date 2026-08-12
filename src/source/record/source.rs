@@ -53,7 +53,7 @@ use super::plan::{Plan, Spot};
 use super::rowmap::RowMap;
 use super::store::{Cache, Record, Store};
 use super::tree;
-use super::{fold_id, leaf, lensrow, marker, ops, Records};
+use super::{body, fold_id, leaf, lensrow, marker, ops, Records};
 use crate::json::Value;
 use crate::lens::Lens;
 use crate::render::{Line, LineKind, Span};
@@ -108,6 +108,11 @@ pub struct RecordSource<S: Store> {
     /// Capacity one: rebuilding it costs a walk of that record, and a frame
     /// asks for it once per painted row.
     laid: RefCell<Option<(usize, Vec<Line>)>>,
+    /// The wrapped message rows of the one record the viewport is reading,
+    /// keyed by the width they were laid out for. Same discipline as `laid`,
+    /// and for the same reason: a frame asks per painted row, and wrapping a
+    /// 40 KB message once per row of it would be quadratic.
+    body_laid: RefCell<Option<(usize, usize, Vec<Line>)>>,
     /// Which records are open, and what that does to the row numbering.
     pub(crate) map: RowMap,
     /// The `--lens` reading of this file, when one was asked for. `None` is
@@ -158,6 +163,7 @@ impl<S: Store> RecordSource<S> {
             store,
             cache: RefCell::new(Cache::default()),
             laid: RefCell::new(None),
+            body_laid: RefCell::new(None),
             map: RowMap::default(),
             plan: None,
             expand_all: false,
@@ -313,6 +319,11 @@ impl<S: Store> RecordSource<S> {
     /// somewhere; re-quoting it would be exporting rather than copying, which
     /// is the same rule the CSV form applies to a field.
     fn row_json(&self, row: usize) -> Option<String> {
+        // On a body row the value under the cursor is what was said, whole —
+        // not the record wrapped around it. `Y` still copies the record.
+        if let Spot::Body { record, .. } = self.spot(row) {
+            return self.body_text(record);
+        }
         self.at_row(row, |_, v| match v {
             Value::Str(s) => s.clone(),
             other => other.to_json(),

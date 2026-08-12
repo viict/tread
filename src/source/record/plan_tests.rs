@@ -35,6 +35,10 @@ impl crate::lens::Lens for Fake {
             time: None,
             what: String::new(),
             calls: 1,
+            // A body is the source's to measure; these tests give one to an
+            // item directly (`with_bodies`), which is the same number the
+            // measurement would have produced and keeps this file file-free.
+            body: None,
         })
     }
 }
@@ -58,6 +62,7 @@ fn walk(plan: &Plan, map: &RowMap, known: usize) -> Vec<String> {
     (0..plan.rows(known, map))
         .map(|row| match plan.at(row, known, map) {
             Spot::Group { item } => format!("group {item}"),
+            Spot::Body { record, line } => format!("{record}b{line}"),
             Spot::Record { record, sub } => format!("{record}.{sub}"),
         })
         .collect()
@@ -256,6 +261,9 @@ fn rows_and_lookups_agree_under_every_fold_combination() {
                 Spot::Record { record: got, sub } => {
                     assert_eq!((got, sub), (record, 0), "mask {mask}");
                 }
+                Spot::Body { record: got, line } => {
+                    panic!("record {record} landed on body row {line} of {got}");
+                }
                 // A folded record's row is its group's row.
                 Spot::Group { item } => {
                     let it = plan.item(item).expect("item");
@@ -318,4 +326,109 @@ fn joining_a_closed_group_still_closes_the_records_tree() {
     assert!(!map.is_open(2), "a record swallowed by a shut group is closed");
     plan.sync();
     assert_eq!(plan.rows(3, &map), 1, "a shut group is one row");
+}
+
+/// Give every message item a body `rows` tall — the number the source's
+/// measurement would have produced at some width, which is all the arithmetic
+/// here ever sees.
+fn with_bodies(plan: &mut Plan, rows: usize) {
+    for i in 0..plan.items().len() {
+        let step = plan.item(i).map(|it| it.step).unwrap_or(true);
+        if !step {
+            plan.set_body(i, rows);
+        }
+    }
+    plan.sync();
+}
+
+/// The sharpest edge in the file: an item's own rows now depend on the width,
+/// so every fold combination is re-checked with bodies of 0, 1, 6 and 200 rows.
+/// Every record's row maps back to that record, every row maps to *something*,
+/// and the two totals agree.
+#[test]
+fn rows_and_records_round_trip_with_a_body_at_every_height() {
+    let kinds = "msssm?mssm";
+    // Two records the lens has not reached: the unclassified tail must keep
+    // being one row each with a body present.
+    let known = kinds.chars().count() + 2;
+    for height in [0usize, 1, 6, 200] {
+        for mask in 0..8u32 {
+            let (mut plan, mut map) = plan_of(kinds);
+            for item in 0..plan.items().len() {
+                if mask & (1 << (item % 3)) != 0 {
+                    plan.set_open(item, true, &mut map);
+                }
+            }
+            // A record opened into its tree as well, under the body.
+            map.open(0, 3);
+            with_bodies(&mut plan, height);
+            let total = plan.rows(known, &map);
+            for record in 0..known {
+                let row = plan.row_of_record(record, &map);
+                assert!(row < total, "record {record} at {row} of {total}");
+                match plan.at(row, known, &map) {
+                    Spot::Record { record: got, sub } => {
+                        assert_eq!((got, sub), (record, 0), "height {height} mask {mask}");
+                    }
+                    Spot::Body { record: got, line } => {
+                        panic!("record {record} landed on body row {line} of {got}");
+                    }
+                    Spot::Group { item } => {
+                        let it = plan.item(item).expect("item");
+                        assert!(record >= it.first && record < it.first + it.count);
+                    }
+                }
+            }
+            assert_eq!(walk(&plan, &map, known).len(), total, "height {height} mask {mask}");
+        }
+    }
+}
+
+/// The order inside one item: the summary row, then the message, then the
+/// record's own tree. Getting this wrong reads a body row as a tree row.
+#[test]
+fn a_body_sits_between_the_summary_row_and_the_tree() {
+    let (mut plan, mut map) = plan_of("mm");
+    map.open(0, 2);
+    with_bodies(&mut plan, 3);
+    assert_eq!(
+        walk(&plan, &map, 2),
+        vec!["0.0", "0b0", "0b1", "0b2", "0.1", "0.2", "1.0", "1b0", "1b1", "1b2"]
+    );
+    assert_eq!(plan.row_of_record(1, &map), 6);
+}
+
+/// A step never has a body, so a run is exactly as tall as the steps in it —
+/// which is what leaves the open-group arithmetic alone.
+#[test]
+fn an_open_run_is_untouched_by_bodies() {
+    let (mut plan, mut map) = plan_of("mssssm");
+    with_bodies(&mut plan, 4);
+    plan.set_open(1, true, &mut map);
+    plan.sync();
+    assert_eq!(
+        walk(&plan, &map, 6),
+        vec![
+            "0.0", "0b0", "0b1", "0b2", "0b3", "group 1", "1.0", "2.0", "3.0", "4.0", "5.0",
+            "5b0", "5b1", "5b2", "5b3"
+        ]
+    );
+}
+
+/// A width change is the one thing that invalidates a height. The plan says so
+/// and rebuilds its totals from the new measurements — without reclassifying,
+/// which would read every record a second time.
+#[test]
+fn a_width_change_re_lays_every_body() {
+    let (mut plan, map) = plan_of("mm");
+    with_bodies(&mut plan, 2);
+    assert_eq!(plan.rows(2, &map), 6);
+    let classified = plan.classified();
+    assert!(plan.set_width(40), "a new width changed something");
+    assert!(!plan.set_width(40), "the same width changes nothing");
+    // The heights the caller re-measures at the new width.
+    with_bodies(&mut plan, 5);
+    assert_eq!(plan.rows(2, &map), 12);
+    assert_eq!(plan.classified(), classified, "nothing was reclassified");
+    assert_eq!(plan.width(), 40);
 }

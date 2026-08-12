@@ -379,6 +379,32 @@ results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that ope
 Two dialects read one today — `agent` for Claude Code session logs, `atif` for
 ATIF trajectories — and a third is a module and a line.
 
+**A row is a headline; the message is under it.** A summary row is one line —
+who, when, what — and for a message that `what` **is the message's own first
+line**, at the current width; the rest of what was said is wrapped under it,
+indented to the same column. One wrap, split between the row and the rows below
+it, so the opening words of a message are on the screen once and a message that
+fits on its row has nothing under it. A message that opens with blank lines
+starts on the first line that says something: a headline is what was said, and
+the blank rows would otherwise be the only thing the reader got. It has two
+states and no third:
+**clipped** to a few lines,
+whose last row says what it is not showing (`⋯ +37 lines`), and **whole**, which
+`Enter` / `za` on the row toggles. A message the clip already shows in full has
+only one of those states, and the key then means what it means on any other row
+— the record's own fold — rather than repainting the same screen. A clip may
+never be silent about what it
+left out, and the record itself is never further than `zt`, which opens the raw
+tree of the record under the cursor whatever its message is doing. `zR` shows
+every message the viewport has reached in full — which is what a batch
+(`--plain`, `--toc`) is — and `zM` puts them all back to their clip.
+
+A message therefore makes an item as tall as the width allows, and a resize
+re-wraps it. That is the one place in a record document where rows move without
+a fold changing, and it is why a mark into a file read *through a lens* is the
+**record**: the cursor comes back to what it was reading, on that record's own
+row. With no lens nothing wraps, and a mark there is the row it always was.
+
 **Records inside a document.** A record file is usually one record per line, but
 a trajectory in the ATIF interchange format is a single JSON document whose
 records are the elements of a named array, alongside top-level keys describing

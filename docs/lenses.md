@@ -33,16 +33,66 @@ Two rules the seam is built around, and neither is negotiable:
   renders exactly as it would with no lens: the generic collapsed-record row,
   openable into the whole record. Nothing is hidden and nothing is dropped.
 * **Every row still opens into the raw record.** A summary is a headline.
-  `Enter` / `za` on a message row shows the record as a tree; on a folded run it
-  shows the records inside it, each of which opens in turn. `Y` on a run copies
-  every record it holds, as JSON.
+  `Enter` / `za` on a message row shows what was said in full; `zt` shows the
+  record itself as a tree, whatever the message is doing. On a folded run,
+  `Enter` shows the records inside it, each of which opens in turn. `Y` on a run
+  copies every record it holds, as JSON.
+
+## The message under a row
+
+A summary row is one line, and for a message **that line is the first line of
+what was said**. The rest of it is under the row, wrapped to the view width and
+indented to the `what` column:
+
+```text
+▾ assistant  10:55   Reading the failing test first. The suite names a
+                     fixture that no longer exists, so that is where this
+                     starts.
+                     ⋯ +37 lines
+```
+
+It is one wrap, split in two: row 1 is the summary row's `what` column, rows
+2..N are the body. The message's opening words are therefore on the screen
+**once** — the row is not an excerpt with the same words repeated under it. A
+message that fits on the summary row has no rows under it at all. A message that
+opens with blank lines starts on its first line with words on it, rather than
+spending the headline and the rows under it on the newlines someone happened to
+type first.
+
+`Summary::what` is unchanged by this: it is still the one-line excerpt, and it
+is what `--toc` prints, which is the right answer for a list rather than for a
+screen.
+
+Two states, and no third: **clipped** to six rows in all — the summary row and
+five under it — whose last row says what it
+is not showing — in the message's own lines, or in bytes when what is left is
+the tail of one long line, counted in the message's own bytes — and **whole**,
+which `Enter` / `za` toggles. A message that fits the clip has only one state,
+and `Enter` there falls through to the record's own fold instead of consuming
+the key for a repaint of the same rows. `zR`
+opens every body the viewport has reached, `zM` clips them all again, and a
+batch (`--plain`, `--toc`) is `zR`: a pipe gets the whole message, never a
+viewport's clip of it.
+
+A step has no body. Mechanics stay one line, which is also what keeps a folded
+run exactly as tall as the records inside it.
+
+**What this costs.** An item's rows now depend on the **width**, so a resize
+that changes it re-lays every body — without reclassifying anything: a record is
+read once, in file order, and only the wrap is redone. It is also why a `Mark`
+into a record document **read through a lens** is the *record* rather than the
+row, so the cursor comes back to what it was reading; the offset inside a record
+does not survive, and a cursor on line four of a message lands on that message's
+own row. With no lens nothing wraps, so a mark stays the row it always was and
+the cursor keeps its place inside an open record.
 
 ## Keys, under a lens
 
 | Key | What it does |
 | --- | --- |
-| `Enter` / `za` | open the run under the cursor, or the record's raw tree |
-| `zR` / `zM` | open the runs the viewport has reached / shut every run |
+| `Enter` / `za` | open the run under the cursor, or the whole of the message |
+| `zt` | open the raw record under the cursor, whatever its message is doing |
+| `zR` / `zM` | open the runs and messages the viewport has reached / shut every one |
 | `Tab` / `S-Tab` | next / previous **item** — a message or a run, skipping what a run folded |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
 | `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
@@ -101,11 +151,16 @@ the rest, knowing nothing about ATIF.
 
 ```text
 ▾ session            ATIF-v1.7 · opencode 1.2.3 · vendor/model · sxs_…
-▾ user               build the parser from the sources in /app…
-▾ assistant  10:55   Configuring first, then building. · 2 tool calls
-▾ tool       10:55   thinking · bash(autoreconf -i) → 32 lines
+▾ user               make the parser handle empty input rather than
+                     raising, and say so in the docstring.
+▾ assistant  10:55   Reading the failing test first. The suite names a
+                     fixture that no longer exists.
+▾ tool       10:55   thinking · bash(pytest -q tests/) → 32 lines
   ▸ ⟨4 steps · 6 tool calls⟩            10:56
 ```
+
+A message row starts with the message's first line and continues under itself;
+a step row has no body and is the one-line description of what it did.
 
 **Record 0 is the session**: the document's top-level keys that are not `steps`,
 as one row that opens into their tree. Nothing the document says is lost, and
@@ -120,7 +175,7 @@ offset — the row shows `HH:MM`, as recorded), `message`, `reasoning_content`,
 
 | A step whose… | Rows as |
 | --- | --- |
-| `message` says something | **message** — never folded away. Its tool calls collapse to a count on the row (`· 3 tool calls`) rather than becoming rows: the message is what the reader came for |
+| `message` says something | **message** — never folded away. It starts on its own summary row and continues under it. Its tool calls collapse to a count on `Summary::what` (`· 3 tool calls`) rather than becoming rows — which is what `--toc` prints; the painted row gives that column to what was said, because the message is what the reader came for |
 | `message` is empty | **step** — folds into a run with its neighbours |
 
 A step row is what it did: `thinking`, then each call as
@@ -139,9 +194,10 @@ inventing one, and that is the first row on the first screen. Absent, `null` and
 JSON-encoded string the wire format this schema descends from emits, and a step
 this does not recognise keeps its generic row.
 
-Measured on a real 200KB, 49-step trajectory (`TREAD_ATIF_TRAJECTORY`): 50
-records, 50 read by the lens, 36 rows shut and 1089 open. `--toc --lens atif`
-prints the whole run as 50 tab-separated lines.
+Measured on a real 200KB, 49-step trajectory (`TREAD_ATIF_TRAJECTORY`, 140
+columns): 50 records, 50 read by the lens, 73 rows shut and 1098 open — 36 rows
+of headline, and the rest what was said under them, clipped. `--toc --lens atif`
+prints the whole run as 50 tab-separated lines, headlines only.
 
 ## Adding a dialect
 
@@ -174,11 +230,23 @@ A `Summary` is five fields and no styling:
 | `who` | `User` / `Assistant` / `Tool` / `System` — colour only |
 | `actor` | the text in the speaker column: `user`, `tool`, `↳ assistant` |
 | `time` | `HH:MM`, or `None`; `lens::clock` does ISO-8601 |
-| `what` | one line: `lens::excerpt` collapses whitespace and cuts to width |
+| `what` | one line: `lens::excerpt` collapses whitespace and cuts to width. What `--toc` prints, and what the row paints for a record with no `body` |
 | `calls` | tool calls in this record, for a run's `· 4 tool calls` |
+| `body` | what was said, for the rows under the summary. `None` on a step |
+
+A `Summary` is kept for **every** classified record, and nothing here may
+allocate per document — so a `Body` is *not* the message. It is the first
+`lens::BODY_KEEP` bytes of it, the whole message's byte and line counts, and the
+path back to the text inside the record (`message`, or
+`message.content[1].text`). The clip and the row arithmetic are answered from
+the head alone, so a resize reads no file; opening a message longer than the
+head reads it back out of the record that is being painted anyway. Holding whole
+messages instead would make a long log's summaries as big as the log.
+
 
 What a dialect **never** touches: rows, folding, row arithmetic, search,
-yanking, the outline or the status bar. Grouping is
+yanking, the outline or the status bar — including how tall a message is, which
+is `src/source/record/body.rs`'s answer and depends on the width. Grouping is
 `src/source/record/plan.rs`, painting is `src/source/record/lensrow.rs`, the
 fold keys are `src/source/record/ops.rs`, and all three are dialect-agnostic —
 and format-agnostic with it. There is one record source
@@ -197,6 +265,21 @@ ahead of the viewport** — the same discipline as the lazy line index. Rows abo
 the viewport never move; rows below shift as grouping catches up, exactly as
 `len()` grows while the index scans. `G` waits for the lens the way it waits for
 the index, reporting progress rather than jumping to a wrong end.
+
+What a **body** costs is bounded per record and stated in the code: a `Summary`
+keeps at most `lens::BODY_KEEP` (1 KB) of a message, whatever its size, plus the
+path back to the rest. On a synthetic 4 MB / 8 MB ATIF trajectory that is
++1.6 MB / +3.2 MB of resident memory against the same file before bodies, with
+open time unchanged (≈2 ms) — the cost tracks the number of *messages*, not
+what was said in them. `zR` is the one keystroke that now scales with the file:
+it shows every message the viewport has reached in full, which means wrapping
+them (58 ms on 4 MB, 131 ms on 8 MB). A resize that *changes the width* wraps
+too — the clip, which is six rows out of the head — one of them the summary row —
+with no file read and no reclassification, or the whole of every message once `zR` has opened them, which
+costs what `zR` costs. A resize that does not change the width — a height-only
+one, which is most of what dragging a window's edge produces — costs nothing:
+`RecordSource::remeasure` re-lays bodies only when `Plan::set_width` says the
+width moved, and the pager calls `set_width` on every terminal size change.
 
 Measured on a real 4.0 MB, 2354-record session (release build, 140 columns):
 open plus the first screen **25–30 ms**, reading the whole file through the

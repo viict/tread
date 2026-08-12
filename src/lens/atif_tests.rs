@@ -327,3 +327,46 @@ fn the_dialect_says_its_records_are_the_steps_of_a_document() {
     assert!(super::super::exists("atif"));
     assert!(super::super::list_text().contains("atif"));
 }
+
+/// The message goes under the row whole — the row is the headline, the body is
+/// what was said. A step's mechanics stay one line and never get one.
+#[test]
+fn a_message_carries_its_text_as_a_body_and_a_step_does_not() {
+    // Written as JSON escapes; what the lens sees is a two-line message.
+    let sum = read(&step(3, "user", "first line\\nsecond line", "")).expect("recognised");
+    let body = sum.body.expect("a message has a body");
+    assert_eq!(body.head, "first line\nsecond line");
+    assert_eq!(body.lines, 2);
+    assert!(body.whole());
+    assert_eq!(body.at, vec![crate::lens::Step::Key("message")]);
+
+    let mechanics = read(&step(
+        4,
+        "agent",
+        "",
+        r#""tool_calls":[{"function_name":"bash","arguments":{"command":"ls"}}]"#,
+    ))
+    .expect("recognised");
+    assert!(mechanics.body.is_none(), "mechanics stay one line");
+    // And the envelope row is a headline over keys, not something anyone said.
+    assert!(read(r#"{"schema_version":"ATIF-v1.7"}"#).expect("session").body.is_none());
+}
+
+/// A message far bigger than what the seam keeps is kept as a head plus the
+/// path back to the rest: a summary is held for every record, so holding whole
+/// messages would make the summaries as big as the log.
+#[test]
+fn a_huge_message_is_kept_as_a_head_and_a_path() {
+    let long = "y".repeat(40_000);
+    let sum = read(&step(9, "user", &long, "")).expect("recognised");
+    let body = sum.body.expect("a body");
+    assert_eq!(body.head.len(), crate::lens::BODY_KEEP, "a head, not the message");
+    assert_eq!(body.bytes, 40_000);
+    assert!(!body.whole(), "the head is not the whole message");
+    // And the whole of it is still one lookup away, out of the record itself.
+    let record = crate::json::parse(step(9, "user", &long, "").as_bytes()).expect("fixture");
+    assert_eq!(body.text_in(Some(&record)).len(), 40_000);
+    assert_eq!(body.text_in(None).len(), crate::lens::BODY_KEEP, "no record, no more than the head");
+    // What it costs is bounded by the head, not by what was said.
+    assert!(body.head.len() + body.at.len() * 16 < 2 * crate::lens::BODY_KEEP);
+}

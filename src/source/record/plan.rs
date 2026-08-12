@@ -7,10 +7,10 @@
 //! single row that opens:
 //!
 //! ```text
-//! user       21:29  I want a reader for the terminal…
-//! assistant  21:31  Goal: build a Rust TUI markdown pager…
+//! user       21:29  I want a reader for the terminal.
+//! assistant  21:31  Goal: build a Rust TUI markdown pager.
 //!   ▸ ⟨6 steps · 4 tool calls⟩            21:31
-//! assistant  21:36  The skeleton builds; here is what it does…
+//! assistant  21:36  The skeleton builds; here is what it does.
 //! ```
 //!
 //! So the document is a list of **items**, each covering a run of records: a
@@ -32,7 +32,9 @@
 //! An item owns rows; a record inside it can also be opened into its generic
 //! tree, and those rows belong to [`RowMap`]. Rather than duplicate the
 //! prefix-sum trick, this holds the *own* rows of the items (which do not
-//! depend on any tree) and adds [`RowMap::extra_before`] on top. That is only
+//! depend on any tree, though they do depend on the **width** — a message's
+//! body is wrapped, so [`Plan::set_width`] re-lays every one of them) and adds
+//! [`RowMap::extra_before`] on top. That is only
 //! correct while a *hidden* record has no tree rows, which is why closing a
 //! group closes its members ([`Plan::set_open`]) and why a step run growing
 //! past one record closes the record it swallows — but only while that run is
@@ -41,7 +43,7 @@
 //! Nothing here parses, reads a file, names a record format, or recurses.
 #![deny(unsafe_code)]
 
-use crate::lens::{Class, Lens, Summary};
+use crate::lens::{Body, Class, Lens, Summary};
 
 use super::rowmap::RowMap;
 
@@ -56,6 +58,9 @@ pub struct Item {
     pub step: bool,
     /// Open, when this is a group. Meaningless on an item of one.
     pub open: bool,
+    /// The message under this row is shown whole rather than clipped.
+    /// Meaningless on anything but a message.
+    pub full: bool,
 }
 
 impl Item {
@@ -70,7 +75,14 @@ impl Item {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Spot {
     /// A record's summary row (`sub == 0`), or row `sub - 1` of its tree.
+    ///
+    /// The body rows between the two are [`Spot::Body`] and never `sub`: `sub`
+    /// has meant "row `sub - 1` of the tree" everywhere since before there were
+    /// bodies, and overloading it would have made every caller's `sub > 0`
+    /// silently wrong.
     Record { record: usize, sub: usize },
+    /// Row `line` of the message under a record's summary row.
+    Body { record: usize, line: usize },
     /// A group's own row.
     Group { item: usize },
 }
@@ -81,10 +93,18 @@ pub struct Plan {
     /// did not recognise: it keeps its own row and renders as the generic tree.
     seen: Vec<Option<Summary>>,
     items: Vec<Item>,
+    /// Rows the message under item `i` occupies at [`Plan::width`], `0` for an
+    /// item with no message. Held rather than recomputed because `own` is asked
+    /// per painted row and a wrap is O(message).
+    body: Vec<usize>,
     /// Own rows of every item before this one — no tree rows in it.
     starts: Vec<usize>,
     /// First index of `starts` that may be wrong.
     dirty: usize,
+    /// Columns the bodies were laid out for.
+    width: usize,
+    /// Every body is shown whole: what a dump is, and what `zR` leaves behind.
+    all_full: bool,
 }
 
 impl Plan {
@@ -93,8 +113,11 @@ impl Plan {
             lens,
             seen: Vec::new(),
             items: Vec::new(),
+            body: Vec::new(),
             starts: Vec::new(),
             dirty: 0,
+            width: 80,
+            all_full: false,
         }
     }
 
@@ -117,12 +140,21 @@ impl Plan {
         if record != self.seen.len() {
             return;
         }
-        let sum = value.and_then(|v| self.lens.read(v));
+        let mut sum = value.and_then(|v| self.lens.read(v));
         let step = matches!(sum, Some(Summary { class: Class::Step, .. }));
+        // Mechanics stay one line, whatever a dialect put on them. The
+        // invariant is load-bearing rather than decorative: a group's members
+        // are steps, and `inside` places them one row apart.
+        if step {
+            if let Some(s) = sum.as_mut() {
+                s.body = None;
+            }
+        }
         self.seen.push(sum);
         let extends = matches!(self.items.last(), Some(last) if last.step && step);
         if !extends {
-            self.items.push(Item { first: record, count: 1, step, open: false });
+            self.items.push(Item { first: record, count: 1, step, open: false, full: false });
+            self.body.push(0);
             self.mark(self.items.len() - 1);
             return;
         }
@@ -156,6 +188,84 @@ impl Plan {
     /// The lens's reading of a record, when it had one.
     pub fn summary(&self, record: usize) -> Option<&Summary> {
         self.seen.get(record).and_then(|s| s.as_ref())
+    }
+
+    // -- bodies -----------------------------------------------------------------
+
+    /// The message under item `i`, and whether it is shown whole. `None` for a
+    /// group, a step and an unread record: the three with no message under them.
+    pub fn body_at(&self, item: usize) -> Option<(&Body, bool)> {
+        let it = self.items.get(item)?;
+        if it.is_group() {
+            return None;
+        }
+        let body = self.summary(it.first)?.body.as_ref()?;
+        Some((body, it.full != self.all_full))
+    }
+
+    /// Rows the message under item `i` occupies at the current width.
+    pub fn body_rows(&self, item: usize) -> usize {
+        self.body.get(item).copied().unwrap_or(0)
+    }
+
+    /// Tell the plan how tall item `i`'s message is. The measurement is the
+    /// caller's because a message longer than [`crate::lens::BODY_KEEP`] is
+    /// only whole inside the record, and this module never reads one.
+    pub fn set_body(&mut self, item: usize, rows: usize) {
+        if self.body.get(item).copied() == Some(rows) {
+            return;
+        }
+        if let Some(slot) = self.body.get_mut(item) {
+            *slot = rows;
+            self.mark(item);
+        }
+    }
+
+    /// Columns the bodies are laid out for.
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    /// A new layout width. True when it changed — the caller's cue to re-measure
+    /// every body before asking a row question, since a body is wrapped and a
+    /// resize therefore moves rows in a way no fold does.
+    pub fn set_width(&mut self, cols: usize) -> bool {
+        let cols = cols.max(1);
+        if self.width == cols {
+            return false;
+        }
+        self.width = cols;
+        self.mark(0);
+        true
+    }
+
+    /// Show item `i`'s message whole, or clipped again. True when it changed.
+    ///
+    /// [`Item::full`] is an *exception* to [`Plan::all_full`] rather than a
+    /// state of its own — the "default plus what disagrees with it" shape the
+    /// fold state uses — which is what lets one body shut again after `zR`.
+    pub fn set_full(&mut self, item: usize, full: bool) -> bool {
+        let all = self.all_full;
+        let Some(it) = self.items.get_mut(item) else {
+            return false;
+        };
+        if (it.full != all) == full {
+            return false;
+        }
+        it.full = !it.full;
+        self.mark(item);
+        true
+    }
+
+    /// Every message whole (a dump, and what `zR` leaves behind), or every
+    /// message back to its clip. Exceptions are dropped either way: this is
+    /// "everything, now".
+    pub fn set_all_full(&mut self, full: bool) {
+        self.all_full = full;
+        for it in &mut self.items {
+            it.full = false;
+        }
+        self.mark(0);
     }
 
     /// Open or close a group. Closing closes the trees of the records it hides.
@@ -201,12 +311,15 @@ impl Plan {
 
     // -- row arithmetic ---------------------------------------------------------
 
-    /// Own rows of item `i`: its summary row, plus one per member record when
-    /// it is an open group.
+    /// Own rows of item `i`: its summary row, the message under it, and one per
+    /// member record when it is an open group.
+    ///
+    /// A group has no message of its own and its members are steps, which is
+    /// what keeps [`Plan::inside`] one row per member.
     fn own(&self, i: usize) -> usize {
         match self.items.get(i) {
             Some(it) if it.is_group() && it.open => 1 + it.count,
-            Some(_) => 1,
+            Some(_) => 1 + self.body_rows(i),
             None => 0,
         }
     }
@@ -310,7 +423,14 @@ impl Plan {
         let off = row - base;
         let it = &self.items[i];
         if !it.is_group() {
-            return Spot::Record { record: it.first, sub: off };
+            // Summary row, then the message, then the record's own tree: the
+            // order they are painted in, and the one `own` counted.
+            let body = self.body_rows(i);
+            return match off {
+                0 => Spot::Record { record: it.first, sub: 0 },
+                n if n <= body => Spot::Body { record: it.first, line: n - 1 },
+                n => Spot::Record { record: it.first, sub: n - body },
+            };
         }
         if !it.open || off == 0 {
             return Spot::Group { item: i };

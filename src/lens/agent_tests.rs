@@ -269,3 +269,51 @@ fn remembered_calls_are_bounded() {
     assert_eq!(lens.tool_of(&format!("t{last}")), Some("Bash"));
     assert_eq!(lens.tool_of("t0"), None);
 }
+
+/// A typed prompt and a text block both put what was said under the row, and
+/// the path names where it came from so the whole of it can be read back.
+#[test]
+fn a_message_carries_its_text_as_a_body() {
+    use crate::lens::Step;
+    let sum = read(
+        r#"{"type":"user","message":{"role":"user","content":"one\ntwo\nthree"}}"#,
+    )
+    .expect("recognised");
+    let body = sum.body.expect("a body");
+    assert_eq!(body.head, "one\ntwo\nthree");
+    assert_eq!(body.lines, 3);
+    assert_eq!(body.at, vec![Step::Key("message"), Step::Key("content")]);
+
+    // A block array: the body is the first text block, wherever it sits.
+    let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"thinking","thinking":"hm"},
+        {"type":"text","text":"Here is the plan."}]}}"#;
+    let sum = read(json).expect("recognised");
+    let body = sum.body.expect("a body");
+    assert_eq!(body.head, "Here is the plan.");
+    assert_eq!(
+        body.at,
+        vec![Step::Key("message"), Step::Key("content"), Step::At(1), Step::Key("text")]
+    );
+    let record = crate::json::parse(json.as_bytes()).expect("fixture");
+    assert_eq!(body.text_in(Some(&record)), "Here is the plan.");
+}
+
+/// Mechanics stay one line, which is also what keeps a folded run exactly as
+/// tall as the records it holds.
+#[test]
+fn a_step_never_carries_a_body() {
+    let mechanics = [
+        r#"{"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"#,
+        r#"{"type":"user","message":{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}"#,
+        r#"{"type":"system","subtype":"turn_duration","durationMs":1200}"#,
+        r#"{"type":"mode","mode":"plan"}"#,
+    ];
+    for json in mechanics {
+        let sum = read(json).expect("recognised");
+        assert_eq!(sum.class, Class::Step, "{json}");
+        assert!(sum.body.is_none(), "{json}");
+    }
+}

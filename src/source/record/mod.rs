@@ -7,7 +7,9 @@
 //! it), [`tree`] (one record laid out as tree rows), [`plan`] (which records
 //! share a row, and the two-level row arithmetic), [`rowmap`] (which rows an
 //! open record owns), [`lensrow`] (the who/when/what rows a lens paints, and
-//! the row-to-record translation under them), [`ops`] (what `zR`, `zM`, `Tab`,
+//! the row-to-record translation under them), [`body`] (the message under a
+//! summary row: its wrap, its clip and what the clip admits to), [`ops`]
+//! (what `zR`, `zM`, `Tab`,
 //! `Y` and a fold id off the outline do to a plan), and the shared gutter and
 //! fold vocabulary below — [`marker`], [`leaf`], and `/4` for a record beside
 //! [`plan::group_id`]'s `g4` for a group, the two spellings that must not
@@ -44,6 +46,7 @@
 //! any of this exists.
 #![deny(unsafe_code)]
 
+pub mod body;
 pub mod lensrow;
 pub mod ops;
 pub mod plan;

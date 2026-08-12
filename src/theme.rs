@@ -259,6 +259,16 @@ pub const fn lens_time() -> Style {
 pub const fn lens_group() -> Style {
     Style::new().fg(MUTED_FG).italic()
 }
+/// The message itself, under its summary row. Plain: this is the document, and
+/// the summary above it is the headline.
+pub const fn lens_body() -> Style {
+    Style::new()
+}
+/// `⋯ +12 lines` — what a clipped body is not showing. A notice, like the
+/// group count, and never mistakable for the message it stands at the end of.
+pub const fn lens_more() -> Style {
+    Style::new().fg(MUTED_FG).italic()
+}
 
 /// Stands in for a row's left border when the row carries more fields than the
 /// header named. It replaces the bar rather than sitting beside it: a grid that

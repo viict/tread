@@ -411,6 +411,18 @@ pub trait Source {
         None
     }
 
+    /// `zt`: open the raw record under `row` — or shut it again — whatever
+    /// else that row is doing, returning what to say about it.
+    ///
+    /// `None` — the default — means this format has no such thing, or there is
+    /// nothing to open here, and the pager says so rather than appearing to do
+    /// nothing. It exists because a lens row's `Enter` belongs to what was
+    /// *said*, which leaves the record itself with no key: a lens may never
+    /// hide anything (SPEC.md §Lenses), so the raw record needs one of its own.
+    fn toggle_tree(&mut self, _row: usize) -> Option<String> {
+        None
+    }
+
     /// What a folded row says instead of `(N lines)`.
     ///
     /// A line count is the right summary for a function body. It is the wrong

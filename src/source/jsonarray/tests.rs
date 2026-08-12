@@ -239,7 +239,9 @@ fn a_real_atif_trajectory_reads() {
     // Every record is reachable and every row paints, with nothing lost: the
     // rows a lens folds away are the rows its groups open.
     let rows = s.len();
-    assert!(rows > 0 && rows <= records, "{rows} rows for {records} records");
+    // More rows than records now: a message carries what it said under it, and
+    // fewer than one row per record would mean a record had been hidden.
+    assert!(rows > 0, "{rows} rows for {records} records");
     let read = (0..records).filter(|&r| s.lens_row(r, false).is_some()).count();
     assert_eq!(read, records, "the lens left records unread");
     s.fold_all(true);
@@ -271,12 +273,20 @@ fn the_lens_folds_the_mechanics_of_a_document() {
     s.set_lens(crate::lens::find("atif").expect("the lens exists"));
     s.set_width(120);
     let painted = rows(&mut s);
-    // session, the prompt, the folded run of two steps, the answer.
+    // session, the prompt, the folded run of two steps, the answer. Each
+    // message here is one line, so it is entirely on its own summary row and
+    // nothing is painted under it. The session row is a headline over the
+    // envelope's keys rather than something anyone said, so it has no body
+    // either.
     assert_eq!(painted.len(), 4, "{painted:#?}");
     assert!(painted[0].contains("session") && painted[0].contains("ATIF-v1.7"), "{}", painted[0]);
     assert!(painted[1].contains("user") && painted[1].contains("do it"), "{}", painted[1]);
     assert!(painted[2].contains("\u{27e8}2 steps \u{b7} 2 tool calls\u{27e9}"), "{}", painted[2]);
     assert!(painted[3].contains("done"), "{}", painted[3]);
+    // Once each: the row is the message's first line, not an excerpt with the
+    // message repeated under it.
+    assert_eq!(painted.iter().filter(|r| r.contains("do it")).count(), 1, "{painted:#?}");
+    assert_eq!(painted.iter().filter(|r| r.contains("done")).count(), 1, "{painted:#?}");
     // The status bar names the lens, and the record numbering says plainly
     // that the session row is record 1 and `steps[0]` is record 2.
     let text = s.position_text(1).expect("a position");
