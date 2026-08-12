@@ -115,8 +115,6 @@ fn fire_every_action(p: &mut Pager) {
     for a in [
         Action::LineDown,
         Action::LineUp,
-        Action::ScrollDown,
-        Action::ScrollUp,
         Action::HalfDown,
         Action::HalfUp,
         Action::PageDown,

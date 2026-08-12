@@ -171,9 +171,10 @@ fn an_empty_document_answers_everything_without_panicking() {
     assert_eq!(s.yank_rows(0..3), None);
 }
 
-/// A rendered line is the unit here, so `j` stays one row: block motion is for
-/// a document whose rows are parts of something bigger (SPEC.md §Lenses), and a
-/// default that silently caught prose would change how the whole reader moves.
+/// `j` stays one row here as everywhere (SPEC.md §"Moving through a document").
+/// What `blocks()` answers is narrower: whether `Tab` should *frame* its
+/// landing. A heading starts and ends on its own row, so there is nothing to
+/// frame, and prose keeps the `false` default.
 #[test]
 fn prose_does_not_read_in_blocks() {
     let s = MarkdownSource::new(md::parse(DOC));

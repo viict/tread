@@ -192,7 +192,7 @@ fn opening_a_call_shuts_whichever_was_open() {
 /// A member's block is that member and everything under its row — its body, its
 /// parts, its tree — never the whole run (docs/lenses.md).
 ///
-/// Attributing those rows to the run's own block made `j` move the cursor
+/// Attributing those rows to the run's own block made the jump move the cursor
 /// *backwards* out of them, `k` skip the member's row, and the status bar count
 /// down inside an open run. Before members had rows of their own the case could
 /// not arise, so the arm that got it wrong was unreachable.
@@ -213,19 +213,20 @@ fn a_members_under_rows_belong_to_the_members_block() {
         vec![0, 0, 0, 0, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4],
         "{rows:?}"
     );
-    // `j` never goes backwards, and `k` from anywhere inside a member's block
-    // comes back to that member's own row.
+    // The jump never goes backwards, and back from anywhere inside a member's
+    // block comes back to that member's own row.
     for (r, row) in rows.iter().enumerate() {
         if let Some(next) = plan.next_block(r, &map, true) {
-            assert!(next > r, "j from row {r} ({row}) went to {next}");
+            assert!(next > r, "Tab from row {r} ({row}) went to {next}");
         }
         if let Some(back) = plan.next_block(r, &map, false) {
-            assert!(back < r, "k from row {r} ({row}) went to {back}");
+            assert!(back < r, "S-Tab from row {r} ({row}) went to {back}");
         }
     }
     // The member's own extent is the member, not the run.
     let member = plan.row_of_record(2, &map);
     assert_eq!(plan.block_at(member, &map), Some(member..member + 6));
-    assert_eq!(plan.next_block(member + 3, &map, false), Some(member), "k comes back to it");
+    let back = plan.next_block(member + 3, &map, false);
+    assert_eq!(back, Some(member), "S-Tab comes back to the member's own row");
     assert_eq!(plan.blocks(), 5, "the run's own row, then one block per step");
 }

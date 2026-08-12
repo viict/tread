@@ -145,8 +145,8 @@ impl<S: Store> RecordSource<S> {
         self.settle();
     }
 
-    /// `j` / `k` under a lens: the next block boundary, not the next record —
-    /// and inside an open run, its steps are blocks.
+    /// `Tab` / `S-Tab` under a lens: the next block boundary, not the next
+    /// record — and inside an open run, its steps are blocks.
     pub(crate) fn next_block_row(&self, row: usize, forward: bool) -> Option<usize> {
         ops::next_block(self.plan.as_ref(), &self.map, row, forward)
     }
@@ -170,7 +170,7 @@ impl<S: Store> RecordSource<S> {
     /// does, and for the same reason twice over: the lens has only read a
     /// prefix, and grouping makes that total *shrink* as it catches up. It
     /// *grows* on the keystroke that opens a run, whose steps are blocks while
-    /// it is open; both numbers are read off the one table `j` steps by.
+    /// it is open; both numbers are read off the one table `Tab` jumps by.
     pub(crate) fn block_text(&self, row: usize) -> String {
         let Some((i, n)) = self.block_of_row(row) else {
             return String::new();
@@ -181,11 +181,6 @@ impl<S: Store> RecordSource<S> {
             false => format!("\u{2265}{n}"),
         };
         format!("  \u{b7}  block {}/{total}", i.saturating_add(1))
-    }
-
-    /// `Tab` / `S-Tab` under a lens: the next message, not the next block.
-    pub(crate) fn next_message_row(&self, row: usize, forward: bool) -> Option<usize> {
-        ops::next_message(self.plan.as_ref(), &self.map, self.known(), row, forward)
     }
 
     /// `Y` on a group's row: every record the run holds.

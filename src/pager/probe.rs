@@ -29,6 +29,10 @@ impl Pager {
     pub(crate) fn src_block_at(&self, row: usize) -> Option<std::ops::Range<usize>> {
         self.src.block_at(row)
     }
+    /// The landmark `Tab` / `S-Tab` would jump to, as the source answers it.
+    pub(crate) fn src_next_landmark(&self, row: usize, forward: bool) -> Option<usize> {
+        self.src.next_landmark(row, forward)
+    }
     /// The text the status bar would show right now.
     pub(crate) fn status_line(&self) -> String {
         view::status_text(self)

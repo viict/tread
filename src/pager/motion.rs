@@ -4,40 +4,17 @@
 //! Split out of `input.rs` — which dispatches keys to them — to keep both files
 //! under the size limit; these are the same `Pager` methods, one door down.
 //!
-//! Two units live here and the difference between them is the whole of
-//! SPEC.md §Lenses' reading model: [`Pager::step_block`] moves by whatever the
-//! document says a block is, and [`Pager::move_cursor`] moves by rows, which is
-//! what every other motion counts in.
+//! Every motion here counts **rows**, including `j`/`k`: a row is the unit the
+//! screen is made of, and a closed block is exactly one row, so a coarser
+//! default could only ever skip rows that are on the screen. Blocks are a
+//! *jump* — [`Pager::jump_heading`], `Tab`/`S-Tab` — and framing them is
+//! [`Pager::frame_block`].
 #![deny(unsafe_code)]
 
 use super::Pager;
 use crate::source::Anchor;
 
 impl Pager {
-    /// `j` / `k`: one **block** where the document has them, one row where it
-    /// does not (SPEC.md §Lenses). Everything else keeps counting rows —
-    /// `Ctrl-E`/`Ctrl-Y` one, `d`/`u` half a screen, `space`/`b` a whole one —
-    /// so a block motion is never the only way to reach a row.
-    ///
-    /// The fallback to a row step is load-bearing rather than defensive.
-    /// `Source::next_landmark` has no answer in two places a reader really
-    /// gets to: past a lazily classified prefix (the tail of a big trajectory,
-    /// where grouping is not decided yet) and at the two ends. Freezing there
-    /// would make `j` do nothing on the last screen of a file.
-    pub(super) fn step_block(&mut self, forward: bool) {
-        let step = match forward {
-            true => 1,
-            false => -1,
-        };
-        if !self.src.blocks() {
-            return self.move_cursor(step);
-        }
-        match self.src.next_landmark(self.cursor, forward) {
-            Some(row) => self.frame_block(row),
-            None => self.move_cursor(step),
-        }
-    }
-
     /// Land on a block and show the block, not just the row it starts on: the
     /// minimum scroll that brings all of it on screen, or its first row at the
     /// top when it is taller than the window.
@@ -76,34 +53,10 @@ impl Pager {
         self.clamp();
     }
 
-    /// `Ctrl-E` / `Ctrl-Y`: **scroll** one row — the window moves and the
-    /// cursor rides along, keeping its place on the screen.
-    ///
-    /// Moving the cursor alone would not do: [`Pager::frame_block`] parks it at
-    /// the top of the window on a block taller than the viewport, and a cursor
-    /// step only drags `top` once it leaves the window — so the first screenful
-    /// of presses would leave the text frozen on exactly the block this key
-    /// exists to read (SPEC.md §Lenses). The window moves first, so the first
-    /// press moves the text.
-    ///
-    /// At the two ends the window runs out before the cursor does: `top` stops
-    /// and the cursor keeps going, which is what keeps the last row of the
-    /// document reachable one row at a time.
-    pub(super) fn scroll_row(&mut self, delta: isize) {
-        if self.len() == 0 {
-            return;
-        }
-        let h = self.content_rows().max(1);
-        let pin = self.pinned();
-        let max_top = self.len().saturating_sub(h).max(pin);
-        self.top = (self.top as isize)
-            .saturating_add(delta)
-            .clamp(pin as isize, max_top as isize) as usize;
-        // `move_cursor` re-clamps; with both moved by the same delta the cursor
-        // is still inside `top..top + h`, so it has nothing left to correct.
-        self.move_cursor(delta);
-    }
-
+    /// `j` / `k`, and what every other vertical motion is counted in: rows.
+    /// [`Pager::clamp`] drags the window along once the cursor leaves it, so a
+    /// block taller than the viewport is walked a row at a time and the text
+    /// moves from the press that reaches the bottom of the window onward.
     pub(super) fn move_cursor(&mut self, delta: isize) {
         let n = self.len();
         if n == 0 {
@@ -170,29 +123,35 @@ impl Pager {
         }
     }
 
-    /// `Tab` / `S-Tab`. On a document that reads in blocks this is the next
-    /// *message* — the conversation turn — because `j`/`k` already step between
-    /// blocks; everywhere else the two are the same landmark and nothing about
-    /// `Tab` changes.
+    /// `Tab` / `S-Tab`: the **fast jump**, one structural landmark at a time —
+    /// the next heading in prose, the next declaration in code, and under a
+    /// lens the next **block**: a message, a shut run of mechanics, or, inside
+    /// a run the reader has opened, one of its steps.
     ///
-    /// A file whose dialect nothing recognises has no messages, and a
-    /// trajectory can end in a long run of mechanics. `Tab` there falls back to
-    /// the next block rather than dead-ending, and only says so when there is
-    /// nothing either way — which is also what stops it running past the end,
-    /// since neither answer is ever a row outside the document.
+    /// Block rather than message, deliberately. A message *is* a block, so a
+    /// block jump reaches every message a message jump would; the reverse is
+    /// false, and a jump that skipped the runs would leave the mechanics — the
+    /// thing a trajectory is mostly made of — reachable only a row at a time.
+    /// It is also the general answer: one boundary, `Source::next_landmark`,
+    /// for every format, rather than a second one that exists under a lens.
+    ///
+    /// `S-Tab` is the exact mirror: the same landmark table walked backwards,
+    /// framed the same way, so `Tab` then `S-Tab` comes back to the block it
+    /// started on.
     pub(super) fn jump_heading(&mut self, forward: bool) {
-        let to = self
-            .src
-            .next_message(self.cursor, forward)
-            .or_else(|| self.src.next_landmark(self.cursor, forward));
-        match to {
+        match self.src.next_landmark(self.cursor, forward) {
             Some(row) => match self.src.blocks() {
                 true => self.frame_block(row),
                 false => self.goto(row),
             },
-            None => self.notify(match forward {
-                true => "no further heading",
-                false => "no previous heading",
+            // Named after the unit this document is actually read in: a
+            // trajectory has no headings, and the status bar one line down is
+            // printing `block 96/≥181`. Same predicate as the framing above.
+            None => self.notify(match (self.src.blocks(), forward) {
+                (true, true) => "no further block",
+                (true, false) => "no previous block",
+                (false, true) => "no further heading",
+                (false, false) => "no previous heading",
             }),
         }
     }

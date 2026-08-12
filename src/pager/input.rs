@@ -84,10 +84,8 @@ impl Pager {
     fn motion(&mut self, a: Action) {
         let h = self.content_rows().max(1);
         match a {
-            Action::LineDown => self.step_block(true),
-            Action::LineUp => self.step_block(false),
-            Action::ScrollDown => self.scroll_row(1),
-            Action::ScrollUp => self.scroll_row(-1),
+            Action::LineDown => self.move_cursor(1),
+            Action::LineUp => self.move_cursor(-1),
             Action::HalfDown => self.move_cursor((h as isize + 1) / 2),
             Action::HalfUp => self.move_cursor(-((h as isize + 1) / 2)),
             Action::PageDown => self.move_cursor(h as isize),

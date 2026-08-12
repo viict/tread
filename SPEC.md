@@ -139,20 +139,41 @@ Wrapping must use display width, not byte or char count: handle wide CJK
 Implement a compact `char_width()` in `render.rs` from Unicode ranges — no
 crate. Never slice a String on a non-char boundary.
 
+## Moving through a document
+
+**`j` / `k` and the arrows move one visible row, in every format, always.** The
+row is what the screen is made of, and the cursor's unit is the row for prose, a
+CSV, a tree, code, and a trajectory under a lens alike. Nothing the reader has
+just put on the screen — a message's lines, the steps a run revealed, the tree
+of an opened record — may need a key other than `j` to walk.
+
+A coarser default cannot pay for itself. A *closed* block is exactly one row, so
+where a document is folded shut "next block" and "next row" are the same motion;
+they part only where a block is open, and there the difference is precisely the
+rows the reader asked to see. A cursor unit larger than a row therefore skips
+only what is on the screen, which makes it wrong exactly when it is doing
+something.
+
+**`Tab` / `S-Tab` are the fast jump**: the next and previous structural landmark
+— a heading in prose, a declaration in code, a **block** under a lens. Where the
+landmark is a **block**, landing on it shows the whole block if it fits, or its
+first row at the top of the screen if it does not (§Lenses). Where a landmark
+starts and ends on its own row — a heading, a declaration — there is nothing to
+frame, and the landing is scrolled into view like any other cursor move.
+`S-Tab` is the exact mirror of `Tab`, over the same landmarks. `d` / `u` and
+`space` / `b` count screens, `g` / `G` are the ends.
+
 ## Keybindings
 
 ```
-j/k ↓/↑        line down/up — one       d/u        half page
-               block where a document
-               reads in blocks
-Ctrl-E/Ctrl-Y  scroll one row, blocks or no blocks
+j/k ↓/↑        one row down/up          d/u        half page
 space/f, b     page down/up            g/G        top/bottom
 h/l            horizontal scroll (code blocks, wide tables)
 ←/→            select a link on the row; scrolls where the row scrolls
 za / Enter     toggle collapse at cursor heading
 zM / zR        collapse all / expand all
 zo / zc        open / close current section
-Tab / S-Tab    next / previous heading
+Tab / S-Tab    next / previous heading (block, under a lens)
 n              next link;  Enter on a link follows it
 Backspace / -  back in document history
 o              document outline / table of contents overlay
@@ -446,54 +467,43 @@ a fold changing, and it is why a mark into a file read *through a lens* is the
 **record**: the cursor comes back to what it was reading, on that record's own
 row. With no lens nothing wraps, and a mark there is the row it always was.
 
-**A document read in blocks moves in blocks.** A trajectory under a lens is a
-list of **blocks** — a message with what was said under it, or a folded run of
-mechanics — and a row is then a part of one rather than a thing, so `j` / `k`
-move to the next and previous *block* rather than one terminal row. Landing on
-a block shows the block: one that fits is scrolled fully into view, one taller
-than the viewport puts its first row at the top. There is one definition of
-where a block starts, and it is the same one `Tab` has always stepped between.
+**A document read in blocks is *framed* in blocks.** A trajectory under a lens
+is a list of **blocks** — a message with what was said under it, or a folded run
+of mechanics. `j` / `k` are rows here as everywhere (§"Moving through a
+document"), so the lines of a message, the steps an opened run revealed and the
+rows of an opened record are all walked one press at a time. What the blocks are
+for is `Tab` / `S-Tab`, the fast jump: they step from one block to the next, and
+landing on a block shows the block — one that fits is scrolled fully into view,
+one taller than the viewport puts its first row at the top. There is one
+definition of where a block starts, and `Tab` has always stepped between exactly
+those.
+
+`Tab` is the block and not the conversation turn. A message *is* a block, so the
+block jump reaches every message a message jump would; the reverse is false, and
+a jump that skipped the runs would put the mechanics — most of what a trajectory
+is — out of reach of everything but `j`. It is also the general answer: one
+boundary for every format, rather than a second one that exists only under a
+lens. A record no dialect recognised is a block like any other, which is how
+"nothing is hidden" applies to motion, and why `Tab` keeps moving through a file
+whose dialect nothing reads.
 
 **A boundary descends into a run that is open.** A shut run is one block — that
 is what makes it a summary — but opening one is the reader saying "show me what
 is in here", so the steps inside it become the blocks: the run's own row, then
 one block per step, a step and whatever tree it has open counting as one the
-same way a message and its body do. `k` mirrors that exactly, out of the run
+same way a message and its body do. `S-Tab` mirrors that exactly, out of the run
 and on to the block above it, and the block the status bar counts is the block
-`j` steps by, so opening a run makes the total grow rather than drift.
+`Tab` jumps by, so opening a run makes the total grow rather than drift. At the
+tail of a document the jump keeps going through the mechanics rather than
+dead-ending, and never past the end.
 
-Block motion is the default unit and never the only one, because every row must
-stay reachable — a line of a message, a tree row inside an open record.
-`Ctrl-E` / `Ctrl-Y` **scroll** one row on any
-document — the window moves and the cursor rides with it, so the first press
-moves the text even where `j` has just parked the cursor at the top of a block
-taller than the screen; at the ends of the document the window stops and the
-cursor keeps going, so the last row stays reachable one row at a time. `d` / `u`
-and `space` / `b` keep counting screens, and `g` / `G` are unchanged.
+Where a block cannot be placed — past the classified prefix of a big trajectory,
+where grouping is not decided yet — `Tab` says so rather than moving to a row the
+next keystroke would disagree with, and `j` is unaffected: it was never asking.
 
-Where there is no next block — past the classified prefix of a big trajectory,
-and on the **last** block, whose rows are the end of the file — `j` moves one
-row rather than freezing, and `k` from inside a block goes back to its first
-row. So the last block is the one place the two are not symmetric: `j` walks
-down through it a row at a time and `k` returns to its top in one press.
-
-`Tab` / `S-Tab` under a lens are then the next and previous **message** — the
-conversation turn — since `j` already walks every block and half of those are
-mechanics. `Tab` does *not* descend into an open run while there is a message
-to reach, which is the deliberate half of the pair: every step in a run is
-mechanics, so stopping on one is the thing `Tab` exists not to do. A record no
-dialect recognised counts as a message: it is not
-mechanics and SPEC's "nothing is hidden" applies to motion too, which is also
-what keeps `Tab` moving through a file whose dialect nothing reads. Where there
-is no further message — a trailing run of mechanics — `Tab` falls back to the
-next block rather than dead-ending, and that fallback *is* the block boundary,
-so at the tail of a document `Tab` does land inside a run that is open: a
-mechanic step is a better answer there than no movement at all. Neither answer
-is ever past the end.
-
-Every other format keeps rows as its unit: prose, a CSV row, a source line, a
-tree node and a record file with no lens are each already the thing they look
-like, and their `Tab` is untouched.
+Every other format keeps its landmarks as they were: prose, a CSV row, a source
+line, a tree node and a record file with no lens are each already the thing they
+look like, and their `Tab` is untouched.
 
 **Records inside a document.** A record file is usually one record per line, but
 a trajectory in the ATIF interchange format is a single JSON document whose

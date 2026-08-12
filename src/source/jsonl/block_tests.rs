@@ -1,5 +1,5 @@
-//! Blocks, under a lens: what one is, where it ends, and what `Tab` means once
-//! `j` is stepping between them (SPEC.md §Lenses).
+//! Blocks, under a lens: what one is, where it ends, and what `Tab` / `S-Tab`
+//! jump between (SPEC.md §Lenses). `j` and `k` are rows here as everywhere.
 //!
 //! Split from `lensrow_tests.rs`, whose fixture these share, to keep both files
 //! under the size limit.
@@ -45,22 +45,23 @@ fn an_open_record_grows_the_block_it_is_in() {
     assert_eq!(s.block_at(after.end - 1), Some(after.clone()), "the last row is still in it");
 }
 
-/// `Tab` is the conversation turn: it skips the folded run of mechanics, and
-/// it counts the record no dialect recognised as something someone said.
+/// `Tab` is the block jump, and a block is every kind of thing the document
+/// has: the messages, the folded run of mechanics, and the record no dialect
+/// recognised. Nothing is skipped, which is why block and not message.
 #[test]
-fn tab_steps_between_messages_and_j_between_blocks() {
+fn tab_steps_between_blocks_and_skips_nothing() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
-    assert_eq!(s.next_message(0, true), Some(1));
-    assert_eq!(s.next_message(1, true), Some(4), "the run is not a message");
-    assert_eq!(s.next_message(2, true), Some(4), "and from inside the body too");
-    assert_eq!(s.next_message(4, true), Some(5), "an unrecognised record is one");
-    assert_eq!(s.next_message(5, true), None);
-    assert_eq!(s.next_message(2, false), Some(1), "back to this message first");
-    assert_eq!(s.next_message(4, false), Some(1), "then over the run");
-    assert_eq!(s.next_message(0, false), None);
-    // And `j` still stops on the run, which is what makes it openable.
-    assert_eq!(s.next_landmark(1, true), Some(3));
+    assert_eq!(s.next_landmark(0, true), Some(1));
+    assert_eq!(s.next_landmark(1, true), Some(3), "the run is a block too");
+    assert_eq!(s.next_landmark(2, true), Some(3), "and from inside the body too");
+    assert_eq!(s.next_landmark(3, true), Some(4));
+    assert_eq!(s.next_landmark(4, true), Some(5), "the unrecognised record");
+    assert_eq!(s.next_landmark(5, true), None);
+    // `S-Tab` is the mirror: back to this block's own row first, then out.
+    assert_eq!(s.next_landmark(2, false), Some(1), "back to this message first");
+    assert_eq!(s.next_landmark(4, false), Some(3), "then the run");
+    assert_eq!(s.next_landmark(0, false), None);
 }
 
 /// The status bar counts blocks alongside records, in one vocabulary. The
@@ -83,7 +84,7 @@ fn the_status_bar_counts_blocks_too() {
 fn a_boundary_descends_into_an_open_run() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
-    // Shut: the run is one block, and `j` steps over it.
+    // Shut: the run is one block, and the jump steps over it.
     assert_eq!(s.block_at(3), Some(3..4));
     assert_eq!(s.next_landmark(3, true), Some(4));
     let entry = s.section_at(3).expect("the run is an outline entry");
@@ -95,7 +96,7 @@ fn a_boundary_descends_into_an_open_run() {
     for row in 4..8 {
         assert_eq!(s.block_at(row), Some(row..row + 1), "step {row}");
         assert_eq!(s.next_landmark(row, true), Some(row + 1));
-        assert_eq!(s.next_landmark(row, false), Some(row - 1), "and `k` mirrors it");
+        assert_eq!(s.next_landmark(row, false), Some(row - 1), "and `S-Tab` mirrors it");
     }
     assert_eq!(s.next_landmark(8, false), Some(7), "back into the run from below");
     // And every block still starts where the one before it ends.
@@ -106,7 +107,7 @@ fn a_boundary_descends_into_an_open_run() {
 }
 
 /// A member and the tree it has open are one block, exactly as a message and
-/// its body are: `j` clears the member's rows in one press.
+/// its body are: `Tab` clears the member's rows in one press.
 #[test]
 fn a_member_with_an_open_tree_is_one_block() {
     let mut s = lensed(RUN);
@@ -125,8 +126,8 @@ fn a_member_with_an_open_tree_is_one_block() {
     assert_eq!(s.next_landmark(block.end - 1, false), Some(4), "and one comes back");
 }
 
-/// The status bar counts what `j` steps by, so opening a run grows the total
-/// rather than leaving the counter saying something `j` disagrees with.
+/// The status bar counts what `Tab` jumps by, so opening a run grows the total
+/// rather than leaving the counter saying something the jump disagrees with.
 #[test]
 fn the_block_count_grows_when_a_run_opens() {
     let mut s = lensed(RUN);
@@ -143,20 +144,19 @@ fn the_block_count_grows_when_a_run_opens() {
     assert!(after.contains("block 9/9"), "{after}");
 }
 
-/// `Tab` does **not** descend into an open run, and that is the deliberate
-/// half of the pair: `Tab` is the conversation turn, and every member of a run
-/// is a step, so descending would only make it stop on mechanics. Opening a run
-/// changes what `j` steps by and leaves `Tab` exactly where it was.
+/// `Tab` **does** descend into an open run, because a block boundary does and
+/// `Tab` is the block jump: opening a run is the reader asking for what is in
+/// it, and a jump that stepped over it would put those steps out of reach of
+/// everything but `j`.
 #[test]
-fn tab_does_not_descend_into_an_open_run() {
+fn tab_descends_into_an_open_run() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
-    let before = s.next_message(1, true);
-    assert_eq!(before, Some(4), "the message after the shut run");
+    assert_eq!(s.next_landmark(3, true), Some(4), "shut: over the run");
     let entry = s.section_at(3).expect("the run");
     assert!(s.set_fold(entry, false), "the run opens");
     let _ = rows(&mut s);
-    assert_eq!(s.next_message(1, true), Some(8), "the same message, four rows lower");
-    assert_eq!(s.next_message(4, true), Some(8), "and from inside the run too");
-    assert_eq!(s.next_message(8, false), Some(1), "back over the whole run");
+    assert_eq!(s.next_landmark(3, true), Some(4), "open: into its first step");
+    assert_eq!(s.next_landmark(7, true), Some(8), "and out again at its end");
+    assert_eq!(s.next_landmark(8, false), Some(7), "the mirror steps back in");
 }

@@ -210,10 +210,8 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 | Key | Action |
 | --- | --- |
-| `j / ↓` | line down (one block where a document has them) |
-| `k / ↑` | line up (one block where a document has them) |
-| `Ctrl-E` | scroll one row down, blocks or no blocks |
-| `Ctrl-Y` | scroll one row up, blocks or no blocks |
+| `j / ↓` | one row down |
+| `k / ↑` | one row up |
 | `d` | half page down |
 | `u` | half page up |
 | `space / f` | page down |
@@ -233,8 +231,8 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `zc` | close the section at the cursor |
 | `zM` | collapse every section |
 | `zR` | expand every section |
-| `Tab` | next heading |
-| `S-Tab` | previous heading |
+| `Tab` | next heading (next block under a lens) |
+| `S-Tab` | previous heading (previous block under a lens) |
 | `o` | outline overlay |
 | `/` | search forward |
 | `?` | search backward |

@@ -158,71 +158,60 @@ the cursor keeps its place inside an open record.
 ## Keys, under a lens
 
 A trajectory read through a lens is a list of **blocks** — a message with what
-was said under it, or a folded run of mechanics — and moving through it one
-terminal row at a time is moving through one message's wrap. So the cursor moves
-between blocks, and there is exactly one definition of where a block starts —
-`src/source/record/plan_block.rs`, which `j`, `k`, the block a landing is framed
-to and the status bar's counter are all read off. (`plan.rs` calls a run of
-records that share a row an `Item`. An item is one block while it is shut, and
-its own row plus one block per step — `1 + count` — while it is open, which is
-the whole of the descent rule; *block* is the only word above that module and
-the only one a reader ever sees.)
+was said under it, or a folded run of mechanics. `j` and `k` do **not** move by
+those: they move one visible row, here as in every other format
+(SPEC.md §"Moving through a document"). A closed block is one row, so a block
+cursor differed from a row cursor only where a block was open — over exactly the
+message body, the opened run and the opened record the reader had just asked to
+see. That is what it skipped, and it is why it is gone.
+
+Blocks are what `Tab` / `S-Tab` jump between, and there is exactly one
+definition of where one starts — `src/source/record/plan_block.rs`, which the
+jump, the framing of a landing and the status bar's counter are all read off.
+(`plan.rs` calls a run of records that share a row an `Item`. An item is one
+block while it is shut, and its own row plus one block per step — `1 + count` —
+while it is open, which is the whole of the descent rule; *block* is the only
+word above that module and the only one a reader ever sees.)
 
 | Key | What it does |
 | --- | --- |
-| `j` / `k` | next / previous **block** — a message, a shut run, or a step inside a run that is open |
-| `Ctrl-E` / `Ctrl-Y` | scroll one row, so every row of a block is still reachable |
+| `j` / `k` | next / previous **row** — a message's next line, a step, a row of an opened record |
+| `Tab` / `S-Tab` | next / previous **block** — a message, a shut run, or a step inside a run that is open |
 | `Enter` / `za` | one rung down: clipped → open → the raw tree → clipped. On a run's row, open the run; on a call row, that call's arguments and output |
 | `zt` | open the raw record under the cursor, from any level, leaving the level where it was |
 | `zR` / `zM` | every record the viewport has reached at the open level, with its tree / every one back to its clip |
-| `Tab` / `S-Tab` | next / previous **message** — the conversation turn |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
 | `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
 
-Landing on a block shows the block: one that fits is scrolled fully on screen,
-one taller than the viewport puts its first row at the top. `d` / `u`,
+Landing on a block with `Tab` shows the block: one that fits is scrolled fully
+on screen, one taller than the viewport puts its first row at the top. `d` / `u`,
 `space` / `b` and `g` / `G` still count screens and rows, and `v` then `j`
-therefore extends a visual selection a **block** at a time — `Ctrl-E` is how a
-selection is grown a row at a time.
+extends a visual selection a row at a time, which is what a selection is made
+of.
+
+**Why the jump is the block and not the message.** `Tab` used to be the
+conversation turn. A message is a block, so the block jump reaches every message
+the message jump did; the reverse is false, and a jump that stepped over the
+runs would leave the mechanics — most of what a trajectory is — reachable only
+by `j`. One boundary for every format also beats a second one that exists only
+under a lens. `S-Tab` is the exact mirror: the same table, walked backwards,
+framed the same way.
 
 **A block boundary descends into an open run.** A shut run is one block — that
-is what makes it a summary — and `j` steps over it. Once it is open, the blocks
-inside it are the run's own row and then each step: `Enter` is the reader asking
-for what is in there, so that is what `j` walks. A step and the tree it may have
-open are **one** block, exactly as a message and its body are, so `j` clears an
-opened record in one press and `Ctrl-E` is still how its rows are read. `k`
-mirrors the sequence step for step, including stepping back out of the run to
-the block above it. This is where `j` and `Tab` part company, and deliberately:
-`Tab` is the conversation turn and every member of a run is mechanics, so
-opening a run changes what `j` steps by and leaves `Tab` where it was — as long
-as there is a message left to reach. Past the last message `Tab` has always
-fallen back to the next block rather than dead-ending, and that fallback is the
-descending boundary, so a `Tab` at the tail of a document does step into a run
-that is open.
+is what makes it a summary — and `Tab` steps over it. Once it is open, the
+blocks inside it are the run's own row and then each step: `Enter` is the reader
+asking for what is in there, so that is what the jump walks. A step and the tree
+it may have open are **one** block, exactly as a message and its body are, so
+`Tab` clears an opened record in one press while `j` reads it a row at a time.
+`S-Tab` mirrors the sequence step for step, including stepping back out of the
+run to the block above it. At the tail of a document — a trailing run of
+mechanics with nothing said after it — `Tab` keeps going through the run rather
+than dead-ending, and never moves past the end.
 
-The one thing `j` deliberately does not do: where there is no next block it
-moves one row rather than freezing —
-past the classified prefix — the tail of a big trajectory, where grouping is not
-decided yet — and on the **last** block, whose rows are the end of the file. The
-last block is therefore the one place the pair is not symmetric: `j` walks down
-through it a row at a time while the status bar keeps reading `block N/N`, and
-`k` from anywhere inside it comes back to its first row in one press.
-
-`Ctrl-E` / `Ctrl-Y` scroll: the window moves and the cursor rides with it,
-keeping its place on the screen. That is what makes them the way through a
-block taller than the viewport — `j` puts the cursor at the top of the window
-there, and a key that only moved the cursor would show a frozen screen until it
-had crossed the whole window. At the ends of the document the window stops and
-the cursor keeps going, so the last row is still reachable a row at a time.
-
-`Tab` counts a record the dialect did **not** recognise as a message: it is not
-mechanics, and it is the record SPEC.md §Lenses promises is never lost. That is
-also what keeps `Tab` moving through a file no dialect reads, where every block
-is one of those. With no further message — a trailing run of mechanics — `Tab`
-falls back to the next block rather than dead-ending, and never moves past the
-end. That fallback is the block boundary, descent and all: it is the one place
-`Tab` stops on a step inside an open run, and it stops there rather than not
-moving at all.
+Where a block cannot be placed — past the classified prefix, the tail of a big
+trajectory where grouping is not decided yet — the jump has no answer and says
+so, rather than landing on a row the next keystroke would renumber. `j` is
+unaffected: it never asked what block it was in.
 
 The status bar reads
 `agent · record 412/2354 · block 96/≥181 · .message.content[0].text`. The block
@@ -231,10 +220,10 @@ does and then one more: the lens has read a prefix, and grouping makes the block
 total *shrink* as classification catches up. Opening a run moves it the other
 way — its steps are blocks while it is open — and the counter says so on the
 keystroke that opens it, because the index and the total are read off the same
-table `j` steps by. Past that prefix there is no block
-clause at all, rather than a number the next keystroke changes. The record count
-keeps saying **record** — it is the file's own unit, which `#n` and `--toc`
-also mean, and a `.jsonl` line is not a step.
+table `Tab` jumps by. Past that prefix there is no block clause at all, rather
+than a number the next keystroke changes. The record count keeps saying
+**record** — it is the file's own unit, which `#n` and `--toc` also mean, and a
+`.jsonl` line is not a step.
 
 `--toc --lens agent` prints the same reading as a list — `line, actor, time,
 what`, one record per line, tab-separated — with the records the lens does not

@@ -1,6 +1,6 @@
 //! Where a **block** starts and ends.
 //!
-//! A block is the unit `j`/`k` move by and the unit the status bar counts
+//! A block is the unit `Tab`/`S-Tab` jump by and the unit the status bar counts
 //! (SPEC.md §Lenses). It is *usually* an [`Item`](super::Item) — a run of
 //! records that share a row — but **a boundary descends into an open group**:
 //! opening a run is the reader saying "show me what is in here", so the steps
@@ -83,7 +83,7 @@ impl Plan {
         // one of its parts, one of its tree — it belongs to *that member's*
         // block. Naming only `Spot::Record` here was right only while a member
         // had nothing under it: once a step shows its reasoning, the rows in
-        // between were attributed to the run and `j` walked backwards out of
+        // between were attributed to the run and the jump walked backwards out of
         // them.
         match self.inside(it, off - 1, map) {
             Spot::Record { record, .. }
@@ -105,13 +105,14 @@ impl Plan {
     }
 
     /// The next or previous block boundary, strictly after (before) `row` —
-    /// `j`/`k`, and `Tab`'s fallback. From inside a block the first press back
+    /// `Tab`/`S-Tab`. From inside a block the first press back
     /// goes to that block's own first row, which for a member of an open run is
-    /// the member's row rather than the run's: `k` mirrors `j` step for step,
-    /// including stepping back out of the run to the block above it.
+    /// the member's row rather than the run's: `S-Tab` mirrors `Tab` step for
+    /// step, including stepping back out of the run to the block above it.
     ///
-    /// `None` at either end and past the classified prefix; the pager then moves
-    /// one row, so no row is ever unreachable.
+    /// `None` at either end and past the classified prefix, where the pager
+    /// says the jump has no answer and moves nothing. No row is unreachable
+    /// regardless: `j`/`k` move one row in every format and never come here.
     pub fn next_block(&self, row: usize, map: &RowMap, forward: bool) -> Option<usize> {
         let b = self.block_index_at(row, map)?;
         let start = self.row_of_block(b, map)?;
@@ -123,7 +124,7 @@ impl Plan {
     }
 
     /// The index of the block `row` is on, and how many blocks are classified —
-    /// for the status bar. The same pair `j` steps by, so the counter cannot
+    /// for the status bar. The same pair `Tab` jumps by, so the counter cannot
     /// disagree with what the key does.
     pub fn block_of_row(&self, row: usize, map: &RowMap) -> Option<(usize, usize)> {
         Some((self.block_index_at(row, map)?, self.blocks()))

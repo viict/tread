@@ -300,7 +300,7 @@ fn help_overlay_opens_and_closes() {
     assert_eq!(p.mode, Mode::Help);
     let mut f = Frame::new(true);
     p.paint(&mut f);
-    assert!(f.as_str().contains("line down"), "frame was: {}", f.as_str());
+    assert!(f.as_str().contains("one row down"), "frame was: {}", f.as_str());
     // Far enough to reach the bottom of the table, whatever it has grown to.
     for _ in 0..keys::BINDINGS.len() {
         press(&mut p, "j");
@@ -478,9 +478,9 @@ fn y_on_a_metadata_row_copies_the_field() {
     assert_eq!(y.text, "models/A.md\n");
 }
 
-/// Prose has no blocks, so `j`/`k` are one rendered line — the default that
-/// must not move under a format that never opted in. `Ctrl-E`/`Ctrl-Y` are the
-/// same one row here, which is what makes them safe to press anywhere.
+/// Prose has no blocks, and `j`/`k` are one rendered line — which is what they
+/// are in every format, blocks or none. `Tab` is the other unit, and here it is
+/// what it always was: the next heading.
 #[test]
 fn j_and_k_move_one_row_on_a_document_with_no_blocks() {
     let mut p = pager(DOC, 60, 20);
@@ -491,8 +491,7 @@ fn j_and_k_move_one_row_on_a_document_with_no_blocks() {
     }
     press(&mut p, "k");
     assert_eq!(p.cursor, 4);
-    key(&mut p, Key::Ctrl('e'));
-    assert_eq!(p.cursor, 5);
-    key(&mut p, Key::Ctrl('y'));
-    assert_eq!(p.cursor, 4);
+    let heading = p.src_next_landmark(4, true).expect("a next heading");
+    key(&mut p, Key::Tab);
+    assert_eq!(p.cursor, heading, "and Tab is the heading jump, not a row");
 }

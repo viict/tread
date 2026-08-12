@@ -131,29 +131,27 @@ pub trait Source {
         false
     }
 
-    /// True when this document reads in **blocks** rather than rows, so `j`/`k`
-    /// move from one block to the next instead of one terminal row at a time
+    /// True when this document reads in **blocks** — a message with what was
+    /// said under it, or a folded run of mechanics — so that landing on one
+    /// with `Tab` should show the whole block rather than the row it starts on
     /// (SPEC.md §Lenses).
     ///
     /// A block is whatever [`Source::next_landmark`] already steps between —
-    /// one definition of a boundary, not two — and it is worth being the unit
-    /// only where a row is a *part* of something rather than a thing: a
-    /// trajectory read through a lens is a message with what was said under it,
-    /// or a folded run of mechanics, and walking that a row at a time is
-    /// walking one message's wrap.
+    /// one definition of a boundary, not two. It says nothing about `j`/`k`,
+    /// which move one row in every format: a closed block is one row, so a
+    /// block-sized cursor step differs from a row step only where it would skip
+    /// rows that are on the screen.
     ///
     /// The default is `false` and every format but one keeps it: prose, a CSV
-    /// row, a source line, a tree node and a record with no lens are each their
-    /// own unit already, and `false` costs none of them its `Tab`. Block motion
-    /// is the default unit and never the only one — `Ctrl-E`/`Ctrl-Y` still
-    /// move one row, so every row of a block stays reachable.
+    /// row, a source line, a tree node and a record with no lens each start and
+    /// end on their own row, so framing a landing has nothing to add.
     fn blocks(&self) -> bool {
         false
     }
 
-    /// The rows the block containing `row` occupies, for framing it when the
-    /// cursor lands on it: a block that fits is scrolled fully on screen, one
-    /// taller than the viewport puts its first row at the top.
+    /// The rows the block containing `row` occupies, for framing it when `Tab`
+    /// lands on it: a block that fits is scrolled fully on screen, one taller
+    /// than the viewport puts its first row at the top.
     ///
     /// `None` — the default — is a format with no blocks, and also a row a
     /// blocked format cannot place yet (past a lazily classified prefix); the
@@ -275,22 +273,11 @@ pub trait Source {
     /// The next or previous structural landmark strictly after (before) `row`,
     /// in rows. `None` when there is none that way.
     ///
-    /// The one definition of a boundary in the crate: `Tab` / `S-Tab` step
-    /// between these ([`Source::next_message`] defaults to it), and so do
-    /// `j` / `k` where [`Source::blocks`] is true.
+    /// The one definition of a boundary in the crate, and the only one: `Tab` /
+    /// `S-Tab` step between these — headings in prose, declarations in code,
+    /// blocks under a lens. `j` / `k` never do; they move one row, in every
+    /// format (SPEC.md §"Moving through a document").
     fn next_landmark(&self, row: usize, forward: bool) -> Option<usize>;
-
-    /// `Tab` / `S-Tab`, for a document whose landmarks are already the unit
-    /// `j`/`k` move by. The default is [`Source::next_landmark`], so every
-    /// format whose `j` is still a row keeps exactly the `Tab` it had. Only a
-    /// [`Source::blocks`] document needs a second answer: its blocks are
-    /// messages, folded runs of mechanics, *and* — once the reader opens a run —
-    /// the steps inside it, since [`Source::next_landmark`] descends into an
-    /// open group. `j` walks all of those, and what `Tab` is for there is the
-    /// conversation turn, which is why it does not descend.
-    fn next_message(&self, row: usize, forward: bool) -> Option<usize> {
-        self.next_landmark(row, forward)
-    }
 
     /// Jump to a section by its [`Entry::id`] — an anchor link (`#slug`).
     /// Opens the section and everything hiding it, and returns its row.

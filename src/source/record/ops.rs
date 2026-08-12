@@ -120,11 +120,10 @@ pub(crate) fn restore(plan: Option<&mut Plan>, map: &mut RowMap, folds: &[String
     }
 }
 
-/// `j` / `k` under a lens, and what `Tab` falls back to: the next block
-/// boundary — a message, a shut run, or, inside a run the reader has opened,
-/// one of the steps in it. [`Plan::next_block`] is the crate's single
-/// definition of where a block starts, and `Plan::block_at` is the same table
-/// read for an extent.
+/// `Tab` / `S-Tab` under a lens: the next block boundary — a message, a shut
+/// run, or, inside a run the reader has opened, one of the steps in it.
+/// [`Plan::next_block`] is the crate's single definition of where a block
+/// starts, and `Plan::block_at` is the same table read for an extent.
 pub(crate) fn next_block(plan: Option<&Plan>, map: &RowMap, row: usize, forward: bool) -> Option<usize> {
     plan?.next_block(row, map, forward)
 }
@@ -139,49 +138,6 @@ pub(crate) fn block_at(plan: Option<&Plan>, map: &RowMap, row: usize) -> Option<
 /// `(index, count)` of the block `row` is on, for the status bar.
 pub(crate) fn block_of_row(plan: Option<&Plan>, map: &RowMap, row: usize) -> Option<(usize, usize)> {
     plan?.block_of_row(row, map)
-}
-
-/// `Tab` / `S-Tab` under a lens: the next **message** — the conversation turn —
-/// now that `j`/`k` step between blocks and a block is as often a folded run of
-/// mechanics as it is something someone said.
-///
-/// The test is [`super::plan::Item::step`], so an *unrecognised* record is a
-/// message here: it is not mechanics, the lens said nothing about it, and it is
-/// exactly the thing SPEC.md §Lenses promises is never lost. It is also what
-/// makes `Tab` keep moving through a file whose dialect nothing recognises,
-/// where every block is one of these.
-///
-/// **`Tab` does not descend into an open run, and that is deliberate.** `j`
-/// descends because opening a run means "show me what is in here"; `Tab` is the
-/// conversation turn, and every member of a run is by construction a step — so
-/// descending would only make `Tab` stop on mechanics, which is the one thing it
-/// exists not to do. Opening a run therefore changes what `j` steps by and
-/// leaves `Tab` exactly where it was.
-///
-/// `None` when there is no further message; the caller then falls back to the
-/// next block rather than dead-ending on a trailing run of mechanics — and
-/// *that* fallback does descend, since it is the block boundary.
-pub(crate) fn next_message(
-    plan: Option<&Plan>,
-    map: &RowMap,
-    known: usize,
-    row: usize,
-    forward: bool,
-) -> Option<usize> {
-    let plan = plan?;
-    let record = lensrow::record_at(Some(plan), map, known, row);
-    let cur = plan.item_of_record(record)?;
-    let items = plan.items();
-    let at = |i: usize| plan.row_of_item(i, map);
-    match forward {
-        true => (cur + 1..items.len()).find(|&i| !items[i].step).map(at),
-        // Inside a message, the first press goes back to its own row — the same
-        // rule [`Plan::next_block`] follows, so `Tab` and `S-Tab` agree about
-        // where a thing starts. The two answers part only inside an open run,
-        // where a block starts on the member's row and a message on the run's.
-        false if row > at(cur) && !items[cur].step => Some(at(cur)),
-        false => (0..cur).rev().find(|&i| !items[i].step).map(at),
-    }
 }
 
 /// `Y` on a group's row: every record the run holds, one JSON document per

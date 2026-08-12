@@ -463,15 +463,13 @@ fn lines_returns_exactly_the_window_it_was_asked_for() {
 
 /// The one place a `blocks()` default could silently catch a format: this is
 /// the same `impl` that answers `true` under a lens. Without one a record file
-/// is the generic tree — one record per row, one node per row — and `j` is a
-/// row, exactly as it always was.
+/// is the generic tree — one record per row, one node per row — with nothing
+/// for a landing to frame, and `Tab` is the next record.
 #[test]
 fn a_record_file_with_no_lens_does_not_read_in_blocks() {
     let mut s = src(THREE);
     let _ = s.lines(0..3);
     assert!(!s.blocks());
     assert_eq!(s.block_at(0), None);
-    // And `Tab` there is still the next record, not a message.
-    assert_eq!(s.next_message(0, true), s.next_landmark(0, true));
-    assert_eq!(s.next_message(1, false), s.next_landmark(1, false));
+    assert_eq!(s.next_landmark(0, true), Some(1), "still the next record");
 }

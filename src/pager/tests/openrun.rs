@@ -1,10 +1,10 @@
-//! Block motion **into a run the reader has opened** (SPEC.md §Lenses).
+//! Reading **a run the reader has opened** (SPEC.md §Lenses).
 //!
-//! The defect these pin: an open group counted as one block, so `j` stepped
-//! over the very steps `Enter` had just revealed and only `Ctrl-E` reached them.
-//! Opening a run is the reader asking for what is inside it, so the members
-//! become the blocks — and `k` mirrors that, including stepping back out of the
-//! run to the block above it.
+//! The defect these pin: `j` moved by block, so it stepped over the very steps
+//! `Enter` had just revealed. `j` is a row now, in every format, so it walks
+//! whatever opening a run put on the screen — and `k` mirrors it, including
+//! stepping back out of the run to the row above it. `Tab` is the block jump,
+//! and it is the key that clears a member whole.
 //!
 //! Pager tests: every assertion is the pager's own state after a synthetic key
 //! press. There is no terminal and no frame here to reconstruct.
@@ -102,11 +102,12 @@ fn k_mirrors_j_over_an_open_run() {
     assert_eq!(p.cursor, 0, "and out of the run to the block above it");
 }
 
-/// A member and the tree it has open are **one** block — the same way a message
-/// and its body are — so `j` steps over an opened record's rows rather than
-/// into them, and `k` from inside one comes back to the member's own row.
+/// The user's second complaint, in a deterministic test: with a step's raw JSON
+/// open, `j` walks **its** rows. A member and its tree are still one block —
+/// that is what `Tab` clears in a press — but the cursor unit is the row, so
+/// nothing that was just revealed is skipped.
 #[test]
-fn a_member_with_an_open_tree_is_one_block() {
+fn j_reads_the_tree_a_member_has_open_and_tab_clears_it() {
     let mut p = with_open_run(60);
     press(&mut p, "j");
     let member = p.cursor;
@@ -121,14 +122,22 @@ fn a_member_with_an_open_tree_is_one_block() {
         Some(block.clone()),
         "its last tree row too"
     );
-    press(&mut p, "j");
-    assert_eq!(p.cursor, block.end, "one `j` clears the whole member");
+    // Every row of that tree, one press each, in order.
+    for row in member + 1..block.end {
+        press(&mut p, "j");
+        assert_eq!(p.cursor, row, "j walks the tree row by row");
+    }
     press(&mut p, "k");
-    assert_eq!(p.cursor, member, "and one `k` comes back to it");
+    assert_eq!(p.cursor, block.end - 2, "and k is its mirror, a row at a time");
+    // The block jump is what steps over the whole of it, in either direction.
+    key(&mut p, Key::Tab);
+    assert_eq!(p.cursor, block.end, "one Tab clears the whole member");
+    key(&mut p, Key::BackTab);
+    assert_eq!(p.cursor, member, "and one S-Tab comes back to it");
 }
 
-/// The status bar counts what `j` steps by: opening the run adds its members to
-/// the block total rather than letting the counter drift.
+/// The status bar counts what `Tab` steps by: opening the run adds its members
+/// to the block total rather than letting the counter drift.
 #[test]
 fn the_block_counter_follows_the_open_run() {
     let mut src = JsonlSource::from_bytes(run_of_four().into_bytes());
@@ -159,8 +168,8 @@ fn closing_the_run_collapses_it_back_to_one_block() {
     assert_eq!(p.line_count(), open_rows - 4, "the four steps are folded again");
     assert_eq!(p.src_block_at(run), Some(run..run + 1), "one block again");
     assert!(p.status_line().contains("block 2/3"), "{}", p.status_line());
-    press(&mut p, "j");
-    assert!(p.cursor_text().contains("Done."), "and `j` steps over it again");
+    key(&mut p, Key::Tab);
+    assert!(p.cursor_text().contains("Done."), "and Tab steps over it again");
 }
 
 /// A prompt, an answer, and then four mechanical records with nothing after
@@ -190,14 +199,12 @@ fn run_at_the_tail() -> String {
     .to_string()
 }
 
-/// `Tab` is the conversation turn and does not descend — but past the last
-/// message it has always fallen back to the next **block** rather than
-/// dead-ending, and that fallback is the descending boundary. So at the tail of
-/// a document `Tab` does step into a run that is open, which is the one place it
-/// lands on mechanics: a step is a better answer there than no movement at all.
-/// SPEC.md §Lenses and `docs/lenses.md` both say so out loud.
+/// `Tab` is the block jump, so at the tail of a document — past the last thing
+/// anyone said — it keeps going through the mechanics rather than dead-ending,
+/// and it descends into a run that is open. That is the whole argument for
+/// block over message: nothing a document has is out of the jump's reach.
 #[test]
-fn tab_past_the_last_message_falls_back_into_an_open_run() {
+fn tab_steps_through_a_trailing_run_that_is_open() {
     let mut src = JsonlSource::from_bytes(run_at_the_tail().into_bytes());
     src.set_lens(crate::lens::find("agent").expect("the agent lens"));
     let mut p = Pager::new(Box::new(src), "session.jsonl".into(), 80, 40, None);

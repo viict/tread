@@ -257,7 +257,8 @@ fn enter_opens_a_file_from_a_listing_named_by_a_relative_parent_path() {
     );
 }
 
-/// A listing row is one entry: `j` stays one row (SPEC.md §Lenses).
+/// A listing row is one entry, already its own unit, so a landing needs no
+/// framing (SPEC.md §"Moving through a document").
 #[test]
 fn a_listing_does_not_read_in_blocks() {
     let t = tmp("blocks");

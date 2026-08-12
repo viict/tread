@@ -427,8 +427,9 @@ fn positions_are_stable_and_never_panic() {
     assert_eq!(s.locate(Mark(4)), Some(4));
 }
 
-/// A CSV row *is* the unit, and this format has no landmarks at all: `j` stays
-/// one row (SPEC.md §Lenses).
+/// A CSV row *is* the unit and this format has no landmarks at all, so there is
+/// no landing for `Tab` to frame. `j` stays one row here as in every format
+/// (SPEC.md §"Moving through a document").
 #[test]
 fn a_grid_does_not_read_in_blocks() {
     let s = src_from("a,b\n1,2\n3,4\n");

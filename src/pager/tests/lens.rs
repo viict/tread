@@ -135,17 +135,14 @@ fn zt_opens_the_raw_record_whatever_the_body_is_doing() {
     assert_eq!(p.line_count(), before, "and it shuts again");
 }
 
-/// From inside a message, `zt` opens the record that message came from.
-///
-/// `Ctrl-E` is what gets there now that `j` is a block: the two presses put the
-/// cursor on line 3 of the first message, which is a row of the block rather
-/// than the block itself.
+/// From inside a message, `zt` opens the record that message came from. Two
+/// presses of `j` is how the cursor gets to line 3 of the first message: `j` is
+/// a row, so it walks into the body rather than over the message.
 #[test]
 fn zt_from_a_body_row_opens_the_record_it_belongs_to() {
     let mut p = lens_pager(80, 40);
     let before = p.line_count();
-    key(&mut p, Key::Ctrl('e'));
-    key(&mut p, Key::Ctrl('e'));
+    press(&mut p, "jj");
     assert_eq!(p.cursor_text(), "line 3 of what was said");
     press(&mut p, "zt");
     assert!(p.line_count() > before, "{}", p.status_line());
@@ -199,9 +196,7 @@ fn a_resize_keeps_the_cursor_on_the_same_record() {
 #[test]
 fn a_resize_from_inside_a_body_lands_on_its_summary_row() {
     let mut p = lens_pager(80, 40);
-    for _ in 0..3 {
-        key(&mut p, Key::Ctrl('e'));
-    }
+    press(&mut p, "jjj");
     let _ = p.visible_text();
     assert_eq!(p.cursor_text(), "line 4 of what was said");
     let mark = p.cursor_mark();
@@ -224,12 +219,12 @@ fn zr_opens_the_bodies_and_zm_clips_them_again() {
     assert_eq!(p.line_count(), clipped);
 }
 
-// -- block motion ------------------------------------------------------------
+// -- moving ------------------------------------------------------------------
 //
-// SPEC.md §Lenses: a trajectory reads in blocks, so `j`/`k` move between them
-// and `Ctrl-E`/`Ctrl-Y` keep moving one row. Every assertion below is the
-// pager's own state after a synthetic key press — there is no frame here to
-// reconstruct, and none of these read one.
+// SPEC.md §"Moving through a document": `j`/`k` move one visible row, here as
+// everywhere; `Tab`/`S-Tab` jump block to block and frame what they land on.
+// Every assertion below is the pager's own state after a synthetic key press —
+// there is no frame here to reconstruct, and none of these read one.
 
 /// Two long messages, so a block reached by `j` is taller than one row and
 /// framing has something to do.
@@ -256,40 +251,94 @@ fn pager_over(text: String, cols: usize, rows: usize) -> Pager {
     p
 }
 
-/// The whole of it: `j` walks the three blocks — a message, the run its
-/// mechanics folded into, the answer — and stops at the last rather than
-/// running into its rows or off the end. `k` walks back and stays put at the
-/// first.
+/// The user's first complaint, in a deterministic test: `j` under a lens walks
+/// the message's own lines — the clipped body and the row that says what the
+/// clip left out — before it ever reaches the run below. `k` mirrors it row for
+/// row, and both stop at the ends rather than wrapping or stalling early.
 #[test]
-fn j_and_k_step_between_blocks_and_stop_at_the_ends() {
+fn j_and_k_move_one_row_under_a_lens() {
     let mut p = lens_pager(80, 40);
     assert_eq!(p.cursor, 0);
     assert!(p.cursor_text().contains("line 1 of what was said"));
+    for line in 2..=6 {
+        press(&mut p, "j");
+        assert_eq!(p.cursor_text(), format!("line {line} of what was said"));
+    }
+    press(&mut p, "j");
+    assert_eq!(p.cursor_text(), "\u{22ef} +6 lines", "then the clip's own row");
     press(&mut p, "j");
     assert!(p.cursor_text().contains("\u{27e8}"), "the folded run: {:?}", p.cursor_text());
-    let run = p.cursor;
     press(&mut p, "j");
     assert!(p.cursor_text().contains("Done."), "{:?}", p.cursor_text());
     let last = p.cursor;
+    assert_eq!(last, p.line_count() - 1, "which is the last row of the document");
     press(&mut p, "j");
-    assert_eq!(p.cursor, last, "the last block does not run off the end");
-    assert!(p.cursor < p.line_count());
+    assert_eq!(p.cursor, last, "and `j` there stays put rather than running off");
+    for row in (0..last).rev() {
+        press(&mut p, "k");
+        assert_eq!(p.cursor, row, "`k` is the mirror, a row at a time");
+    }
     press(&mut p, "k");
-    assert_eq!(p.cursor, run);
-    press(&mut p, "k");
-    assert_eq!(p.cursor, 0, "back to the first block");
-    press(&mut p, "k");
-    assert_eq!(p.cursor, 0, "and `k` on the first block stays put");
+    assert_eq!(p.cursor, 0, "and `k` on the first row stays put");
+}
+
+/// The invariant the reader actually depends on, over a document with a record
+/// opened inside it: from the top, `j` alone reaches **every** painted row, in
+/// order, and stops on the last one. Nothing on the screen needs a key that no
+/// longer exists.
+#[test]
+fn every_painted_row_is_reachable_with_j_alone() {
+    let mut p = lens_pager(80, 40);
+    // The whole ladder open: the message in full, its parts, and the raw tree
+    // spliced under it — everything the reader can put on the screen at once.
+    press(&mut p, "zR");
+    let _ = p.visible_text();
+    let n = p.line_count();
+    assert!(n > 20, "a full record is on the screen: {n} rows");
+    let mut seen = vec![p.cursor];
+    for _ in 0..n * 2 {
+        let before = p.cursor;
+        press(&mut p, "j");
+        assert!(p.cursor <= before + 1, "one row at a time: {before} -> {}", p.cursor);
+        if p.cursor != before {
+            seen.push(p.cursor);
+        }
+    }
+    assert_eq!(seen, (0..n).collect::<Vec<_>>(), "every row was reachable by j");
+    for _ in 0..n * 2 {
+        press(&mut p, "k");
+    }
+    assert_eq!(p.cursor, 0, "and k walks back to the top");
+}
+
+/// `j` inside a block taller than the viewport keeps the reader moving: the
+/// cursor walks its rows and the window follows once the cursor reaches the
+/// bottom of it, so the text is never frozen for a whole screen.
+#[test]
+fn j_walks_a_block_taller_than_the_viewport_and_the_window_follows() {
+    let mut p = pager_over(two_long_messages(), 80, 6);
+    key(&mut p, Key::Tab);
+    let h = p.content_rows();
+    let block = p.src_block_at(p.cursor).expect("the second block");
+    assert!(block.end - block.start > h, "the block is taller: {block:?} in {h}");
+    let (start, top) = (p.cursor, p.top);
+    for i in 1..h {
+        press(&mut p, "j");
+        assert_eq!(p.cursor, start + i, "a row a press");
+        assert_eq!(p.top, top, "still inside the window");
+    }
+    press(&mut p, "j");
+    assert_eq!(p.top, top + 1, "and now the window follows the cursor down");
 }
 
 /// A block that fits the viewport is scrolled fully into view — not merely far
-/// enough to show the row `j` landed on, which is all the cursor clamp does.
+/// enough to show the row `Tab` landed on, which is all the cursor clamp does.
 #[test]
 fn landing_on_a_block_that_fits_brings_all_of_it_on_screen() {
     let mut p = pager_over(two_long_messages(), 80, 9);
     let h = p.content_rows();
     assert_eq!((p.cursor, p.top), (0, 0));
-    press(&mut p, "j");
+    key(&mut p, Key::Tab);
     let block = p.src_block_at(p.cursor).expect("the second block");
     assert!(block.end - block.start <= h, "the block fits: {block:?} in {h}");
     assert!(p.top <= block.start, "the block starts on screen: {block:?}, top {}", p.top);
@@ -307,96 +356,52 @@ fn landing_on_a_block_that_fits_brings_all_of_it_on_screen() {
 fn landing_on_a_block_taller_than_the_viewport_puts_its_first_row_at_the_top() {
     let mut p = pager_over(two_long_messages(), 80, 6);
     let h = p.content_rows();
-    press(&mut p, "j");
+    key(&mut p, Key::Tab);
     let block = p.src_block_at(p.cursor).expect("the second block");
     assert!(block.end - block.start > h, "the block is taller: {block:?} in {h}");
     assert_eq!(p.cursor, block.start);
     assert_eq!(p.top, block.start, "its first row is the top of the screen");
 }
 
-/// And the key that reads it moves the text on the **first** press. Landing on
-/// a block taller than the viewport puts the cursor at the top of the window,
-/// where a cursor-only step would scroll nothing until the cursor had crossed a
-/// whole screen — the reader would press `Ctrl-E` `h - 1` times at every long
-/// message and watch a frozen screen. `Ctrl-E` scrolls, carrying the cursor.
+/// `Tab` is the fast jump: block to block, over the message's body and over
+/// the folded run alike, and `S-Tab` is its exact mirror back up the same
+/// sequence. It stops at the end rather than running past it.
 #[test]
-fn ctrl_e_scrolls_the_text_on_the_first_press_inside_a_tall_block() {
-    let mut p = pager_over(two_long_messages(), 80, 6);
-    press(&mut p, "j");
-    let top = p.top;
-    // `visible_text` is the whole document, so the row *at the top of the
-    // window* is what the reader's first screen row is.
-    let rows = p.visible_text();
-    let first = rows[top].clone();
-    key(&mut p, Key::Ctrl('e'));
-    assert_eq!(p.top, top + 1, "the window moved on press one");
-    assert_ne!(p.visible_text()[p.top], first, "so the top of the screen is a new row");
-    assert_eq!(p.cursor, top + 1, "and the cursor kept its place on the screen");
-    // And back: `Ctrl-Y` is symmetric, one press for one row.
-    key(&mut p, Key::Ctrl('y'));
-    assert_eq!((p.top, p.cursor), (top, top));
-    assert_eq!(p.visible_text()[p.top], first);
-}
-
-/// The window runs out before the cursor does, at both ends: `Ctrl-E` on the
-/// last screen still walks the cursor down to the final row, and `Ctrl-Y` on
-/// the first screen still walks it up to row 0 — a scroll that stopped moving
-/// the cursor when `top` stopped would strand the tail of the document.
-#[test]
-fn ctrl_e_still_reaches_the_last_row_once_the_window_has_stopped() {
-    let mut p = pager_over(two_long_messages(), 80, 6);
-    let n = p.line_count();
-    for _ in 0..n * 2 {
-        key(&mut p, Key::Ctrl('e'));
-    }
-    assert_eq!(p.cursor, n - 1, "the last row is reachable one row at a time");
-    for _ in 0..n * 2 {
-        key(&mut p, Key::Ctrl('y'));
-    }
-    assert_eq!((p.cursor, p.top), (0, 0));
-}
-
-/// Block motion is the default unit, never the only one: `Ctrl-E` moves one
-/// row, and walking a whole document with it reaches every row there is —
-/// including a message's lines and the rows of a record opened inside a block.
-#[test]
-fn ctrl_e_moves_one_row_and_reaches_every_row() {
+fn tab_jumps_block_to_block_and_s_tab_mirrors_it() {
     let mut p = lens_pager(80, 40);
-    press(&mut p, "zt");
-    let _ = p.visible_text();
-    let n = p.line_count();
-    assert!(n > 9, "a record was opened inside the first block: {n}");
-    let mut seen = vec![p.cursor];
-    for _ in 0..n * 2 {
-        let before = p.cursor;
-        key(&mut p, Key::Ctrl('e'));
-        assert!(p.cursor <= before + 1, "one row at a time: {before} -> {}", p.cursor);
-        if p.cursor != before {
-            seen.push(p.cursor);
-        }
+    let mut down = Vec::new();
+    for _ in 0..2 {
+        key(&mut p, Key::Tab);
+        down.push(p.cursor);
     }
-    assert_eq!(seen, (0..n).collect::<Vec<_>>(), "every row was reachable");
-    for _ in 0..n * 2 {
-        key(&mut p, Key::Ctrl('y'));
-    }
-    assert_eq!(p.cursor, 0, "and Ctrl-Y walks back to the top");
-}
-
-/// `Tab` is the conversation turn now that `j` is a block: it steps over the
-/// folded run of mechanics that `j` stops on.
-#[test]
-fn tab_steps_to_the_next_message_and_j_stops_on_the_run() {
-    let mut p = lens_pager(80, 40);
-    key(&mut p, Key::Tab);
     assert!(p.cursor_text().contains("Done."), "{:?}", p.cursor_text());
-    // There is nothing further to say, and `Tab` neither dead-ends silently on
-    // a wrong row nor moves past the end.
+    // Two presses crossed the whole message, body and clip row and all, and
+    // then the folded run: one block a press.
+    assert_eq!(down.len(), 2);
     let last = p.cursor;
     key(&mut p, Key::Tab);
-    assert_eq!(p.cursor, last);
+    assert_eq!(p.cursor, last, "and Tab at the last block stays on it");
     assert!(p.cursor < p.line_count());
+    let mut up = Vec::new();
+    for _ in 0..2 {
+        key(&mut p, Key::BackTab);
+        up.push(p.cursor);
+    }
+    assert_eq!(up, vec![down[0], 0], "S-Tab retraces Tab exactly: down {down:?}");
+}
+
+/// When the jump runs out it says so in the unit this document is read in.
+/// A trajectory has no headings, and the status bar on the same screen is
+/// printing `block n/N`, so the exhaustion message says **block** too.
+#[test]
+fn the_exhausted_jump_says_block_under_a_lens() {
+    let mut p = lens_pager(80, 40);
     key(&mut p, Key::BackTab);
-    assert_eq!(p.cursor, 0, "and back to the message before it");
+    assert_eq!(p.message.as_deref(), Some("no previous block"), "at the top");
+    for _ in 0..3 {
+        key(&mut p, Key::Tab);
+    }
+    assert_eq!(p.message.as_deref(), Some("no further block"), "at the end");
 }
 
 /// The status bar says which block the cursor is on, in the same shape and the
@@ -406,8 +411,10 @@ fn the_status_bar_names_the_block() {
     let mut p = lens_pager(80, 40);
     assert!(p.status_line().contains("block 1/3"), "{}", p.status_line());
     press(&mut p, "j");
+    assert!(p.status_line().contains("block 1/3"), "a body row is in its block");
+    key(&mut p, Key::Tab);
     assert!(p.status_line().contains("block 2/3"), "{}", p.status_line());
-    press(&mut p, "j");
+    key(&mut p, Key::Tab);
     let last = p.status_line();
     assert!(last.contains("agent"), "{last}");
     assert!(last.contains("record 4/4"), "{last}");

@@ -18,10 +18,11 @@
 //! else — search, folding, yanking, the status bar — keeps speaking records,
 //! and this module is the only place that translates.
 //!
-//! What everything above calls a **block** — the unit `j`/`k` move by and what
-//! the status bar counts (SPEC.md §Lenses) — is an item *while that item is
-//! shut*, and not the same count once one is open: a boundary descends into a
-//! run the reader has opened, so an open group is one item and `1 + count`
+//! What everything above calls a **block** — the unit `Tab`/`S-Tab` jump by,
+//! and what the status bar counts (SPEC.md §Lenses) — is an item *while that
+//! item is shut*, and not the same count once one is open: a boundary
+//! descends into a run the reader has opened, so an open group is one item
+//! and `1 + count`
 //! blocks. `item` survives here because it is this file's own arithmetic;
 //! `block` is the only word the reader, the keymap and the trait ever see.
 //! Count blocks with [`Plan::blocks_of_item`] or the `bstarts` prefix sum
@@ -142,7 +143,7 @@ pub struct Plan {
     /// `1 + count` while it is an open group, because a block boundary descends
     /// into a run the reader has opened ([`Plan::blocks_of_item`]). Kept as a
     /// prefix sum next to `starts`, and rebuilt by the same `sync`, so the block
-    /// index the status bar prints and the boundary `j` steps to are read off
+    /// index the status bar prints and the boundary `Tab` jumps to are read off
     /// one table rather than counted twice.
     bstarts: Vec<usize>,
     /// First index of `starts` that may be wrong.

@@ -118,9 +118,9 @@ OPTIONS
     -V, --version   Show the version and exit.
 
 KEYS
-    j/k d/u space/b g/G   scroll        h/l         scroll horizontally
-    Ctrl-E/Ctrl-Y         scroll a row  j/k         one block, under a lens
-    za Enter zM zR        collapse      Tab/S-Tab   next/prev heading
+    j/k                   one row       h/l         scroll horizontally
+    d/u space/b g/G       scroll        Tab/S-Tab   next/prev heading, or
+    za Enter zM zR        collapse                  block under a lens
     n \u{2190}/\u{2192}                 pick a link   Enter    follow / open
     Backspace             back
     o  i                  outline/index  / ?        search

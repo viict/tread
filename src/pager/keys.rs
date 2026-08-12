@@ -13,12 +13,11 @@ pub enum Action {
     Quit,
     /// Ctrl-C: leave immediately, without stepping back through the nav stack.
     ForceQuit,
-    /// `j` / `↓`: one block where the document reads in blocks, else one row.
+    /// `j` / `↓`: one visible row, in every format, always. A closed block is
+    /// one row, so a coarser default unit could only ever skip rows that are
+    /// on the screen.
     LineDown,
     LineUp,
-    /// `Ctrl-E` / `Ctrl-Y`: scroll one row, whatever the document's blocks are.
-    ScrollDown,
-    ScrollUp,
     HalfDown,
     HalfUp,
     PageDown,
@@ -117,29 +116,15 @@ use Action as A;
 pub const BINDINGS: &[Binding] = &[
     Binding {
         keys: "j / \u{2193}",
-        desc: "line down (one block where a document has them)",
+        desc: "one row down",
         action: A::LineDown,
         triggers: &[Trigger::c('j'), Trigger::k(Key::Down)],
     },
     Binding {
         keys: "k / \u{2191}",
-        desc: "line up (one block where a document has them)",
+        desc: "one row up",
         action: A::LineUp,
         triggers: &[Trigger::c('k'), Trigger::k(Key::Up)],
-    },
-    // The way through a block taller than the screen: why block motion can be
-    // the default unit without being the only one.
-    Binding {
-        keys: "Ctrl-E",
-        desc: "scroll one row down, blocks or no blocks",
-        action: A::ScrollDown,
-        triggers: &[Trigger::k(Key::Ctrl('e'))],
-    },
-    Binding {
-        keys: "Ctrl-Y",
-        desc: "scroll one row up, blocks or no blocks",
-        action: A::ScrollUp,
-        triggers: &[Trigger::k(Key::Ctrl('y'))],
     },
     Binding {
         keys: "d",
@@ -260,13 +245,13 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         keys: "Tab",
-        desc: "next heading",
+        desc: "next heading (next block under a lens)",
         action: A::NextHeading,
         triggers: &[Trigger::k(Key::Tab)],
     },
     Binding {
         keys: "S-Tab",
-        desc: "previous heading",
+        desc: "previous heading (previous block under a lens)",
         action: A::PrevHeading,
         triggers: &[Trigger::k(Key::BackTab)],
     },
@@ -383,9 +368,9 @@ pub fn lookup(prefix: Option<char>, ev: KeyEvent) -> Option<Action> {
     // A modifier no binding asked for means the press is not that binding:
     // `Ctrl-j` is not `j`. But a key that *is* a control key already says so in
     // `Key::Ctrl`, and the two decoders disagree about the modifier bits on it
-    // — a raw `0x19` carries none, kitty's `CSI u` sets `ctrl` — so rejecting
-    // on the bit alone would make `Ctrl-E` and `Ctrl-C` work on one terminal
-    // and be swallowed on another.
+    // — a raw `0x03` carries none, kitty's `CSI u` sets `ctrl` — so rejecting
+    // on the bit alone would make `Ctrl-C` work on one terminal and be
+    // swallowed on another.
     if (ev.mods.ctrl && !matches!(ev.key, Key::Ctrl(_))) || ev.mods.alt {
         return None;
     }
@@ -454,21 +439,17 @@ mod tests {
         assert_eq!(lookup(None, ctrl_j), None);
     }
 
-    /// The one-row keys, from both decoders. A raw `0x05` arrives as
-    /// `Key::Ctrl('e')` with no modifier bits; kitty's `CSI u` sends the same
+    /// A control key from both decoders. A raw `0x03` arrives as
+    /// `Key::Ctrl('c')` with no modifier bits; kitty's `CSI u` sends the same
     /// key *with* `ctrl` set, and both must reach the same binding — the hole
-    /// that would otherwise have swallowed `Ctrl-C` on one terminal and not
-    /// the other.
+    /// that swallowed `Ctrl-C` on one terminal and not the other.
     #[test]
-    fn the_one_row_keys_resolve_from_either_decoder() {
-        let raw = KeyEvent::plain(Key::Ctrl('e'));
-        assert_eq!(lookup(None, raw), Some(A::ScrollDown));
-        let kitty = KeyEvent::with(Key::Ctrl('e'), Mods { ctrl: true, ..Mods::NONE });
-        assert_eq!(lookup(None, kitty), Some(A::ScrollDown));
-        assert_eq!(lookup(None, KeyEvent::plain(Key::Ctrl('y'))), Some(A::ScrollUp));
-        let kitty_c = KeyEvent::with(Key::Ctrl('c'), Mods { ctrl: true, ..Mods::NONE });
-        assert_eq!(lookup(None, kitty_c), Some(A::ForceQuit));
-        // A chord prefix still gates them: `z` then Ctrl-E is nothing.
+    fn a_control_key_resolves_from_either_decoder() {
+        let raw = KeyEvent::plain(Key::Ctrl('c'));
+        assert_eq!(lookup(None, raw), Some(A::ForceQuit));
+        let kitty = KeyEvent::with(Key::Ctrl('c'), Mods { ctrl: true, ..Mods::NONE });
+        assert_eq!(lookup(None, kitty), Some(A::ForceQuit));
+        // A chord prefix still gates it: `z` then Ctrl-C is nothing.
         assert_eq!(lookup(Some('z'), raw), None);
     }
 
