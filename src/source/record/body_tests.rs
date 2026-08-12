@@ -23,7 +23,7 @@ fn texts(lines: &[Line]) -> Vec<String> {
 /// What the summary row paints, and what the body paints under it.
 fn split(b: &Body, width: usize, full: bool) -> (String, Vec<String>) {
     let head = first_line(b, b.text_in(None), width).unwrap_or_default();
-    (head, texts(&rows(b, b.text_in(None), width, full, 1)))
+    (head, texts(&rows(b, b.text_in(None), Shape::message(width), full, 1)))
 }
 
 #[test]
@@ -32,13 +32,13 @@ fn one_short_line_is_the_summary_row_and_nothing_under_it() {
     let (head, laid) = split(&b, 80, false);
     assert_eq!(head, "hello there");
     assert!(laid.is_empty(), "{laid:#?}");
-    assert_eq!(height(&b, &b.head, 80, false), 0);
+    assert_eq!(height(&b, &b.head, Shape::message(80), false), 0);
 }
 
 #[test]
 fn an_empty_message_has_no_rows_under_its_summary() {
     let b = body("");
-    assert_eq!(height(&b, &b.head, 80, false), 0);
+    assert_eq!(height(&b, &b.head, Shape::message(80), false), 0);
     // Nothing to wrap at all, so nothing on the summary row either — the actor
     // and the clock still name the record.
     assert_eq!(first_line(&b, &b.head, 80).unwrap_or_default(), "");
@@ -56,7 +56,7 @@ fn leading_blank_lines_do_not_swallow_the_headline() {
         // width is that the headline starts where the message says something.
         assert!(head.starts_with("AFTER_BL"), "{width}: {head:?}");
         assert!(!laid.iter().any(|r| r.trim().is_empty()), "{width}: {laid:#?}");
-        assert_eq!(height(&b, &b.head, width, false), laid.len(), "{width}");
+        assert_eq!(height(&b, &b.head, Shape::message(width), false), laid.len(), "{width}");
         // And past the width where this message needs the clip, nothing is
         // claimed to be missing: the blank lines cost the reader no rows.
         if width >= 40 {
@@ -94,7 +94,7 @@ fn text_wraps_to_the_width_less_the_indent() {
     assert_eq!(head, "alpha beta gamma");
     assert_eq!(laid.len(), 1);
     assert_eq!(laid[0].trim(), "delta epsilon");
-    assert_eq!(height(&b, &b.head, 40, false), laid.len());
+    assert_eq!(height(&b, &b.head, Shape::message(40), false), laid.len());
 }
 
 /// The defect this split exists to fix: the opening words were on the summary
@@ -117,8 +117,8 @@ fn the_first_line_is_never_painted_twice() {
 #[test]
 fn a_narrower_width_makes_a_taller_body() {
     let b = body("alpha beta gamma delta epsilon zeta eta theta");
-    let wide = height(&b, &b.head, 120, true);
-    let narrow = height(&b, &b.head, 40, true);
+    let wide = height(&b, &b.head, Shape::message(120), true);
+    let narrow = height(&b, &b.head, Shape::message(40), true);
     assert!(narrow > wide, "{narrow} should exceed {wide}");
 }
 
@@ -138,7 +138,7 @@ fn blank_lines_survive_because_someone_wrote_them() {
     let (head, laid) = split(&b, 80, true);
     assert_eq!(head, "one");
     assert_eq!(laid, vec![String::new(), format!("{}two", " ".repeat(INDENT))]);
-    assert_eq!(height(&b, &b.head, 80, true), 2);
+    assert_eq!(height(&b, &b.head, Shape::message(80), true), 2);
 }
 
 /// Six rows for the message: its summary row, and five under it.
@@ -146,7 +146,7 @@ fn blank_lines_survive_because_someone_wrote_them() {
 fn a_clip_stops_at_six_rows_and_states_the_rest() {
     let text = (1..=20).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n");
     let b = body(&text);
-    assert_eq!(height(&b, &b.head, 80, false), CLIP);
+    assert_eq!(height(&b, &b.head, Shape::message(80), false), CLIP);
     let (head, laid) = split(&b, 80, false);
     assert_eq!(head, "line 1");
     assert_eq!(laid.len(), CLIP);
@@ -164,13 +164,13 @@ fn opening_the_body_shows_every_line_and_says_nothing_more() {
     assert_eq!(head, "line 1");
     assert_eq!(laid.len(), 19);
     assert!(laid.last().unwrap().contains("line 20"));
-    assert_eq!(height(&b, &b.head, 80, true), 19);
+    assert_eq!(height(&b, &b.head, Shape::message(80), true), 19);
 }
 
 #[test]
 fn a_single_long_line_clipped_reports_what_is_left_in_bytes() {
     let b = body(&"word ".repeat(2000));
-    let laid = texts(&rows(&b, &b.head, 80, false, 1));
+    let laid = texts(&rows(&b, &b.head, Shape::message(80), false, 1));
     assert_eq!(laid.len(), CLIP);
     let note = laid[CLIP - 1].trim().to_string();
     assert!(note.starts_with("\u{22ef} +"), "{note}");
@@ -186,7 +186,7 @@ fn a_line_of_control_characters_still_says_what_the_clip_cut() {
     let mut text = "x".to_string();
     text.push_str(&"\t".repeat(1200));
     let b = body(&text);
-    let laid = texts(&rows(&b, b.text_in(None), 300, false, 1));
+    let laid = texts(&rows(&b, b.text_in(None), Shape::message(300), false, 1));
     let note = laid.last().unwrap().trim().to_string();
     assert!(note.starts_with("\u{22ef} +"), "the clip cut, so it must say so: {laid:#?}");
     assert!(note.ends_with("more"), "{note}");
@@ -200,7 +200,7 @@ fn a_clipped_line_counts_its_tail_in_the_message_s_own_bytes() {
     text.push_str(&"z".repeat(79));
     let b = body(&text);
     assert!(b.whole(), "the fixture fits the head");
-    let laid = texts(&rows(&b, &b.head, 100, false, 1));
+    let laid = texts(&rows(&b, &b.head, Shape::message(100), false, 1));
     let note = laid.last().unwrap().trim().to_string();
     assert!(note.starts_with("\u{22ef} +"), "{laid:#?}");
     let left: usize = note
@@ -221,7 +221,7 @@ fn a_clipped_line_counts_its_tail_in_the_message_s_own_bytes() {
 fn a_trailing_newline_is_not_a_line_that_was_left_out() {
     let b = body("aaa\nbbb\nccc\nddd\neee\nfff\n");
     for width in [40usize, 100, 200] {
-        let laid = texts(&rows(&b, &b.head, width, false, 1));
+        let laid = texts(&rows(&b, &b.head, Shape::message(width), false, 1));
         assert_eq!(laid.len(), 5, "{width}: {laid:#?}");
         assert!(
             !laid.iter().any(|r| r.trim().starts_with('\u{22ef}')),
@@ -236,7 +236,7 @@ fn a_message_that_fills_the_clip_exactly_says_nothing_more() {
     // Three lines, each wrapping to two rows at 40 columns (19 for the text).
     let line = "alpha beta gamma delta epsilon";
     let b = body(&[line, line, line].join("\n"));
-    let laid = texts(&rows(&b, &b.head, 40, false, 1));
+    let laid = texts(&rows(&b, &b.head, Shape::message(40), false, 1));
     assert_eq!(laid.len(), CLIP - 1, "{laid:#?}");
     assert!(!laid.iter().any(|r| r.trim().starts_with('\u{22ef}')), "{laid:#?}");
 }
@@ -245,13 +245,13 @@ fn a_message_that_fills_the_clip_exactly_says_nothing_more() {
 #[test]
 fn a_body_that_fits_does_not_claim_to_clip() {
     let short = body("hello there");
-    assert!(!clips(&short, &short.head, 80));
+    assert!(!clips(&short, &short.head, Shape::message(80)));
     let long = body(&(1..=20).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n"));
-    assert!(clips(&long, &long.head, 80));
+    assert!(clips(&long, &long.head, Shape::message(80)));
     // And width decides it: the same message clips when it is narrow enough.
     let wrapped = body("alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu");
-    assert!(!clips(&wrapped, &wrapped.head, 200));
-    assert!(clips(&wrapped, &wrapped.head, 30));
+    assert!(!clips(&wrapped, &wrapped.head, Shape::message(200)));
+    assert!(clips(&wrapped, &wrapped.head, Shape::message(30)));
 }
 
 #[test]
@@ -261,11 +261,11 @@ fn a_message_longer_than_the_head_says_so_even_when_it_is_open() {
     let text = (1..=600).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\n");
     let b = body(&text);
     assert!(!b.whole());
-    let laid = texts(&rows(&b, b.text_in(None), 80, true, 1));
+    let laid = texts(&rows(&b, b.text_in(None), Shape::message(80), true, 1));
     let note = laid.last().unwrap().trim().to_string();
     assert!(note.starts_with("\u{22ef} +"), "{note}");
     assert!(note.ends_with("lines"), "{note}");
-    assert_eq!(height(&b, b.text_in(None), 80, true), laid.len());
+    assert_eq!(height(&b, b.text_in(None), Shape::message(80), true), laid.len());
 }
 
 #[test]
@@ -290,8 +290,8 @@ fn the_height_is_always_the_number_of_rows_painted() {
         let b = body(text);
         for width in [20usize, 40, 80, 200] {
             for full in [false, true] {
-                let n = height(&b, b.text_in(None), width, full);
-                let painted = rows(&b, b.text_in(None), width, full, 1).len();
+                let n = height(&b, b.text_in(None), Shape::message(width), full);
+                let painted = rows(&b, b.text_in(None), Shape::message(width), full, 1).len();
                 assert_eq!(n, painted, "{width} full={full} {}", text.len());
             }
         }
@@ -311,8 +311,8 @@ fn the_height_and_the_rows_agree_at_every_width_and_length() {
         let b = body(&text);
         for width in [40usize, 92, 200] {
             for full in [false, true] {
-                let n = height(&b, b.text_in(None), width, full);
-                let painted = rows(&b, b.text_in(None), width, full, 1);
+                let n = height(&b, b.text_in(None), Shape::message(width), full);
+                let painted = rows(&b, b.text_in(None), Shape::message(width), full, 1);
                 assert_eq!(n, painted.len(), "{lines} lines, {width} cols, full={full}");
                 // And the summary row is the wrap's first row, never repeated
                 // below: one message, painted once.
@@ -333,8 +333,8 @@ fn the_height_and_the_rows_agree_at_every_width_and_length() {
 fn a_message_that_fits_the_summary_row_has_no_body_at_all() {
     let b = body("short enough");
     for width in [40usize, 92, 200] {
-        assert_eq!(height(&b, &b.head, width, false), 0, "{width}");
-        assert!(rows(&b, &b.head, width, false, 1).is_empty(), "{width}");
-        assert!(!clips(&b, &b.head, width), "{width}");
+        assert_eq!(height(&b, &b.head, Shape::message(width), false), 0, "{width}");
+        assert!(rows(&b, &b.head, Shape::message(width), false, 1).is_empty(), "{width}");
+        assert!(!clips(&b, &b.head, Shape::message(width)), "{width}");
     }
 }

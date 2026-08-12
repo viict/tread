@@ -317,3 +317,178 @@ fn a_step_never_carries_a_body() {
         assert!(sum.body.is_none(), "{json}");
     }
 }
+
+// -- the open level, and what this dialect can and cannot say about it -----------
+
+fn detail(json: &str) -> Vec<Part> {
+    Agent::default().detail(&crate::json::parse(json.as_bytes()).expect("fixture parses"))
+}
+
+/// The seam is not an ATIF special case: a Claude Code record's blocks are the
+/// same two things — text, and calls to tools.
+#[test]
+fn a_call_block_becomes_a_part_with_every_argument_it_was_given() {
+    let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"tool_use","id":"t1","name":"Bash",
+         "input":{"command":"cargo test","description":"run the suite","timeout":120}}]}}"#;
+    match detail(json).first().expect("a part") {
+        Part::Call { tool, arg, args, result } => {
+            assert_eq!(tool, "Bash");
+            assert_eq!(arg, "cargo test");
+            let names: Vec<&str> = args.iter().map(|(k, _)| k.as_str()).collect();
+            assert_eq!(names, vec!["command", "description", "timeout"]);
+            assert_eq!(args[2].1.head, "120");
+            assert!(
+                result.is_none(),
+                "the answer is a later record, and a path starts at the record it is in"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The other half of that pair: the result record carries the answer, and names
+/// the call when the ring still remembers it.
+#[test]
+fn a_result_record_carries_the_answer_and_names_its_call_while_it_can() {
+    let mut lens = Agent::default();
+    let call = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}"#;
+    let result = r#"{"type":"user","message":{"role":"user","content":[
+        {"type":"tool_result","tool_use_id":"t1","content":"a\nb\nc"}]}}"#;
+    lens.read(&crate::json::parse(call.as_bytes()).expect("fixture"));
+    let v = crate::json::parse(result.as_bytes()).expect("fixture");
+    match lens.detail(&v).first().expect("a part") {
+        Part::Call { tool, result, .. } => {
+            assert_eq!(tool, "Bash", "named after the call it answers");
+            let body = result.as_ref().expect("the output");
+            assert_eq!(body.lines, 3);
+            assert_eq!(
+                body.at,
+                vec![
+                    Step::Key("message"),
+                    Step::Key("content"),
+                    Step::At(0),
+                    Step::Key("content")
+                ],
+                "a string result is one node of this record"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    // A lens that has forgotten the call still shows the answer, and says
+    // `result` rather than guessing a tool.
+    match detail(result).first().expect("a part") {
+        Part::Call { tool, result, .. } => {
+            assert_eq!(tool, "result");
+            assert!(result.is_some(), "the output is never lost with the name");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// The block-array form of a result is several nodes joined, and no path
+/// addresses a join — so it is a bounded head that states its true size. Honest
+/// rather than whole, and never silent.
+#[test]
+fn a_block_array_result_is_a_head_that_knows_its_size() {
+    let json = r#"{"type":"user","message":{"role":"user","content":[
+        {"type":"tool_result","tool_use_id":"t9","content":[
+            {"type":"text","text":"one"},{"type":"text","text":"two"}]}]}}"#;
+    match detail(json).first().expect("a part") {
+        Part::Call { result, .. } => {
+            let body = result.as_ref().expect("the output");
+            assert_eq!(body.head, "one\ntwo");
+            assert!(body.at.is_empty(), "there is no single node to point at");
+            assert!(body.whole(), "and this one fits, so nothing is claimed to be missing");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// **Every** block of that array, not only the ones with a `text` key.
+///
+/// Keeping the text alone made the join — and so the `bytes` and `lines` the
+/// call row states — the size of what survived rather than of what came back:
+/// the clip then had nothing to report and an image beside the text was gone,
+/// unannounced. That is the silent case SPEC.md §Lenses forbids.
+#[test]
+fn a_block_that_is_not_text_is_still_in_the_result() {
+    let json = r#"{"type":"user","message":{"role":"user","content":[
+        {"type":"tool_result","tool_use_id":"t1","content":[
+            {"type":"text","text":"line one"},
+            {"type":"image","source":{"type":"base64","data":"AAAABBBBCCCC"}},
+            {"type":"text","text":"line two"}]}]}}"#;
+    match detail(json).first().expect("a part") {
+        Part::Call { result, .. } => {
+            let body = result.as_ref().expect("the output");
+            assert_eq!(body.lines, 3, "three blocks, three lines: {:?}", body.head);
+            assert!(body.head.contains("AAAABBBBCCCC"), "the image is there: {:?}", body.head);
+            assert_eq!(body.bytes, body.head.len(), "and the size is of all of it");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// An `input` that is not an object keeps what it said, exactly as `atif`'s
+/// `arguments` does — one list-reading, so the two dialects cannot disagree.
+#[test]
+fn an_input_that_is_not_an_object_is_shown_rather_than_dropped() {
+    let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"tool_use","id":"t1","name":"Bash","input":["cargo","test"]}]}}"#;
+    match detail(json).first().expect("a part") {
+        Part::Call { args, .. } => {
+            assert_eq!(args.len(), 1, "{args:?}");
+            assert_eq!(args[0].0, crate::lens::part::RAW_ARGS);
+            assert_eq!(args[0].1.head, r#"["cargo","test"]"#);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Thinking is text. A record whose only content is a thought puts it under the
+/// row, exactly as a message goes under a message's row.
+#[test]
+fn a_thinking_only_record_shows_what_it_was_thinking() {
+    let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"thinking","thinking":"the fixture moved\nso the path is what fails","signature":"x"}]}}"#;
+    let sum = read(json).expect("recognised");
+    assert_eq!(sum.class, Class::Step);
+    assert_eq!(sum.what, "thinking");
+    let body = sum.body.expect("the thought is under the row");
+    assert_eq!(body.lines, 2);
+    assert!(!detail(json).iter().any(|p| matches!(p, Part::Text { .. })), "not twice");
+}
+
+/// Beside a message the thought has nowhere else to go, and becomes a part.
+/// So does a second text block, which the row could only ever excerpt.
+#[test]
+fn text_a_row_could_not_hold_becomes_a_part() {
+    let json = r#"{"type":"assistant","message":{"role":"assistant","content":[
+        {"type":"text","text":"first"},
+        {"type":"thinking","thinking":"a thought","signature":"x"},
+        {"type":"text","text":"second"}]}}"#;
+    let sum = read(json).expect("recognised");
+    assert_eq!(sum.body.expect("the first text block").head, "first");
+    let parts = detail(json);
+    let labels: Vec<&str> = parts
+        .iter()
+        .filter_map(|p| match p {
+            Part::Text { label, .. } => Some(*label),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(labels, vec!["thinking", "message"], "in the record's own order");
+    match &parts[1] {
+        Part::Text { body, .. } => assert_eq!(body.head, "second"),
+        other => panic!("{other:?}"),
+    }
+}
+
+/// A record with no blocks at all — a typed prompt, a bookkeeping row — has no
+/// parts, and the ladder there is one rung shorter.
+#[test]
+fn a_record_with_no_blocks_has_no_parts() {
+    assert!(detail(r#"{"type":"user","message":{"role":"user","content":"just typing"}}"#).is_empty());
+    assert!(detail(r#"{"type":"mode","mode":"plan"}"#).is_empty());
+}

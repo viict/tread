@@ -45,6 +45,11 @@
 #[path = "tests.rs"]
 mod tests;
 
+/// The three levels a record has under a lens, driven through the seam.
+#[cfg(test)]
+#[path = "level_tests.rs"]
+mod level_tests;
+
 use std::cell::RefCell;
 use std::io;
 use std::path::Path;

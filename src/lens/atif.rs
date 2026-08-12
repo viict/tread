@@ -36,7 +36,10 @@
 //! does not recognise returns `None` and renders as the generic tree.
 #![deny(unsafe_code)]
 
-use super::{excerpt, record_clock, Body, Class, Lens, RecordsAt, Step, Summary, Who, ARG, EXCERPT};
+use super::{
+    excerpt, part, record_clock, Body, Class, Lens, Part, RecordsAt, Step, Summary, Who, ARG,
+    EXCERPT,
+};
 use crate::json::Value;
 
 pub const NAME: &str = "atif";
@@ -75,6 +78,52 @@ impl Lens for Atif {
             Some(_) => step(v),
             None => session(v),
         }
+    }
+
+    /// A step's parts: its thinking when the row's body is the message rather
+    /// than the thought, then one part per tool call with the result it was
+    /// answered by.
+    ///
+    /// Everything here is **inside this record** — ATIF matches a result to its
+    /// call by `source_call_id` within the step — so every path resolves and
+    /// nothing is guessed. The session record (record 0) has no parts: it is an
+    /// envelope, and `Enter` on it opens the envelope.
+    fn detail(&self, v: &Value) -> Vec<Part> {
+        if v.get("step_id").is_none() {
+            return Vec::new();
+        }
+        let mut out: Vec<Part> = Vec::new();
+        // The thought is a part only when it is not already the body under the
+        // row: a step that said nothing shows its thinking there, and painting
+        // it twice would be the one thing a reader cannot un-see.
+        if !thought_is_body(v) {
+            if let Some(body) = thought_body(v) {
+                out.push(Part::Text { label: "thinking", body });
+            }
+        }
+        let mut results = results_of(v);
+        for call in calls_of(v) {
+            let result = take_result(&mut results, call.id.as_deref()).and_then(|at| result_body(v, at));
+            let args = args_of(v, &call);
+            out.push(Part::Call {
+                tool: call.name,
+                arg: call.arg.unwrap_or_default(),
+                args,
+                result,
+            });
+        }
+        // A result no call claimed is still a result. It gets a part of its own
+        // rather than being counted and dropped, because at this level there is
+        // room to show it (SPEC.md §Lenses: every byte stays reachable).
+        for (_, at) in results {
+            out.push(Part::Call {
+                tool: "result".to_string(),
+                arg: String::new(),
+                args: Vec::new(),
+                result: result_body(v, at),
+            });
+        }
+        out
     }
 }
 
@@ -159,7 +208,7 @@ fn worked(source: &str, v: &Value, thinking: bool, calls: Vec<Call>) -> Summary 
     }
     for call in &calls {
         let answer = match take_result(&mut results, call.id.as_deref()) {
-            Some(text) => format!(" \u{2192} {text}"),
+            Some(at) => format!(" \u{2192} {}", size_of(result_content(v, at))),
             None => String::new(),
         };
         parts.push(format!("{}{answer}", call.text()));
@@ -184,10 +233,30 @@ fn worked(source: &str, v: &Value, thinking: bool, calls: Vec<Call>) -> Summary 
         time: None,
         what: collapse(parts).join(" \u{b7} "),
         calls: n,
-        // Mechanics stay one line: a step has no body, which is also what keeps
-        // a folded run exactly as tall as the steps inside it.
-        body: None,
+        // Reasoning is text, so it is shown: a step that only thought puts the
+        // thought under its row, clipped, the way a message puts what was said
+        // there. The row keeps saying what the step *did* — the body goes
+        // wholly underneath rather than splitting across the two.
+        body: thought_body(v),
     }
+}
+
+/// The model's thinking on this step, as a body.
+fn thought_body(v: &Value) -> Option<Body> {
+    let text = v.get("reasoning_content")?.as_str()?;
+    match text.trim().is_empty() {
+        true => None,
+        false => Some(Body::new(text, vec![Step::Key("reasoning_content")])),
+    }
+}
+
+/// Is the thought the body under this step's row? True exactly when the step
+/// said nothing else — which is the same test [`step`] makes when it chooses
+/// between [`spoken`] and [`worked`], and it is made in one place because two
+/// answers would paint the thinking twice or not at all.
+fn thought_is_body(v: &Value) -> bool {
+    let said = v.get("message").and_then(|m| m.as_str()).unwrap_or("");
+    said.trim().is_empty()
 }
 
 /// Who a step is attributed to. An unknown `source` reads as the assistant
@@ -205,6 +274,9 @@ struct Call {
     name: String,
     arg: Option<String>,
     id: Option<String>,
+    /// Which element of `tool_calls` this is — the way back to its arguments
+    /// when the reader opens the call.
+    at: usize,
 }
 
 impl Call {
@@ -224,10 +296,12 @@ fn calls_of(v: &Value) -> Vec<Call> {
     };
     items
         .iter()
-        .map(|c| Call {
+        .enumerate()
+        .map(|(at, c)| Call {
             name: text(c, "function_name").unwrap_or_else(|| "tool".to_string()),
             arg: arg_of(c),
             id: text(c, "tool_call_id"),
+            at,
         })
         .collect()
 }
@@ -257,36 +331,114 @@ fn arg_of(call: &Value) -> Option<String> {
     None
 }
 
-/// `(source_call_id, what came back)` for every result on this step.
-fn results_of(v: &Value) -> Vec<(Option<String>, String)> {
-    let Some(items) = v
-        .get("observation")
-        .and_then(|o| o.get("results"))
-        .and_then(|r| r.as_array())
-    else {
+/// `(source_call_id, which result it is)` for every result on this step.
+///
+/// The *index* rather than the text, because both readings of a result start
+/// from it: the row wants its size, and the open level wants a [`Body`] whose
+/// path is `observation.results[at].content`.
+fn results_of(v: &Value) -> Vec<(Option<String>, usize)> {
+    let Some(items) = results_array(v) else {
         return Vec::new();
     };
     items
         .iter()
-        .map(|r| (text(r, "source_call_id"), size_of(r.get("content"))))
+        .enumerate()
+        .map(|(at, r)| (text(r, "source_call_id"), at))
         .collect()
+}
+
+fn results_array(v: &Value) -> Option<&[Value]> {
+    v.get("observation")?.get("results")?.as_array()
+}
+
+/// The content of result `at`, when the step has one there.
+///
+/// An explicit `null` reads as absent, which is what this dialect means by it
+/// everywhere else: the call was answered and the answer said nothing. Both
+/// readings of a result come through here, so the row and the open level cannot
+/// disagree about whether there is one.
+fn result_content(v: &Value, at: usize) -> Option<&Value> {
+    match results_array(v)?.get(at)?.get("content")? {
+        Value::Null => None,
+        content => Some(content),
+    }
 }
 
 /// The result a call is owed, removed from the list so a second call with the
 /// same id cannot claim it twice. Matching is *within the step*, which is where
 /// every answer sat in the trajectory this was written against; an id that
 /// matches nothing is left in the list and counted rather than attached.
-fn take_result(results: &mut Vec<(Option<String>, String)>, id: Option<&str>) -> Option<String> {
+fn take_result(results: &mut Vec<(Option<String>, usize)>, id: Option<&str>) -> Option<usize> {
     let id = id?;
     let at = results.iter().position(|(k, _)| k.as_deref() == Some(id))?;
     Some(results.remove(at).1)
 }
 
+/// Every argument of one call, in the record's own order, each value as text.
+///
+/// [`part::args_of`] does the reading, so `atif` and `agent` cannot disagree
+/// about what an argument list is — including the shapes the schema does not
+/// promise: an `arguments` that is an array, or a JSON-encoded string streaming
+/// cut in half, becomes one `arguments` row holding what the file said rather
+/// than vanishing.
+fn args_of(v: &Value, call: &Call) -> Vec<(String, Body)> {
+    match call_arguments(v, call.at) {
+        Some(args) => part::args_of(&args),
+        None => Vec::new(),
+    }
+}
+
+/// The `arguments` of call `at`, decoded when the wire format wrote them as a
+/// JSON-encoded string.
+///
+/// Returns an owned value in that case, which is why this cannot hand back a
+/// borrow into the record and why an argument's `Body` has no path: the object
+/// an argument would be addressed through may not exist in the record at all.
+///
+/// A string that does **not** parse is handed back as the string it is. It is
+/// still what the call was made with, and a truncated `arguments` is exactly
+/// the case a reader opened the level to look at.
+fn call_arguments(v: &Value, at: usize) -> Option<Value> {
+    let raw = v.get("tool_calls")?.as_array()?.get(at)?.get("arguments")?;
+    match raw.as_str() {
+        Some(text) => Some(crate::json::parse(text.as_bytes()).unwrap_or_else(|_| raw.clone())),
+        None => Some(raw.clone()),
+    }
+}
+
+/// What result `at` returned, as a body — path and all, because a result *is*
+/// one string node of this record and opening the call reads the whole of it
+/// back out of the record being painted.
+fn result_body(v: &Value, at: usize) -> Option<Body> {
+    let content = result_content(v, at)?;
+    let text = match content.as_str() {
+        Some(s) => s.to_string(),
+        // A result that is not a string is shown as the JSON it is, and there
+        // is then no single string node to path back to.
+        None => return Some(Body::new(&content.to_json(), Vec::new())),
+    };
+    Some(Body::new(
+        &text,
+        vec![
+            Step::Key("observation"),
+            Step::Key("results"),
+            Step::At(at),
+            Step::Key("content"),
+        ],
+    ))
+}
+
 /// How much a tool returned: `42 lines`, or the size when it is one long line.
+///
+/// A `content` that is not a string is measured as the JSON it is, because that
+/// is exactly what [`result_body`] shows one rung down. Saying `ok` here while
+/// the call row under it said `→ 55 bytes` put two different sizes for one
+/// result on the screen at once, and SPEC.md §Lenses asks for the true one.
 fn size_of(content: Option<&Value>) -> String {
-    let Some(text) = content.and_then(|c| c.as_str()) else {
+    let Some(content) = content else {
         return "ok".to_string();
     };
+    let text = part::as_text(content);
     if text.is_empty() {
         return "empty".to_string();
     }
@@ -337,3 +489,7 @@ fn text(v: &Value, key: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "atif_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "atif_parts_tests.rs"]
+mod parts_tests;

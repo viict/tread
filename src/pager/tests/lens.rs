@@ -83,8 +83,11 @@ fn a_message_s_first_line_is_on_the_screen_exactly_once() {
     assert_eq!(hits, 1, "{open:#?}");
 }
 
+/// The ladder (SPEC.md §Lenses): `za` descends one rung a press and wraps.
+/// Three presses, not two — the raw record is a rung of its own now, and the
+/// third press is what comes back to the clip.
 #[test]
-fn za_opens_the_whole_message_and_shuts_it_again() {
+fn za_descends_a_rung_a_press_and_comes_back_to_the_clip() {
     let mut p = lens_pager(80, 40);
     let clipped = p.line_count();
     press(&mut p, "za");
@@ -92,8 +95,17 @@ fn za_opens_the_whole_message_and_shuts_it_again() {
     assert!(p.line_count() > clipped, "the body grew");
     assert!(open.iter().any(|r| r == "line 12 of what was said"), "{open:#?}");
     assert!(!open.iter().any(|r| r.starts_with('\u{22ef}')), "nothing left to say");
+
     press(&mut p, "za");
-    assert_eq!(p.line_count(), clipped, "and it clips again");
+    let tree = p.visible_text();
+    assert!(tree.iter().any(|r| r.contains("\"type\"")), "the record itself: {tree:#?}");
+    assert!(
+        !tree.iter().any(|r| r == "line 12 of what was said"),
+        "and what was said is back to its clip: {tree:#?}"
+    );
+
+    press(&mut p, "za");
+    assert_eq!(p.line_count(), clipped, "and round to the clip");
 }
 
 /// `Enter` on a message row is the same key as `za` — it reaches the body

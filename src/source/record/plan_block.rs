@@ -79,9 +79,17 @@ impl Plan {
         if !it.is_group() || !it.open || off == 0 {
             return Some(base);
         }
+        // Whatever kind of row it is — the member's own, a row of what it said,
+        // one of its parts, one of its tree — it belongs to *that member's*
+        // block. Naming only `Spot::Record` here was right only while a member
+        // had nothing under it: once a step shows its reasoning, the rows in
+        // between were attributed to the run and `j` walked backwards out of
+        // them.
         match self.inside(it, off - 1, map) {
-            Spot::Record { record, .. } => Some(base + 1 + (record - it.first)),
-            _ => Some(base),
+            Spot::Record { record, .. }
+            | Spot::Body { record, .. }
+            | Spot::Part { record, .. } => Some(base + 1 + (record - it.first)),
+            Spot::Group { .. } => Some(base),
         }
     }
 

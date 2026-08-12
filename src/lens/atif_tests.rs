@@ -247,8 +247,12 @@ fn a_result_says_how_much_came_back() {
     assert_eq!(one(r#""a\nb""#), "t(c) \u{2192} 2 lines");
     assert_eq!(one(r#""hello""#), "t(c) \u{2192} 5 bytes");
     assert_eq!(one(r#""""#), "t(c) \u{2192} empty");
-    assert_eq!(one("null"), "t(c) \u{2192} ok");
-    assert_eq!(one(r#"{"a":1}"#), "t(c) \u{2192} ok");
+    assert_eq!(one("null"), "t(c) \u{2192} ok", "null reads as absent, as it does everywhere here");
+    // A structured result is measured as the JSON it is, because that is what
+    // the open level shows one rung down. `ok` there was not a size, and the
+    // two rows sit on the screen together (SPEC.md §Lenses: "the sizes a level
+    // states are the true ones").
+    assert_eq!(one(r#"{"a":1}"#), "t(c) \u{2192} 7 bytes");
 }
 
 // -- what a trajectory actually throws at it ------------------------------------
@@ -370,3 +374,4 @@ fn a_huge_message_is_kept_as_a_head_and_a_path() {
     // What it costs is bounded by the head, not by what was said.
     assert!(body.head.len() + body.at.len() * 16 < 2 * crate::lens::BODY_KEEP);
 }
+

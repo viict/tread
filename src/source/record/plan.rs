@@ -52,7 +52,7 @@
 //! Nothing here parses, reads a file, names a record format, or recurses.
 #![deny(unsafe_code)]
 
-use crate::lens::{Body, Class, Lens, Summary};
+use crate::lens::{Lens, Summary};
 
 use super::rowmap::RowMap;
 
@@ -67,9 +67,6 @@ pub struct Item {
     pub step: bool,
     /// Open, when this is a group. Meaningless on an item of one.
     pub open: bool,
-    /// The message under this row is shown whole rather than clipped.
-    /// Meaningless on anything but a message.
-    pub full: bool,
 }
 
 impl Item {
@@ -92,6 +89,14 @@ pub enum Spot {
     Record { record: usize, sub: usize },
     /// Row `line` of the message under a record's summary row.
     Body { record: usize, line: usize },
+    /// Row `line` of the record's **parts** — the level between what was said
+    /// and the raw tree: its tool calls, listed as tool calls, each of which
+    /// opens into its arguments and its output.
+    ///
+    /// A fourth variant rather than more `sub`, for the reason [`Spot::Record`]
+    /// gives: `sub` has meant "row `sub - 1` of the tree" since before there
+    /// were bodies, and every caller's `sub > 0` would have gone quietly wrong.
+    Part { record: usize, line: usize },
     /// A group's own row.
     Group { item: usize },
 }
@@ -102,10 +107,35 @@ pub struct Plan {
     /// did not recognise: it keeps its own row and renders as the generic tree.
     seen: Vec<Option<Summary>>,
     items: Vec<Item>,
-    /// Rows the message under item `i` occupies at [`Plan::width`], `0` for an
-    /// item with no message. Held rather than recomputed because `own` is asked
-    /// per painted row and a wrap is O(message).
-    body: Vec<usize>,
+    /// Rows record `r` shows **under its own summary row**, at [`Plan::width`]:
+    /// its body, then its parts. One entry per classified record rather than
+    /// per item, because a member of an open run has them too — a step's
+    /// reasoning is text and is shown wherever the step is.
+    ///
+    /// Held rather than recomputed because `own` is asked per painted row and a
+    /// wrap is O(text).
+    under: Vec<Under>,
+    /// Which records are at the **open** level, as exceptions to
+    /// [`Plan::all_full`] — the "default plus what disagrees" shape the fold
+    /// state uses, which is what lets one record clip again after `zR`.
+    exc: Vec<bool>,
+    /// The call rows the reader has opened: `(record, part)`. Exceptions again,
+    /// so this is as long as what was opened and not as long as the file.
+    open_parts: Vec<(usize, usize)>,
+    /// The under-rows of the **members of open runs**, as a second prefix sum
+    /// beside the tree one.
+    ///
+    /// A group's own rows are `1 + count` and [`Plan::inside`] places its
+    /// members one row apart; a member that shows its reasoning underneath
+    /// breaks both. Rather than a third arithmetic, a member's extra rows get
+    /// exactly the treatment a member's *tree* rows already get — attributed at
+    /// that record's index, added on top by a prefix sum, and closed when the
+    /// record is hidden. `own`, `inside`, `row_of_record` and `blocks_of_item`
+    /// therefore keep the shape they had.
+    extra: RowMap,
+    /// Groups opened since the last measurement, for the caller to re-measure:
+    /// a member's rows need a width and a record, and this module has neither.
+    pending: Vec<usize>,
     /// Own rows of every item before this one — no tree rows in it.
     starts: Vec<usize>,
     /// Blocks before item `i`. An item is one block while it is shut and
@@ -119,8 +149,24 @@ pub struct Plan {
     dirty: usize,
     /// Columns the bodies were laid out for.
     width: usize,
-    /// Every body is shown whole: what a dump is, and what `zR` leaves behind.
+    /// Every record is at the open level: what a dump is, and what `zR` leaves
+    /// behind.
     all_full: bool,
+}
+
+/// The rows one record shows under its own summary row.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Under {
+    /// Rows of the record's own text: what was said, or what it was thinking.
+    pub body: usize,
+    /// Rows of its parts: the tool calls, and whichever one is opened.
+    pub parts: usize,
+}
+
+impl Under {
+    fn rows(self) -> usize {
+        self.body + self.parts
+    }
 }
 
 impl Plan {
@@ -129,7 +175,11 @@ impl Plan {
             lens,
             seen: Vec::new(),
             items: Vec::new(),
-            body: Vec::new(),
+            under: Vec::new(),
+            exc: Vec::new(),
+            open_parts: Vec::new(),
+            extra: RowMap::default(),
+            pending: Vec::new(),
             starts: Vec::new(),
             bstarts: Vec::new(),
             dirty: 0,
@@ -157,21 +207,14 @@ impl Plan {
         if record != self.seen.len() {
             return;
         }
-        let mut sum = value.and_then(|v| self.lens.read(v));
-        let step = matches!(sum, Some(Summary { class: Class::Step, .. }));
-        // Mechanics stay one line, whatever a dialect put on them. The
-        // invariant is load-bearing rather than decorative: a group's members
-        // are steps, and `inside` places them one row apart.
-        if step {
-            if let Some(s) = sum.as_mut() {
-                s.body = None;
-            }
-        }
+        let sum = value.and_then(|v| self.lens.read(v));
+        let step = matches!(sum, Some(Summary { class: crate::lens::Class::Step, .. }));
         self.seen.push(sum);
+        self.under.push(Under::default());
+        self.exc.push(false);
         let extends = matches!(self.items.last(), Some(last) if last.step && step);
         if !extends {
-            self.items.push(Item { first: record, count: 1, step, open: false, full: false });
-            self.body.push(0);
+            self.items.push(Item { first: record, count: 1, step, open: false });
             self.mark(self.items.len() - 1);
             return;
         }
@@ -187,11 +230,15 @@ impl Plan {
         // away an expansion the reader can see (and can never get back, since
         // classification only ever runs once per record).
         if !open {
-            map.close(record);
+            self.hide(record, map);
             if grouped {
-                map.close(first);
+                self.hide(first, map);
             }
+            return;
         }
+        // A record joining a run the reader has open is visible at once, so its
+        // own rows have to be measured before anything asks for a row.
+        self.pending.push(at);
     }
 
     pub fn items(&self) -> &[Item] {
@@ -207,138 +254,31 @@ impl Plan {
         self.seen.get(record).and_then(|s| s.as_ref())
     }
 
-    // -- bodies -----------------------------------------------------------------
-
-    /// The message under item `i`, and whether it is shown whole. `None` for a
-    /// group, a step and an unread record: the three with no message under them.
-    pub fn body_at(&self, item: usize) -> Option<(&Body, bool)> {
-        let it = self.items.get(item)?;
-        if it.is_group() {
-            return None;
-        }
-        let body = self.summary(it.first)?.body.as_ref()?;
-        Some((body, it.full != self.all_full))
-    }
-
-    /// Rows the message under item `i` occupies at the current width.
-    pub fn body_rows(&self, item: usize) -> usize {
-        self.body.get(item).copied().unwrap_or(0)
-    }
-
-    /// Tell the plan how tall item `i`'s message is. The measurement is the
-    /// caller's because a message longer than [`crate::lens::BODY_KEEP`] is
-    /// only whole inside the record, and this module never reads one.
-    pub fn set_body(&mut self, item: usize, rows: usize) {
-        if self.body.get(item).copied() == Some(rows) {
-            return;
-        }
-        if let Some(slot) = self.body.get_mut(item) {
-            *slot = rows;
-            self.mark(item);
-        }
-    }
-
-    /// Columns the bodies are laid out for.
-    pub fn width(&self) -> usize {
-        self.width
-    }
-
-    /// A new layout width. True when it changed — the caller's cue to re-measure
-    /// every body before asking a row question, since a body is wrapped and a
-    /// resize therefore moves rows in a way no fold does.
-    pub fn set_width(&mut self, cols: usize) -> bool {
-        let cols = cols.max(1);
-        if self.width == cols {
-            return false;
-        }
-        self.width = cols;
-        self.mark(0);
-        true
-    }
-
-    /// Show item `i`'s message whole, or clipped again. True when it changed.
-    ///
-    /// [`Item::full`] is an *exception* to [`Plan::all_full`] rather than a
-    /// state of its own — the "default plus what disagrees with it" shape the
-    /// fold state uses — which is what lets one body shut again after `zR`.
-    pub fn set_full(&mut self, item: usize, full: bool) -> bool {
-        let all = self.all_full;
-        let Some(it) = self.items.get_mut(item) else {
-            return false;
-        };
-        if (it.full != all) == full {
-            return false;
-        }
-        it.full = !it.full;
-        self.mark(item);
-        true
-    }
-
-    /// Every message whole (a dump, and what `zR` leaves behind), or every
-    /// message back to its clip. Exceptions are dropped either way: this is
-    /// "everything, now".
-    pub fn set_all_full(&mut self, full: bool) {
-        self.all_full = full;
-        for it in &mut self.items {
-            it.full = false;
-        }
-        self.mark(0);
-    }
-
-    /// Open or close a group. Closing closes the trees of the records it hides.
-    pub fn set_open(&mut self, item: usize, open: bool, map: &mut RowMap) -> bool {
-        let Some(it) = self.items.get_mut(item) else {
-            return false;
-        };
-        if !it.is_group() || it.open == open {
-            return false;
-        }
-        it.open = open;
-        let (first, count) = (it.first, it.count);
-        if !open {
-            for r in first..first + count {
-                map.close(r);
-            }
-        }
-        self.mark(item);
-        true
-    }
-
-    /// Close every group.
-    pub fn close_all(&mut self, map: &mut RowMap) {
-        for i in 0..self.items.len() {
-            self.set_open(i, false, map);
-        }
-    }
-
-    /// Open every group up to and including the one on `row`, so `zR` opens
-    /// what the reader can see rather than parsing the whole file.
-    pub fn open_upto(&mut self, upto_row: usize, map: &mut RowMap) {
-        for i in 0..self.items.len() {
-            // Each opening moves everything after it, so the totals are
-            // brought up to date before the next item is placed.
-            self.sync();
-            if self.row_of_item(i, map) > upto_row {
-                return;
-            }
-            self.set_open(i, true, map);
-        }
-        self.sync();
-    }
-
     // -- row arithmetic ---------------------------------------------------------
 
-    /// Own rows of item `i`: its summary row, the message under it, and one per
-    /// member record when it is an open group.
+    /// Own rows of item `i`: its summary row, whatever that record shows under
+    /// it, and one per member record when it is an open group.
     ///
-    /// A group has no message of its own and its members are steps, which is
-    /// what keeps [`Plan::inside`] one row per member.
+    /// A **group** owns one row per member and nothing more, whatever those
+    /// members show underneath: a member's own rows are the [`Plan::extra`]
+    /// prefix sum's, exactly as its tree rows are the [`RowMap`]'s. That is what
+    /// keeps [`Plan::inside`] and [`Plan::blocks_of_item`] the shape they were.
     fn own(&self, i: usize) -> usize {
         match self.items.get(i) {
-            Some(it) if it.is_group() && it.open => 1 + it.count,
-            Some(_) => 1 + self.body_rows(i),
+            Some(it) if it.is_group() => match it.open {
+                true => 1 + it.count,
+                false => 1,
+            },
+            Some(it) => 1 + self.under_rows(it.first),
             None => 0,
         }
+    }
+
+    /// Rows spliced in before `record` by everything that opens: the trees the
+    /// reader expanded, and the under-rows of the members of open runs. The one
+    /// place the two prefix sums are added, so no caller can add only one.
+    fn before(&self, record: usize, map: &RowMap) -> usize {
+        map.extra_before(record) + self.extra.extra_before(record)
     }
 
     /// Recompute [`Plan::starts`] from the first dirty item, exactly as
@@ -386,7 +326,7 @@ impl Plan {
             0 => 0,
             n => starts[n - 1] + self.own(n - 1),
         };
-        own + map.extra_before(self.seen.len())
+        own + self.before(self.seen.len(), map)
     }
 
     /// Rows in the document: the classified prefix, plus one per record the
@@ -399,7 +339,7 @@ impl Plan {
     pub fn row_of_item(&self, i: usize, map: &RowMap) -> usize {
         let starts = self.settle();
         match (starts.get(i), self.items.get(i)) {
-            (Some(start), Some(it)) => start + map.extra_before(it.first),
+            (Some(start), Some(it)) => start + self.before(it.first, map),
             _ => 0,
         }
     }
@@ -419,8 +359,8 @@ impl Plan {
             (true, false) => base,
             (true, true) => {
                 let inside = record - it.first;
-                let trees = map.extra_before(record) - map.extra_before(it.first);
-                base + 1 + inside + trees
+                let under = self.before(record, map) - self.before(it.first, map);
+                base + 1 + inside + under
             }
             (false, _) => base,
         }
@@ -439,14 +379,7 @@ impl Plan {
         let off = row - base;
         let it = &self.items[i];
         if !it.is_group() {
-            // Summary row, then the message, then the record's own tree: the
-            // order they are painted in, and the one `own` counted.
-            let body = self.body_rows(i);
-            return match off {
-                0 => Spot::Record { record: it.first, sub: 0 },
-                n if n <= body => Spot::Body { record: it.first, line: n - 1 },
-                n => Spot::Record { record: it.first, sub: n - body },
-            };
+            return self.place(it.first, off);
         }
         if !it.open || off == 0 {
             return Spot::Group { item: i };
@@ -454,24 +387,39 @@ impl Plan {
         self.inside(it, off - 1, map)
     }
 
-    /// A row inside an open group: which member, and how far into its tree.
+    /// Where a record's own `sub`-th row falls: its summary row, then what was
+    /// said, then its parts, then its tree.
+    ///
+    /// **The** order, and the only statement of it: a message and a step inside
+    /// an open run are placed by this same function, so the two cannot drift.
+    fn place(&self, record: usize, sub: usize) -> Spot {
+        let u = self.under_of(record);
+        match sub {
+            0 => Spot::Record { record, sub: 0 },
+            n if n <= u.body => Spot::Body { record, line: n - 1 },
+            n if n <= u.rows() => Spot::Part { record, line: n - u.body - 1 },
+            n => Spot::Record { record, sub: n - u.rows() },
+        }
+    }
+
+    /// A row inside an open group: which member, and how far into that member.
     fn inside(&self, it: &Item, off: usize, map: &RowMap) -> Spot {
-        let before = map.extra_before(it.first);
+        let before = self.before(it.first, map);
         // Rows consumed by members `first..k` is `(k - first) + trees`, which
         // only grows: one binary search rather than a walk, because a group can
         // be hundreds of records long and this runs per painted row.
         let (mut lo, mut hi) = (0usize, it.count);
         while lo < hi {
             let mid = (lo + hi).div_ceil(2);
-            let used = mid + (map.extra_before(it.first + mid) - before);
+            let used = mid + (self.before(it.first + mid, map) - before);
             match used <= off {
                 true => lo = mid,
                 false => hi = mid - 1,
             }
         }
         let record = it.first + lo;
-        let used = lo + (map.extra_before(record) - before);
-        Spot::Record { record, sub: off - used }
+        let used = lo + (self.before(record, map) - before);
+        self.place(record, off - used)
     }
 
 }
@@ -493,6 +441,23 @@ pub fn group_first(id: &str) -> Option<usize> {
 #[path = "plan_block.rs"]
 mod block;
 
+/// What a record shows under its own row — the level it is at, its measured
+/// heights, and which of its calls is open. A child module for the same reason
+/// as `plan_block.rs`: it is this file's own state, and splitting it out is what
+/// keeps both under the size limit.
+#[path = "plan_rows.rs"]
+mod rows;
+
+/// The double both test files are built on. One copy, so the two halves of the
+/// arithmetic cannot be checked against two different plans.
+#[cfg(test)]
+#[path = "plan_fixture.rs"]
+mod fixture;
+
 #[cfg(test)]
 #[path = "plan_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "plan_level_tests.rs"]
+mod level_tests;

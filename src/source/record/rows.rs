@@ -62,6 +62,7 @@ impl<S: Store> RecordSource<S> {
         match self.spot(row) {
             Spot::Group { item } => Some(self.group_row(item)),
             Spot::Body { record, line } => self.with_body(record, |rows| rows.get(line).cloned()),
+            Spot::Part { record, line } => self.with_parts(record, |laid| laid.rows.get(line).cloned()),
             Spot::Record { record, sub } => match sub {
                 0 => Some(self.summary_row(record)),
                 n => self.with_tree(record, |rows| rows.get(n - 1).cloned()),
@@ -129,8 +130,9 @@ impl<S: Store> RecordSource<S> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
             // A body row is the record talking; the value under the cursor
-            // there is the record, exactly as on its summary row.
-            Spot::Body { record, .. } => (record, 0),
+            // there is the record, exactly as on its summary row. A part row is
+            // the record doing something, which is the same answer.
+            Spot::Body { record, .. } | Spot::Part { record, .. } => (record, 0),
             // A group's row stands for the run it holds; the value under the
             // cursor there is its first record.
             Spot::Group { item } => (self.item_first(item), 0),
@@ -204,15 +206,22 @@ impl<S: Store> RecordSource<S> {
         self.body_laid.borrow_mut().take();
     }
 
-    /// Re-lay one body — what a toggle of that message costs.
-    fn remeasure_item(&mut self, item: usize) {
+    /// Re-lay one item — what a rung of the ladder costs.
+    pub(super) fn remeasure_item(&mut self, item: usize) {
         let Some(mut plan) = self.plan.take() else {
             return;
         };
         lensrow::measure(&*self, &mut plan, item);
         plan.sync();
         self.plan = Some(plan);
+        self.drop_laid();
+    }
+
+    /// Forget the one-record row caches: what they hold was laid out for a
+    /// state that has just changed.
+    pub(crate) fn drop_laid(&self) {
         self.body_laid.borrow_mut().take();
+        self.parts_laid.borrow_mut().take();
     }
 
     /// Run `f` against the wrapped rows of the message under `record`.
@@ -238,39 +247,12 @@ impl<S: Store> RecordSource<S> {
         plan.set_all_full(full);
         lensrow::remeasure(&*self, &mut plan);
         self.plan = Some(plan);
-        self.body_laid.borrow_mut().take();
+        self.drop_laid();
     }
 
     /// The whole message under `record`, when there is one.
     pub(crate) fn body_text(&self, record: usize) -> Option<String> {
         lensrow::body_text(self, self.plan.as_ref(), record)
-    }
-
-    /// `Enter` / `za` on a message: its body clipped, or whole. `None` when
-    /// this row has no message under it, which sends the key back to the
-    /// outline and its folds.
-    ///
-    /// A message the clip already shows in full has one state, not two, and
-    /// says `None` as well: consuming the key there would be a row that paints
-    /// a fold marker, promises the records's tree under it, and does nothing at
-    /// all when it is pressed.
-    pub(crate) fn toggle_body(&mut self, row: usize) -> Option<bool> {
-        let record = match self.spot(row) {
-            Spot::Body { record, .. } => record,
-            Spot::Record { record, sub: 0 } => record,
-            _ => return None,
-        };
-        let plan = self.plan.as_mut()?;
-        let item = plan.item_of_record(record)?;
-        let (body, full) = plan.body_at(item)?;
-        if !body::clips(body, body.text_in(None), plan.width()) {
-            return None;
-        }
-        if !plan.set_full(item, !full) {
-            return None;
-        }
-        self.remeasure_item(item);
-        Some(full)
     }
 
     /// `zt`: the record's own tree, open or shut, whatever its body is doing.

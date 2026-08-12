@@ -6,67 +6,8 @@
 //! the failure this file exists to make impossible.
 #![deny(unsafe_code)]
 
+use super::fixture::*;
 use super::*;
-use crate::json::Value;
-use crate::lens::{Class, Summary, Who};
-
-/// A lens with no dialect: the fixture says what each record is.
-///
-/// `{"k":"m"}` a message, `{"k":"s"}` a step, anything else unrecognised.
-struct Fake;
-
-impl crate::lens::Lens for Fake {
-    fn name(&self) -> &'static str {
-        "fake"
-    }
-    fn about(&self) -> &'static str {
-        "test double"
-    }
-    fn read(&mut self, v: &Value) -> Option<Summary> {
-        let class = match v.get("k").and_then(|k| k.as_str())? {
-            "m" => Class::Message,
-            "s" => Class::Step,
-            _ => return None,
-        };
-        Some(Summary {
-            class,
-            who: Who::System,
-            actor: "x".to_string(),
-            time: None,
-            what: String::new(),
-            calls: 1,
-            // A body is the source's to measure; these tests give one to an
-            // item directly (`with_bodies`), which is the same number the
-            // measurement would have produced and keeps this file file-free.
-            body: None,
-        })
-    }
-}
-
-/// Build a plan over `kinds` — `m`, `s`, or `?` for a record the lens does not
-/// know — with a fresh row map.
-fn plan_of(kinds: &str) -> (Plan, RowMap) {
-    let mut plan = Plan::new(Box::new(Fake));
-    let mut map = RowMap::default();
-    for (i, ch) in kinds.chars().enumerate() {
-        let json = format!(r#"{{"k":"{ch}"}}"#);
-        let value = crate::json::parse(json.as_bytes()).expect("fixture");
-        plan.classify(i, Some(&value), &mut map);
-    }
-    plan.sync();
-    (plan, map)
-}
-
-/// Every row of the document, as `(record, sub)` or `group N`.
-fn walk(plan: &Plan, map: &RowMap, known: usize) -> Vec<String> {
-    (0..plan.rows(known, map))
-        .map(|row| match plan.at(row, known, map) {
-            Spot::Group { item } => format!("group {item}"),
-            Spot::Body { record, line } => format!("{record}b{line}"),
-            Spot::Record { record, sub } => format!("{record}.{sub}"),
-        })
-        .collect()
-}
 
 #[test]
 fn a_run_of_steps_becomes_one_item() {
@@ -261,8 +202,8 @@ fn rows_and_lookups_agree_under_every_fold_combination() {
                 Spot::Record { record: got, sub } => {
                     assert_eq!((got, sub), (record, 0), "mask {mask}");
                 }
-                Spot::Body { record: got, line } => {
-                    panic!("record {record} landed on body row {line} of {got}");
+                Spot::Body { record: got, line } | Spot::Part { record: got, line } => {
+                    panic!("record {record} landed on row {line} under {got}");
                 }
                 // A folded record's row is its group's row.
                 Spot::Group { item } => {
@@ -328,18 +269,6 @@ fn joining_a_closed_group_still_closes_the_records_tree() {
     assert_eq!(plan.rows(3, &map), 1, "a shut group is one row");
 }
 
-/// Give every message item a body `rows` tall — the number the source's
-/// measurement would have produced at some width, which is all the arithmetic
-/// here ever sees.
-fn with_bodies(plan: &mut Plan, rows: usize) {
-    for i in 0..plan.items().len() {
-        let step = plan.item(i).map(|it| it.step).unwrap_or(true);
-        if !step {
-            plan.set_body(i, rows);
-        }
-    }
-    plan.sync();
-}
 
 /// The sharpest edge in the file: an item's own rows now depend on the width,
 /// so every fold combination is re-checked with bodies of 0, 1, 6 and 200 rows.
@@ -370,8 +299,8 @@ fn rows_and_records_round_trip_with_a_body_at_every_height() {
                     Spot::Record { record: got, sub } => {
                         assert_eq!((got, sub), (record, 0), "height {height} mask {mask}");
                     }
-                    Spot::Body { record: got, line } => {
-                        panic!("record {record} landed on body row {line} of {got}");
+                    Spot::Body { record: got, line } | Spot::Part { record: got, line } => {
+                        panic!("record {record} landed on row {line} under {got}");
                     }
                     Spot::Group { item } => {
                         let it = plan.item(item).expect("item");
@@ -432,3 +361,4 @@ fn a_width_change_re_lays_every_body() {
     assert_eq!(plan.classified(), classified, "nothing was reclassified");
     assert_eq!(plan.width(), 40);
 }
+

@@ -6,6 +6,7 @@
 #![deny(unsafe_code)]
 
 use super::*;
+use crate::source::record::plan::Spot;
 use crate::source::record::Records;
 use crate::source::{End, Source};
 
@@ -253,6 +254,129 @@ fn a_real_atif_trajectory_reads() {
         assert!(s.row_line(row).is_some(), "row {row} of {open} did not paint");
     }
     println!("{records} records, {read} read by the lens, {shut} rows shut, {open} rows open");
+
+    every_record_opens_one_rung(&mut s, records);
+    for width in [80usize, 140] {
+        every_call_opens(&mut s, records, width);
+    }
+}
+
+/// Descend every record one rung and count what the open level showed.
+///
+/// Counting rather than quoting: the file is private and nothing from it is
+/// printed. What this holds to is that a descent shows *something* — a rung
+/// that repaints the same screen is not a rung — and that every row of the
+/// level paints.
+fn every_record_opens_one_rung(s: &mut ArraySource, records: usize) {
+    s.fold_all(true);
+    let clipped = s.len();
+    let (mut with_parts, mut part_rows, mut calls_opened) = (0usize, 0usize, 0usize);
+    for record in 0..records {
+        let row = s.row_of_record(record);
+        if !s.record_visible(record) {
+            continue;
+        }
+        let before = s.len();
+        if s.fold_here(row).is_none() {
+            continue;
+        }
+        let grew = s.len() - before;
+        // The rows the open level added, over and above the message going whole.
+        let listed = s.with_parts(record, |laid| laid.rows.len());
+        if listed > 0 {
+            with_parts += 1;
+            part_rows += listed;
+            // And at least one of those part rows is a call that opens.
+            if (0..listed).any(|i| s.with_parts(record, |l| l.call_at(i)).is_some()) {
+                calls_opened += 1;
+            }
+            let n = s.len();
+            for r in 0..n {
+                assert!(s.row_line(r).is_some(), "row {r} of {n} at the open level");
+            }
+        }
+        assert!(grew > 0 || listed == 0, "a descent that showed nothing");
+        back_to_the_clip(s, row, clipped);
+    }
+    println!(
+        "{with_parts} records have an open level, {part_rows} part rows in all, \
+         {calls_opened} of them carrying a call that opens"
+    );
+}
+
+/// One rung further: every call the file holds, opened, at one width.
+///
+/// A real trajectory's arguments are the shapes no fixture thought of — a
+/// `patchText`, a `todos` list, an `arguments` the wire format wrote as a
+/// string — and what this holds to is that each of them lands in **one**
+/// column. A call row scrolls sideways, exactly as a summary row and a tree row
+/// do; the rows *under* it are a wrap and must fit. An argument's name is
+/// written into the pad its value's wrap left for it, and one column out put
+/// every argument's first row off the side of the view while its own
+/// continuation rows sat at the right indent.
+fn every_call_opens(s: &mut ArraySource, records: usize, width: usize) {
+    s.set_width(width);
+    s.fold_all(true);
+    let shut = s.len();
+    let (mut opened, mut widest) = (0usize, 0usize);
+    for record in 0..records {
+        let row = s.row_of_record(record);
+        if !s.record_visible(record) || s.fold_here(row).is_none() {
+            continue;
+        }
+        for call_row in call_rows(s, record) {
+            if s.fold_here(call_row).is_none() {
+                continue;
+            }
+            opened += 1;
+            let n = s.len();
+            for r in 0..n {
+                let line = s.row_line(r).unwrap_or_else(|| panic!("row {r} of {n} at width {width}"));
+                if under_a_call(s, r) {
+                    widest = widest.max(crate::render::str_width(&line.text()));
+                }
+            }
+            s.fold_here(call_row);
+        }
+        back_to_the_clip(s, row, shut);
+    }
+    println!("width {width}: {opened} calls opened, widest row under one {widest} of {width} columns");
+    assert!(opened > 0, "no call opened at width {width}");
+    assert!(widest <= width, "an opened call overflowed the view at width {width}: {widest}");
+}
+
+/// The call rows of `record`, found the way the pager finds them: a row whose
+/// spot is one of that record's parts, and whose part is one that opens.
+fn call_rows(s: &ArraySource, record: usize) -> Vec<usize> {
+    (s.row_of_record(record)..s.len())
+        .take_while(|&r| s.record_at(r) == record)
+        .filter(|&r| match s.spot(r) {
+            Spot::Part { record: p, line } => {
+                p == record && s.with_parts(p, |l| l.call_at(line)).is_some()
+            }
+            _ => false,
+        })
+        .collect()
+}
+
+/// Is `row` a row *under* a call — an argument, the `output` label, a line of
+/// what came back — rather than the call's own row?
+fn under_a_call(s: &ArraySource, row: usize) -> bool {
+    match s.spot(row) {
+        Spot::Part { record, line } => s.with_parts(record, |l| l.call_at(line)).is_none(),
+        _ => false,
+    }
+}
+
+/// Round the ladder — at most a full turn — back to the clip, so the next
+/// record is measured from the same place.
+fn back_to_the_clip(s: &mut ArraySource, row: usize, clipped: usize) {
+    for _ in 0..3 {
+        if s.len() == clipped {
+            return;
+        }
+        s.fold_here(row);
+    }
 }
 
 // -- through the lens -----------------------------------------------------------

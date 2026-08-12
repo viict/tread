@@ -143,10 +143,14 @@ LENSES
     --lens turns a .jsonl trajectory back into the conversation it recorded:
     messages stay on screen, and runs of tool calls and their results fold
     into one row — \u{27e8}6 steps \u{b7} 4 tool calls\u{27e9} — that opens with Enter or za.
-    Under a message row is what was said, clipped to six lines that say how
-    many they hid; Enter or za shows the whole of it, and zt opens the raw
-    record. A record the lens does not recognise renders as the generic tree,
-    whole: a lens adds interpretation and never hides data.
+    Under a row is what was said, or what the step was thinking, clipped to
+    six lines that say how many they hid. Enter or za then descends a level a
+    press: the whole of that text with the record's tool calls listed as
+    calls, then the raw record, then back to the clip. Enter on a call row
+    shows the arguments it was made with and the output it returned. zt opens
+    the raw record from any level. A record the lens does not recognise
+    renders as the generic tree, whole: a lens adds interpretation and never
+    hides data.
 
 The mouse is never captured, so terminal-native drag-select always works.
 "

@@ -82,9 +82,8 @@ impl<S: Store> Source for RecordSource<S> {
     fn position_text(&self, row: usize) -> Option<String> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
-            // A body row is still that record's row: the message is what the
-            // summary above it said, not a place inside the record.
-            Spot::Body { record, .. } => (record, 0),
+            // A body row is that record's row, and so is a part row.
+            Spot::Body { record, .. } | Spot::Part { record, .. } => (record, 0),
             Spot::Group { item } => (self.item_first(item), 0),
         };
         let known = self.known();
@@ -276,12 +275,12 @@ impl<S: Store> Source for RecordSource<S> {
         }
     }
 
-    /// `Enter` / `za` on a message shows what was said, whole or clipped —
-    /// the row's own fold, which is not an outline entry and could not be
-    /// reached through one. Everything else falls through to the outline, so
-    /// a group row still opens its run and a record row still opens its tree.
+    /// `Enter` / `za`: one rung down the record's ladder — clipped, open, the
+    /// raw tree, and round again (SPEC.md §Lenses). The row's own fold, which
+    /// is not an outline entry and could not be reached through one. A group
+    /// row falls through to the outline, which is what opens a run.
     fn fold_here(&mut self, row: usize) -> Option<bool> {
-        self.toggle_body(row)
+        self.descend(row)
     }
 
     /// `zt`: the raw record under the cursor, whatever its body is doing.
@@ -325,9 +324,10 @@ impl<S: Store> Source for RecordSource<S> {
 
     fn hidden_at(&self, row: usize) -> Option<usize> {
         let (record, sub) = match self.spot(row) {
-            // A body row hides nothing: the clip says what it is not showing,
-            // on its own last row, in the message's own lines.
-            Spot::Body { .. } => return None,
+            // A body row hides nothing: the clip says what it is not showing.
+            // Nor does a part row — a shut call carries its own glyph, and the
+            // gutter marker this answer drives belongs to the record.
+            Spot::Body { .. } | Spot::Part { .. } => return None,
             // A closed group hides one row per record it holds; their trees
             // are closed with it, so there is nothing else under it.
             Spot::Group { item } => {
@@ -456,7 +456,7 @@ impl<S: Store> Source for RecordSource<S> {
     fn yank_point(&self, row: usize) -> Option<Yank> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
-            Spot::Body { record, .. } => (record, 0),
+            Spot::Body { record, .. } | Spot::Part { record, .. } => (record, 0),
             Spot::Group { item } => (self.item_first(item), 0),
         };
         let text = self.row_json(row)?;

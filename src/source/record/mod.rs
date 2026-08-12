@@ -3,12 +3,15 @@
 //! # What lives here
 //!
 //! **The** record source, and everything a lens does to it: [`RecordSource`]
-//! ([`source`], with [`view`][`source`]'s `Source` impl and its rows beside
-//! it), [`tree`] (one record laid out as tree rows), [`plan`] (which records
-//! share a row, and the two-level row arithmetic), [`rowmap`] (which rows an
-//! open record owns), [`lensrow`] (the who/when/what rows a lens paints, and
-//! the row-to-record translation under them), [`body`] (the message under a
-//! summary row: its wrap, its clip and what the clip admits to), [`ops`]
+//! ([`source`], with [`view`][`source`]'s `Source` impl, its rows, and the
+//! ladder `Enter` walks beside it), [`tree`] (one record laid out as tree rows),
+//! [`plan`] (which records share a row, and the row arithmetic — with the level
+//! each record is at and the heights that follow from it in its `plan_rows`
+//! child), [`rowmap`] (which rows an open record owns), [`lensrow`] (the
+//! who/when/what rows a lens paints, and the row-to-record translation under
+//! them), [`body`] (one wrap and one clip for every stretch of text this seam
+//! shows, and what the clip admits to), [`parts`] (the open level: a record's
+//! tool calls as rows, each opening into its arguments and its output), [`ops`]
 //! (what `zR`, `zM`, `Tab`,
 //! `Y` and a fold id off the outline do to a plan), and the shared gutter and
 //! fold vocabulary below — [`marker`], [`leaf`], and `/4` for a record beside
@@ -49,6 +52,7 @@
 pub mod body;
 pub mod lensrow;
 pub mod ops;
+pub mod parts;
 pub mod plan;
 pub mod rowmap;
 mod source;

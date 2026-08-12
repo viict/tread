@@ -39,10 +39,11 @@
 //! format implements rather than a struct that owns the lens state.
 #![deny(unsafe_code)]
 
-use super::plan::{Plan, Spot};
+use super::plan::{Plan, Spot, Under};
 use super::rowmap::RowMap;
-use super::{body, leaf, marker, Records};
+use super::{body, leaf, marker, parts, Records};
 use crate::lens::{Class, Summary};
+use crate::json::Value;
 use crate::render::{str_width, visible, Line, LineKind, Span};
 use crate::theme;
 
@@ -65,7 +66,20 @@ pub(crate) fn classify_to<R: Records>(src: &R, plan: &mut Plan, map: &mut RowMap
         // The item the record landed in — a new one, or the run it extended.
         measure(src, plan, plan.items().len().saturating_sub(1));
     }
+    flush(src, plan);
     plan.sync();
+}
+
+/// Measure the members of every run that has just been opened.
+///
+/// Opening a run is `Plan`'s decision and measuring its members is not: a
+/// member's rows are a wrap at a width, over text this module has to read the
+/// record for. The plan queues, this drains, and nothing asks a row question in
+/// between — [`Plan::take_pending`].
+pub(crate) fn flush<R: Records>(src: &R, plan: &mut Plan) {
+    for item in plan.take_pending() {
+        measure(src, plan, item);
+    }
 }
 
 /// How tall item `i`'s message is at the plan's width.
@@ -75,16 +89,92 @@ pub(crate) fn classify_to<R: Records>(src: &R, plan: &mut Plan, map: &mut RowMap
 /// Every other item — a step, a group, a clipped body, a short message — is
 /// measured from the summary alone, so a resize costs no parse.
 pub(crate) fn measure<R: Records>(src: &R, plan: &mut Plan, item: usize) {
-    let width = plan.width();
-    let rows = match plan.body_at(item) {
-        None => 0,
-        Some((body, full)) if full && !body.whole() => {
-            let record = plan.item(item).map(|it| it.first).unwrap_or(0);
-            src.with_value(record, |v| body::height(body, body.text_in(v), width, full))
-        }
-        Some((body, full)) => body::height(body, body.text_in(None), width, full),
+    let Some(it) = plan.item(item).cloned() else {
+        return;
     };
-    plan.set_body(item, rows);
+    // A shut run hides its members, and a hidden record owns no rows: measuring
+    // one would put rows into a prefix sum for a row that is never painted.
+    if it.is_group() {
+        if it.open {
+            for record in it.first..it.first + it.count {
+                measure_record(src, plan, record, true);
+            }
+        }
+        return;
+    }
+    measure_record(src, plan, it.first, false);
+}
+
+/// How tall `record`'s own rows are: what it said, then its parts.
+///
+/// The record is read for a body that is **open and longer than
+/// [`crate::lens::BODY_KEEP`]**, and for a record at the **open level**, which
+/// is the one that has parts. A clipped record — the default, and every record
+/// a resize re-lays — is measured from its summary alone, so neither the first
+/// frame nor a resize costs a parse.
+fn measure_record<R: Records>(src: &R, plan: &mut Plan, record: usize, member: bool) {
+    let width = plan.width();
+    let body = match plan.body_of(record) {
+        None => 0,
+        Some((b, full)) => {
+            let shape = shape_of(plan, record, width);
+            match full && !b.whole() {
+                true => src.with_value(record, |v| body::height(b, b.text_in(v), shape, full)),
+                false => body::height(b, b.text_in(None), shape, full),
+            }
+        }
+    };
+    // Parts are the open level and nothing else: a clipped record does not
+    // reach for its dialect, so the default state of a document is free.
+    let parts = match plan.full_at(record) {
+        false => 0,
+        true => src.with_value(record, |v| part_rows(plan, record, v, width).rows.len()),
+    };
+    plan.set_under(record, Under { body, parts }, member);
+}
+
+/// The parts of `record`, laid out — the one place a dialect is asked what a
+/// record holds, and the one place that answer becomes rows.
+pub(crate) fn part_rows(plan: &Plan, record: usize, value: Option<&Value>, width: usize) -> parts::Laid {
+    let Some(value) = value else {
+        return parts::Laid::empty();
+    };
+    if !plan.full_at(record) {
+        return parts::Laid::empty();
+    }
+    let list = plan.detail(value);
+    let open = |i: usize| plan.part_open(record, i);
+    parts::lay(&list, &open, Some(value), width, body::INDENT + inset_of(plan, record), record + 1)
+}
+
+/// Columns a record's under-rows are pushed right by: two for a member of an
+/// open run, whose summary row is itself inset ([`inset_after_gutter`]), and
+/// none for anything else.
+///
+/// Without it a step's reasoning and its calls sat two columns left of the
+/// step's own words, which is the one thing SPEC.md §Lenses says a body must
+/// not do — it is "indented to the same column".
+fn inset_of(plan: &Plan, record: usize) -> usize {
+    match in_open_group(Some(plan), record) {
+        true => 2,
+        false => 0,
+    }
+}
+
+/// How a record's own text is laid out. A **message** is one wrap split between
+/// its summary row and the rows under it; a **step** keeps its row for what it
+/// did and puts its reasoning wholly underneath, muted. [`Class`] is the whole
+/// of that decision, and this is where it is spent.
+pub(crate) fn shape_of(plan: &Plan, record: usize, width: usize) -> body::Shape {
+    let mut shape = match plan.summary(record).map(|s| s.class) {
+        Some(Class::Message) => body::Shape::message(width),
+        _ => body::Shape::under(width, body::INDENT),
+    };
+    // A member of an open run is inset, and what it said goes under what it
+    // said. Only a *step* is ever a member, so this never moves the half of a
+    // message's wrap that [`headline`] paints.
+    shape.indent += inset_of(plan, record);
+    shape
 }
 
 /// Re-lay every body, which is what a width change means here. Classification
@@ -93,6 +183,7 @@ pub(crate) fn remeasure<R: Records>(src: &R, plan: &mut Plan) {
     for i in 0..plan.items().len() {
         measure(src, plan, i);
     }
+    flush(src, plan);
     plan.sync();
 }
 
@@ -101,23 +192,21 @@ pub(crate) fn body_rows<R: Records>(src: &R, plan: Option<&Plan>, record: usize,
     let Some(plan) = plan else {
         return Vec::new();
     };
-    let Some(item) = plan.item_of_record(record) else {
-        return Vec::new();
-    };
-    let Some((body, full)) = plan.body_at(item) else {
+    let Some((body, full)) = plan.body_of(record) else {
         return Vec::new();
     };
     let line = record + 1;
+    let shape = shape_of(plan, record, width);
     match full && !body.whole() {
-        true => src.with_value(record, |v| body::rows(body, body.text_in(v), width, full, line)),
-        false => body::rows(body, body.text_in(None), width, full, line),
+        true => src.with_value(record, |v| body::rows(body, body.text_in(v), shape, full, line)),
+        false => body::rows(body, body.text_in(None), shape, full, line),
     }
 }
 
 /// The whole message under `record`, as text — what `y` copies off a body row.
 pub(crate) fn body_text<R: Records>(src: &R, plan: Option<&Plan>, record: usize) -> Option<String> {
     let plan = plan?;
-    let (body, _) = plan.body_at(plan.item_of_record(record)?)?;
+    let (body, _) = plan.body_of(record)?;
     match body.whole() {
         true => Some(body.head.clone()),
         false => Some(src.with_value(record, |v| body.text_in(v).to_string())),
@@ -152,8 +241,9 @@ pub(crate) fn record_at(plan: Option<&Plan>, map: &RowMap, known: usize, row: us
     match spot(plan, map, known, row) {
         Spot::Record { record, .. } => record,
         // A body row belongs to the record that said it, so `record N/M`,
-        // search and `Y` all still name what the cursor is reading.
-        Spot::Body { record, .. } => record,
+        // search and `Y` all still name what the cursor is reading. So does a
+        // part row: a call is something the record did.
+        Spot::Body { record, .. } | Spot::Part { record, .. } => record,
         Spot::Group { item } => item_first(plan, item),
     }
 }
@@ -227,12 +317,13 @@ fn headline<R: Records>(src: &R, plan: &Plan, record: usize, sum: &Summary) -> S
     let Some(b) = sum.body.as_ref() else {
         return visible(&sum.what);
     };
+    // A step's row is what it *did* — its reasoning goes wholly underneath,
+    // so the row keeps `what` rather than becoming the first line of a thought.
+    if sum.class != Class::Message {
+        return visible(&sum.what);
+    }
     let width = plan.width();
-    let full = plan
-        .item_of_record(record)
-        .and_then(|i| plan.body_at(i))
-        .map(|(_, full)| full)
-        .unwrap_or(false);
+    let full = plan.full_at(record);
     match full && !b.whole() {
         true => src.with_value(record, |v| body::first_line(b, b.text_in(v), width)),
         false => body::first_line(b, b.text_in(None), width),

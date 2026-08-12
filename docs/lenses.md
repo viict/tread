@@ -33,10 +33,10 @@ Two rules the seam is built around, and neither is negotiable:
   renders exactly as it would with no lens: the generic collapsed-record row,
   openable into the whole record. Nothing is hidden and nothing is dropped.
 * **Every row still opens into the raw record.** A summary is a headline.
-  `Enter` / `za` on a message row shows what was said in full; `zt` shows the
-  record itself as a tree, whatever the message is doing. On a folded run,
-  `Enter` shows the records inside it, each of which opens in turn. `Y` on a run
-  copies every record it holds, as JSON.
+  `Enter` / `za` on a record descends one level — what was said in full and its
+  tool calls listed, then the record itself; `zt` shows that record as a tree
+  from any level. On a folded run, `Enter` shows the records inside it, each of
+  which opens in turn. `Y` on a run copies every record it holds, as JSON.
 
 ## The message under a row
 
@@ -63,19 +63,88 @@ type first.
 is what `--toc` prints, which is the right answer for a list rather than for a
 screen.
 
-Two states, and no third: **clipped** to six rows in all — the summary row and
-five under it — whose last row says what it
-is not showing — in the message's own lines, or in bytes when what is left is
-the tail of one long line, counted in the message's own bytes — and **whole**,
-which `Enter` / `za` toggles. A message that fits the clip has only one state,
-and `Enter` there falls through to the record's own fold instead of consuming
-the key for a repaint of the same rows. `zR`
-opens every body the viewport has reached, `zM` clips them all again, and a
-batch (`--plain`, `--toc`) is `zR`: a pipe gets the whole message, never a
-viewport's clip of it.
+## The three levels a record has
 
-A step has no body. Mechanics stay one line, which is also what keeps a folded
-run exactly as tall as the records inside it.
+`Enter` / `za` descends one a press and wraps (SPEC.md §Lenses):
+
+```text
+clipped  ->  open  ->  the raw JSON tree  ->  clipped
+```
+
+| Level | What is on the screen |
+| --- | --- |
+| **clipped** | the headline, and the text under it cut to six rows in all — whose last row says what it is not showing, in the text's own lines, or in bytes when what is left is the tail of one long line |
+| **open** | the whole of that text, then one row per tool call: `▸ bash  cargo test -q  → 32 lines` |
+| **tree** | the record itself, every byte, exactly as with no lens at all |
+
+A record has only the rungs it has content for. A message the clip already
+shows whole that made no calls has nothing between its headline and its JSON, so
+`Enter` goes straight to the tree; one with no tree either has no ladder, and
+the key falls through to the outline instead of repainting the same rows.
+
+**A call row opens too.** `Enter` on one shows the arguments the call was made
+with, one to a line, and then the output it returned under a row that **names**
+it — clipped like a message body, with the same `⋯ +N lines` tail. One call at a
+time, wherever the other one was; leaving the level shuts it.
+
+```text
+▾ assistant  10:55  Reading the failing test first, since the suite names a
+                    fixture that no longer exists.
+                    thinking
+                      The fixture was renamed two commits ago.
+                    ▾ bash      cargo test -q parse          → 32 lines
+                        command   cargo test -q parse
+                        timeout   120
+                      output
+                        test parse::empty_input … ok
+                        ⋯ +26 lines
+                    ▸ read      src/parse.rs                 → 40 lines
+```
+
+The `output` row is not decoration: without it, output whose lines happen to
+read `key   value` sits at the argument-name column with nothing between it and
+the arguments, and a reader sees three arguments two of which are output.
+
+An argument's name is written **into** the pad its value's wrap left for it, so
+the value's first row starts in the same column as its own continuation rows.
+That is one column of arithmetic (`KEY_COL`, the name field *and* the space
+after it) and getting it wrong pushed every argument's first row off the side of
+the view while its wrapped remainder sat at the correct indent.
+
+A call with **nothing** under it — no arguments and no answer — carries no
+marker, and `Enter` there is the record's rather than the call's. It is the same
+rule the rung above obeys: a key that repaints the same screen has not descended.
+Everything under a member of an open run is inset with that member's own row, so
+a step's reasoning and its calls line up with the step's words rather than
+sitting two columns left of them.
+
+`zt` is orthogonal to all of it: it opens the record's own tree from any level
+and leaves the level alone, which makes it both the way to the bytes in one
+press and the way back to them without walking round the ladder.
+
+`zR` puts every record the viewport has reached at the **open** level and opens
+its tree; `zM` puts every one back to its clip and drops any call that was open.
+A batch (`--plain`, `--toc`) is `zR`: a pipe gets what was said, what was
+thought, what was called, and the whole record under it. `--toc` is unchanged —
+it is a list, one line per record, and `Summary::what` is that line.
+
+`zR` deliberately does **not** expand every call in the file. A run of steps
+would become thousands of rows behind one keystroke, and every argument and
+every output is already in the record's own tree, which `zR` opened.
+
+## Reasoning is text, so it is shown
+
+A step that only thought is one line — what it *did* — and the thought goes
+under that line, clipped, muted. It appears wherever the step is, which, since
+steps fold into runs, means as soon as the run is open.
+
+That cost a change to the row arithmetic worth knowing about. A group's own rows
+are still `1 + count`, and a member's own rows — its body and its parts — are a
+**second prefix sum** beside the tree one (`Plan::extra`, a `RowMap` of exactly
+the shape the trees use). So `own`, `inside`, `row_of_record` and
+`blocks_of_item` keep the shape they had, and the invariant they rest on is the
+one they always rested on: *a hidden record owns no rows*, which is why closing
+a run closes its members' rows as well as their trees.
 
 **What this costs.** A block's rows now depend on the **width**, so a resize
 that changes it re-lays every body — without reclassifying anything: a record is
@@ -103,9 +172,9 @@ the only one a reader ever sees.)
 | --- | --- |
 | `j` / `k` | next / previous **block** — a message, a shut run, or a step inside a run that is open |
 | `Ctrl-E` / `Ctrl-Y` | scroll one row, so every row of a block is still reachable |
-| `Enter` / `za` | open the run under the cursor, or the whole of the message |
-| `zt` | open the raw record under the cursor, whatever its message is doing |
-| `zR` / `zM` | open the runs and messages the viewport has reached / shut every one |
+| `Enter` / `za` | one rung down: clipped → open → the raw tree → clipped. On a run's row, open the run; on a call row, that call's arguments and output |
+| `zt` | open the raw record under the cursor, from any level, leaving the level where it was |
+| `zR` / `zM` | every record the viewport has reached at the open level, with its tree / every one back to its clip |
 | `Tab` / `S-Tab` | next / previous **message** — the conversation turn |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
 | `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
@@ -247,6 +316,26 @@ offset — the row shows `HH:MM`, as recorded), `message`, `reasoning_content`,
 | `message` says something | **message** — never folded away. It starts on its own summary row and continues under it. Its tool calls collapse to a count on `Summary::what` (`· 3 tool calls`) rather than becoming rows — which is what `--toc` prints; the painted row gives that column to what was said, because the message is what the reader came for |
 | `message` is empty | **step** — folds into a run with its neighbours |
 
+A step's row is what it did, and what it was **thinking** is under that row,
+clipped and muted — `reasoning_content` is text, and a run of steps that only
+thought used to say `thinking` five times and nothing else. Opening the step
+(`Enter`) shows the thought whole and lists its calls; opening a call shows the
+arguments it was given and the output it returned, matched by `source_call_id`
+within the step. A result no call claimed gets a part of its own at that level
+rather than the bare `· 1 result` the row can spare.
+
+`arguments` is read as an object *or* as the JSON-encoded string the wire format
+emits, and in the second case the decoded object is a temporary — so an argument
+is always a head with no path back, which is why a long `command` or a
+`patchText` shows its opening and says how much more there is. A string that
+does **not** parse is kept as the string it is, under the name `arguments`: a
+truncated `arguments` is exactly the thing a reader opened the level to look at.
+
+A result's size is stated once and measured once. A `content` that is not a
+string is measured as the JSON it is — the same bytes the open level shows one
+rung down — rather than as the word `ok`, which is not a size; and a `content`
+of `null` reads as absent, which is what `null` means everywhere else here.
+
 A step row is what it did: `thinking`, then each call as
 `bash(make -j8) → 42 lines`. The argument is named by `command`, `filePath`,
 `pattern`, `query`, `url`, in that order — a `glob` carrying both `path` and
@@ -264,9 +353,15 @@ JSON-encoded string the wire format this schema descends from emits, and a step
 this does not recognise keeps its generic row.
 
 Measured on a real 200KB, 49-step trajectory (`TREAD_ATIF_TRAJECTORY`, 140
-columns): 50 records, 50 read by the lens, 73 rows shut and 1098 open — 36 rows
-of headline, and the rest what was said under them, clipped. `--toc --lens atif`
-prints the whole run as 50 tab-separated lines, headlines only.
+columns): 50 records, 50 read by the lens, 91 rows shut and 1231 open. Of the
+records visible with every run shut, 26 have an open level, contributing 103
+part rows in all, and every one of those carries a call that opens further.
+Opening every one of those calls in turn — 38 of them — paints every row at 80
+columns and at 140, with no row *under* an opened call wider than the view: the
+arguments and the output are a wrap, and the call row above them is the only
+thing that scrolls sideways.
+`--toc --lens atif` prints the whole run as 50 tab-separated lines, headlines
+only — a list is a list, and the levels are for a screen.
 
 ## Adding a dialect
 
@@ -286,12 +381,21 @@ Adding one is a module and a line, and nothing else:
      file order**, so a dialect may carry state (the agent lens keeps a bounded
      ring of `tool_use` ids so a result can name its call). Return `None` for
      anything it does not recognise; that record then renders generically.
+   * `detail(&self, &Value) -> Vec<Part>` — optional, and what the **open
+     level** shows: what this record's parts *are*. Called for the record the
+     reader opened, when they open it, and thrown away when they close it —
+     never once per record and never stored. `&self` rather than `&mut self` is
+     the contract: `read` runs far ahead of the viewport, so whatever state a
+     dialect carried across records is long past by the time a key is pressed.
+     A dialect that cannot answer from *this record alone* returns what it can
+     and leaves the rest `None`; the raw tree is one `zt` away, and a gap is
+     better than a guess.
 2. **One entry in `lens::LENSES`** — `(NAME, || Box::new(Mine::default()))`.
 3. **Tests beside it** (`src/lens/<name>_tests.rs`), with **hand-written
    fixtures**. Real session logs are private; read one to learn the shape, never
    copy it into the repository.
 
-A `Summary` is five fields and no styling:
+A `Summary` is seven fields and no styling:
 
 | Field | Meaning |
 | --- | --- |
@@ -301,7 +405,40 @@ A `Summary` is five fields and no styling:
 | `time` | `HH:MM`, or `None`; `lens::clock` does ISO-8601 |
 | `what` | one line: `lens::excerpt` collapses whitespace and cuts to width. What `--toc` prints, and what the row paints for a record with no `body` |
 | `calls` | tool calls in this record, for a run's `· 4 tool calls` |
-| `body` | what was said, for the rows under the summary. `None` on a step |
+| `body` | the record's own text, for the rows under the summary: what was said on a message, what it was thinking on a step. `None` when it has none. `class` decides how it is painted — a message's body is one wrap split between its row and the rows under it; a step's row keeps saying what it *did* and its text goes wholly underneath |
+
+A `Part` is two variants and no styling either:
+
+| Variant | Fields | What it is |
+| --- | --- | --- |
+| `Text` | `label: &'static str`, `body: Body` | a named stretch of text the row's own body is not already showing: a thought beside a message, a second text block. Shown **whole** — parts are the open level, and the open level is the whole of that text |
+| `Call` | `tool`, `arg`, `args: Vec<(String, Body)>`, `result: Option<Body>` | a call to a tool: what was called, the one argument a headline shows, every argument, and what came back |
+
+`Part::opens` is what the call row's marker is painted from, and it is false for
+a call with no arguments *and* no result — the row is still there, saying what
+was called; it just does not advertise a fold it has not got.
+
+There is **one** reading of an argument list, `lens::part::args_of`, and both
+dialects use it. An object is its members; anything else — an array, a bare or
+half-written `arguments` string — is one entry named `arguments` holding what
+the file said. Dropping those was the seam's one silent clip: the open level
+said the call had no arguments while the command sat in the tree one `zt` away.
+Absent, `null` and `[]` still mean the same thing, and mean it quietly.
+
+`result` is an `Option` because of the `agent` dialect and not in spite of it:
+its calls are answered by a **later record**, and a `Body`'s path starts at the
+record it belongs to. The call part carries `None` and the result record
+contributes a part of its own. A dialect whose answers are in the same record —
+`atif` — fills it in.
+
+Every stretch of text in a `Part` is a `Body`, on purpose. One record can carry
+five calls whose outputs are fifteen kilobytes apiece, and a level that read
+them into memory to count its rows would make opening one step cost what the
+step cost. Two of those paths are real and one is not, and the code says which:
+a **result** is one string node of the record (`observation.results[3].content`)
+and opens whole; an **argument** sits under a key that is its own name, and a
+`Step::Key` is `&'static str`, so it is a head with no path — clipped, with the
+row under it stating the true remainder, and whole in the tree one `zt` away.
 
 A `Summary` is kept for **every** classified record, and nothing here may
 allocate per document — so a `Body` is *not* the message. It is the first
@@ -313,11 +450,15 @@ head reads it back out of the record that is being painted anyway. Holding whole
 messages instead would make a long log's summaries as big as the log.
 
 
-What a dialect **never** touches: rows, folding, row arithmetic, search,
-yanking, the outline or the status bar — including how tall a message is, which
-is `src/source/record/body.rs`'s answer and depends on the width. Grouping is
-`src/source/record/plan.rs`, painting is `src/source/record/lensrow.rs`, the
-fold keys are `src/source/record/ops.rs`, and all three are dialect-agnostic —
+What a dialect **never** touches: rows, folding, row arithmetic, the levels, the
+key that walks them, search, yanking, the outline or the status bar — including
+how tall a message is, which is `src/source/record/body.rs`'s answer and depends
+on the width. A dialect says what a record *is* and what its parts *are*; where
+those land on a screen is not its business. Grouping is
+`src/source/record/plan.rs` with the levels and heights in
+`src/source/record/plan_rows.rs`, painting is `src/source/record/lensrow.rs` and
+`src/source/record/parts.rs`, the ladder is `src/source/record/ladder.rs`, the
+fold keys are `src/source/record/ops.rs`, and all of them are dialect-agnostic —
 and format-agnostic with it. There is one record source
 (`src/source/record/source.rs`), and what a record *format* provides is the
 `Store` trait: how many records the index has found, how to push it along
@@ -337,7 +478,22 @@ the index, reporting progress rather than jumping to a wrong end.
 
 What a **body** costs is bounded per record and stated in the code: a `Summary`
 keeps at most `lens::BODY_KEEP` (1 KB) of a message, whatever its size, plus the
-path back to the rest. On a synthetic 4 MB / 8 MB ATIF trajectory that is
+path back to the rest. Since a step's reasoning is a body too, a trajectory that
+records thinking pays that ceiling on those records as well: on a synthetic
+45 MB, 20 000-step ATIF file with a 420-byte thought on every other step, that
+is +4 MB of resident memory against the same file with the thoughts removed —
+the cost tracks the *number* of records that thought, not what they thought.
+Open time is unmoved (2 ms either way), because none of it is read until the
+record is classified.
+
+What the **open level** costs is nothing at all until it is asked for.
+`Lens::detail` runs for the record being measured or painted and its answer is
+dropped; a document holds one `Under` — two `usize` — per classified record and
+not one byte of a tool's output. The one keystroke that pays is `zR`, which puts
+every record it reached at that level and so asks every dialect about every
+record: 215 ms on that 45 MB file, against 24 ms before there was a level to
+open. `zR` was already the keystroke that scales with the file, and this is the
+same trade in the same place. On a synthetic 4 MB / 8 MB ATIF trajectory that is
 +1.6 MB / +3.2 MB of resident memory against the same file before bodies, with
 open time unchanged (≈2 ms) — the cost tracks the number of *messages*, not
 what was said in them. `zR` is the one keystroke that now scales with the file:

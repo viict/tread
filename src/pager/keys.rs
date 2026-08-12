@@ -224,13 +224,13 @@ pub const BINDINGS: &[Binding] = &[
     },
     Binding {
         keys: "Enter",
-        desc: "follow the focused link, open the row, else fold",
+        desc: "follow the focused link, else one level into the row",
         action: A::Follow,
         triggers: &[Trigger::k(Key::Enter)],
     },
     Binding {
         keys: "zt",
-        desc: "open the raw record under the cursor",
+        desc: "open the raw record under the cursor, from any level",
         action: A::OpenTree,
         triggers: &[Trigger::z('t')],
     },

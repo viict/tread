@@ -12,7 +12,10 @@
 //!
 //! That split is the whole point. A second dialect — opencode, OpenAI Codex,
 //! ATIF — is a new module here and one entry in [`LENSES`]; nothing about
-//! folding, row arithmetic, search or yanking is written twice.
+//! folding, row arithmetic, the levels a record has, search or yanking is
+//! written twice. [`part`] is the vocabulary the second half of that answer is
+//! given in: what a record's parts *are*, said without saying anything about
+//! rows.
 //!
 //! # The contract
 //!
@@ -31,10 +34,17 @@
 //!   and thrown away with it — and a [`Body`] keeps that true for the message
 //!   text as well, by holding a bounded head and *where the rest is* rather
 //!   than a copy of it.
+//! * [`Lens::detail`] is the exception that proves it: the parts of a record —
+//!   its tool calls, with their arguments and what came back — are read **when
+//!   the reader opens that record** and are never stored. A `Summary` is per
+//!   record and forever; a `Vec<Part>` is per keystroke and momentary.
 #![deny(unsafe_code)]
 
 pub mod agent;
 pub mod atif;
+pub mod part;
+
+pub use part::Part;
 
 #[cfg(test)]
 #[path = "tests.rs"]
@@ -205,9 +215,14 @@ pub struct Summary {
     pub what: String,
     /// Tool calls this record makes, for the group row's `· 4 tool calls`.
     pub calls: usize,
-    /// What was said, in full, under the row. `None` on a step: mechanics stay
-    /// one line. Only a [`Class::Message`] ever carries one, which is what
-    /// keeps a folded run exactly as tall as the records it holds.
+    /// The record's own text, under the row: what was said for a message, and
+    /// what the model was thinking for a step that only thought.
+    ///
+    /// A message's body is **one wrap split in two** — the summary row is its
+    /// first line and the rows under it are the rest. A step's is not: a step's
+    /// row is the description of what it did (`thinking · bash(make)`), and its
+    /// text goes wholly underneath. [`Class`] is what tells the two apart, and
+    /// `src/source/record/body.rs` is where that decision is spent.
     pub body: Option<Body>,
 }
 
@@ -281,6 +296,30 @@ pub trait Lens {
     ///
     /// Called once per record, in file order.
     fn read(&mut self, value: &Value) -> Option<Summary>;
+
+    /// What this record's parts **are**, for the level between the headline and
+    /// the raw JSON tree (SPEC.md §Lenses): the tool calls it made, and any text
+    /// it holds that the body under its row is not already showing.
+    ///
+    /// Unlike [`Lens::read`] this is **not** called once per record. It is
+    /// called for the record the reader opened, when they open it, and its
+    /// answer is thrown away when they close it — which is why a [`Part`] may
+    /// hold [`Body`]s at all and why nothing here is stored on a [`Summary`].
+    ///
+    /// `&self`, not `&mut self`, and that is the contract rather than an
+    /// accident: `read` runs far ahead of the viewport, so any state a dialect
+    /// carried across records is long past by the time a reader presses `Enter`.
+    /// A dialect that cannot answer from **this record alone** must return the
+    /// parts it can and leave the rest `None` — the raw tree is still one `zt`
+    /// away, and a guess would be worse than a gap.
+    ///
+    /// The default is no parts, which is a level with nothing in it: the ladder
+    /// then has one rung fewer and `Enter` goes straight on to the tree. A
+    /// dialect implements this when it can say something a person would say.
+    fn detail(&self, value: &Value) -> Vec<Part> {
+        let _ = value;
+        Vec::new()
+    }
 }
 
 /// How a lens is built. A function pointer rather than a value because a lens

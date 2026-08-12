@@ -35,7 +35,7 @@
 //! renders as the generic tree with nothing hidden.
 #![deny(unsafe_code)]
 
-use super::{excerpt, record_clock, record_type, Body, Class, Lens, Step, Summary, Who, ARG, EXCERPT};
+use super::{excerpt, record_clock, record_type, Body, Class, Lens, Part, Step, Summary, Who, ARG, EXCERPT};
 use crate::json::Value;
 
 pub const NAME: &str = "agent";
@@ -52,9 +52,10 @@ const RECENT_CALLS: usize = 64;
 struct Blocks {
     /// Text blocks — the only thing that makes a record a message.
     spoken: Vec<String>,
-    /// The first text block, whole, as the row's body. The first because it is
-    /// the one the excerpt on the row came from; the others are in the record,
-    /// which every row still opens into.
+    /// What goes **under** the row: the first text block that says something,
+    /// or, on a record that only thought, the thought. [`body_block`] is the
+    /// one definition of which, so [`Lens::detail`] can skip exactly that block
+    /// rather than showing the reader a paragraph twice.
     body: Option<Body>,
     calls: Vec<String>,
     results: Vec<String>,
@@ -85,6 +86,48 @@ impl Lens for Agent {
             other => Summary::step(Who::System, "system", bookkeeping(v, other)?),
         };
         Some(sum.at(time))
+    }
+
+    /// A record's content blocks, read as what they are.
+    ///
+    /// # What this dialect can say, and what it cannot
+    ///
+    /// A `tool_use` block carries its whole `input`, so a call's arguments are
+    /// here in full. **Its result is not**: the API answers a call in a *later*
+    /// `user` record, and a [`Body`]'s path starts at the record it belongs to
+    /// — so the call part carries `result: None` and the result record
+    /// contributes a part of its own. That is the honest shape for a transcript
+    /// where the two halves are two records, and it is why `Part::Call::result`
+    /// is an `Option` rather than a `Body`.
+    ///
+    /// The tool a result belongs to is looked up in the same ring `read` used,
+    /// and that ring is [`RECENT_CALLS`] deep while classification runs far
+    /// ahead of the viewport — so by the time a reader opens an old record the
+    /// call is long evicted and the part is labelled `result`. Widening the ring
+    /// would be a per-document allocation, which this seam does not do; the
+    /// tool's name is on the row above either way, where `read` put it.
+    fn detail(&self, v: &Value) -> Vec<Part> {
+        let Some(blocks) = v.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_array())
+        else {
+            return Vec::new();
+        };
+        let mut out: Vec<Part> = Vec::new();
+        // The block the row's own body is already showing, skipped here so the
+        // reader is not shown the same paragraph twice.
+        let said = body_block(blocks);
+        for (i, b) in blocks.iter().enumerate() {
+            if said == Some(i) {
+                continue;
+            }
+            match b.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+                "text" => out.extend(text_part(b, "text", "message", text_at(i))),
+                "thinking" => out.extend(text_part(b, "thinking", "thinking", thinking_at(i))),
+                "tool_use" => out.push(call_part(b)),
+                "tool_result" => out.push(self.result_part(b, i)),
+                _ => {}
+            }
+        }
+        out
     }
 }
 
@@ -134,20 +177,18 @@ impl Agent {
             true => (who, actor),
             false => (Who::Tool, "tool".to_string()),
         };
-        // A step has no body: mechanics stay one line.
-        Summary { class: Class::Step, who, actor, time: None, what, calls: seen.calls.len(), body: None }
+        // A step's row stays one line — what it *did* — and whatever it was
+        // thinking goes under it. Reasoning is text, so it is shown.
+        Summary { class: Class::Step, who, actor, time: None, what, calls: seen.calls.len(), body }
     }
 
     /// Read the blocks of one message into the four things a row can say.
     fn scan(&mut self, blocks: &[Value]) -> Blocks {
         let mut seen = Blocks::default();
-        for (i, b) in blocks.iter().enumerate() {
+        for b in blocks {
             match b.get("type").and_then(|t| t.as_str()).unwrap_or("") {
                 "text" => match b.get("text").and_then(|t| t.as_str()) {
-                    Some(t) if !t.trim().is_empty() => {
-                        seen.spoken.push(excerpt(t, EXCERPT));
-                        seen.body.get_or_insert_with(|| Body::new(t, text_at(i)));
-                    }
+                    Some(t) if !t.trim().is_empty() => seen.spoken.push(excerpt(t, EXCERPT)),
                     _ => {}
                 },
                 "thinking" => seen.thoughts += 1,
@@ -159,6 +200,9 @@ impl Agent {
                 _ => {}
             }
         }
+        // One rule for what goes under the row, read off the blocks themselves,
+        // so [`Lens::detail`] can skip exactly the block this took.
+        seen.body = body_block(blocks).and_then(|i| block_body(blocks.get(i)?, i));
         seen
     }
 
@@ -183,6 +227,27 @@ impl Agent {
             .rev()
             .find(|(k, _)| k == id)
             .map(|(_, n)| n.as_str())
+    }
+
+    /// A `tool_result` block as the half of a call this record *does* hold: the
+    /// answer, named after the call it answers when the ring still remembers it
+    /// and `result` when it does not.
+    fn result_part(&self, block: &Value, i: usize) -> Part {
+        let tool = block
+            .get("tool_use_id")
+            .and_then(|i| i.as_str())
+            .and_then(|id| self.tool_of(id))
+            .unwrap_or("result");
+        let failed = block.get("is_error").and_then(|e| e.as_bool()).unwrap_or(false);
+        Part::Call {
+            tool: tool.to_string(),
+            arg: match failed {
+                true => "error".to_string(),
+                false => String::new(),
+            },
+            args: Vec::new(),
+            result: result_body(block.get("content"), i),
+        }
     }
 
     /// `Bash → 42 lines`, or `Bash → error`.
@@ -214,17 +279,6 @@ fn said(who: Who, actor: String, what: String, body: Option<Body>) -> Summary {
         calls: 0,
         body,
     }
-}
-
-/// Where block `i`'s text sits inside its record, so the whole of it can be
-/// read back when the reader opens the body.
-fn text_at(i: usize) -> Vec<Step> {
-    vec![
-        Step::Key("message"),
-        Step::Key("content"),
-        Step::At(i),
-        Step::Key("text"),
-    ]
 }
 
 /// The speaker's name, with a subagent's conversation marked: `isSidechain` is
@@ -273,7 +327,7 @@ const ARG_KEYS: [&str; 10] = [
     "skill",
 ];
 
-fn tool_arg(input: &Value) -> Option<String> {
+pub(super) fn tool_arg(input: &Value) -> Option<String> {
     for key in ARG_KEYS {
         if let Some(text) = input.get(key).and_then(|v| v.as_str()) {
             let cut = excerpt(text, ARG);
@@ -358,6 +412,14 @@ fn bookkeeping(v: &Value, kind: &str) -> Option<String> {
 fn field(v: &Value, key: &str) -> Option<String> {
     Some(excerpt(v.get(key)?.as_str()?, ARG))
 }
+
+/// The blocks of one record read as [`Part`]s — a child module so the two
+/// halves of this dialect stay under the size limit and share one set of
+/// imports.
+#[path = "agent_parts.rs"]
+mod parts;
+
+use parts::{block_body, body_block, call_part, result_body, text_at, text_part, thinking_at};
 
 #[cfg(test)]
 #[path = "agent_tests.rs"]

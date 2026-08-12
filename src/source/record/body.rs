@@ -45,6 +45,7 @@
 
 use crate::lens::Body;
 use crate::render::{str_width, take_width, visible, Line, LineKind, Span};
+use crate::term::Style;
 use crate::theme;
 
 /// Rows a clipped message occupies in total — the summary row it starts on,
@@ -56,10 +57,44 @@ pub const CLIP: usize = 6;
 /// it belongs to.
 pub const INDENT: usize = 21;
 
+/// How one body is laid out.
+///
+/// The wrap, the clip and the note are the same for every stretch of text this
+/// seam shows — a message, a step's reasoning, a tool call's argument, its
+/// output — and this is what those four disagree about. Passing it as one value
+/// rather than four arguments is not tidiness: it is what makes "the height and
+/// the rows come from the same walk" checkable, because both take exactly this.
+#[derive(Clone, Copy)]
+pub struct Shape {
+    /// The view width. Columns are what is left of it after [`Shape::indent`].
+    pub width: usize,
+    /// Columns before the text.
+    pub indent: usize,
+    /// Is the first wrapped line painted by a **summary row above** rather than
+    /// here? True for a message, whose row *is* its first line; false for
+    /// everything else, which starts on a row of its own.
+    pub split: bool,
+    pub style: Style,
+}
+
+impl Shape {
+    /// What was said, under the row that says who said it: one wrap split
+    /// between the summary row and the rows below.
+    pub fn message(width: usize) -> Shape {
+        Shape { width, indent: INDENT, split: true, style: theme::lens_body() }
+    }
+
+    /// Text that starts on its own row — a step's reasoning, a call's output.
+    /// Muted, because the row above it is the thing and this is the detail.
+    pub fn under(width: usize, indent: usize) -> Shape {
+        Shape { width, indent, split: false, style: theme::muted() }
+    }
+}
+
 /// Columns of message text at a given view width. Never zero: a terminal
 /// narrower than the indent still gets a body rather than an empty column.
-fn columns(width: usize) -> usize {
-    width.saturating_sub(INDENT).max(8)
+fn columns(shape: Shape) -> usize {
+    shape.width.saturating_sub(shape.indent).max(8)
 }
 
 /// Rows the body occupies **under** the summary row, at `width`, clipped or
@@ -69,21 +104,21 @@ fn columns(width: usize) -> usize {
 /// why it is derived from the same walk that paints — the same `lay`, the same
 /// `skip(1)`: a height that disagreed with the painted rows by one would move
 /// every row below it.
-pub fn height(body: &Body, text: &str, width: usize, full: bool) -> usize {
-    let laid = lay(body, text, width, full);
-    under(&laid) + usize::from(laid.note.is_some())
+pub fn height(body: &Body, text: &str, shape: Shape, full: bool) -> usize {
+    let laid = lay(body, text, shape, full);
+    under(&laid, shape) + usize::from(laid.note.is_some())
 }
 
-/// The body's rows, ready to paint: the wrap from its **second** line on,
-/// because the first is the summary row above them.
-pub fn rows(body: &Body, text: &str, width: usize, full: bool, source_line: usize) -> Vec<Line> {
-    let laid = lay(body, text, width, full);
-    let pad = " ".repeat(INDENT);
+/// The body's rows, ready to paint: the wrap from its **second** line on when a
+/// summary row above carries the first, and every row of it when nothing does.
+pub fn rows(body: &Body, text: &str, shape: Shape, full: bool, source_line: usize) -> Vec<Line> {
+    let laid = lay(body, text, shape, full);
+    let pad = " ".repeat(shape.indent);
     let mut out: Vec<Line> = laid
         .rows
         .iter()
-        .skip(1)
-        .map(|r| row(&pad, r, theme::lens_body(), source_line))
+        .skip(usize::from(shape.split))
+        .map(|r| row(&pad, r, shape.style, source_line))
         .collect();
     if let Some(note) = laid.note {
         out.push(row(&pad, &note, theme::lens_more(), source_line));
@@ -103,12 +138,12 @@ pub fn rows(body: &Body, text: &str, width: usize, full: bool, source_line: usiz
 /// wraps are of different strings and the split between them loses whatever
 /// falls between their first rows.
 pub fn first_line(body: &Body, text: &str, width: usize) -> Option<String> {
-    lay(body, text, width, false).rows.into_iter().next()
+    lay(body, text, Shape::message(width), false).rows.into_iter().next()
 }
 
 /// Rows of the wrap that fall under the summary row rather than on it.
-fn under(laid: &Laid) -> usize {
-    laid.rows.len().saturating_sub(1)
+fn under(laid: &Laid, shape: Shape) -> usize {
+    laid.rows.len().saturating_sub(usize::from(shape.split))
 }
 
 /// Does the clip leave anything out at this width?
@@ -116,8 +151,8 @@ fn under(laid: &Laid) -> usize {
 /// What `Enter` / `za` opens — and, when this is false, what that key must
 /// *not* consume: a message that is entirely on screen has one state rather
 /// than two, and the row's fold marker is the record's own tree.
-pub fn clips(body: &Body, text: &str, width: usize) -> bool {
-    lay(body, text, width, false).note.is_some()
+pub fn clips(body: &Body, text: &str, shape: Shape) -> bool {
+    lay(body, text, shape, false).note.is_some()
 }
 
 /// One painted row of a body. Not a heading and not foldable: the summary row
@@ -167,8 +202,8 @@ struct Walk {
 
 /// Wrap `text` — as much of the message as the caller has — to the width, stop
 /// where the state says to stop, and state the remainder.
-fn lay(body: &Body, text: &str, width: usize, full: bool) -> Laid {
-    let cols = columns(width);
+fn lay(body: &Body, text: &str, shape: Shape, full: bool) -> Laid {
+    let cols = columns(shape);
     let limit = match full {
         true => usize::MAX,
         false => CLIP,

@@ -80,8 +80,9 @@ pub(crate) fn id_at(plan: Option<&Plan>, at: Spot) -> String {
     match at {
         Spot::Group { item } => plan::group_id(lensrow::item_first(plan, item)),
         // A body row answers with its record's id, so `za` on the message and
-        // `za` on the row above it are the same fold.
-        Spot::Record { record, .. } | Spot::Body { record, .. } => fold_id(record),
+        // `za` on the row above it are the same fold. A part row too: a call is
+        // a row inside the record, not a fold of its own.
+        Spot::Record { record, .. } | Spot::Body { record, .. } | Spot::Part { record, .. } => fold_id(record),
     }
 }
 

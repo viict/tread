@@ -382,25 +382,63 @@ results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that ope
 Two dialects read one today — `agent` for Claude Code session logs, `atif` for
 ATIF trajectories — and a third is a module and a line.
 
-**A row is a headline; the message is under it.** A summary row is one line —
+**A row is a headline; the record is under it.** A summary row is one line —
 who, when, what — and for a message that `what` **is the message's own first
 line**, at the current width; the rest of what was said is wrapped under it,
 indented to the same column. One wrap, split between the row and the rows below
 it, so the opening words of a message are on the screen once and a message that
 fits on its row has nothing under it. A message that opens with blank lines
 starts on the first line that says something: a headline is what was said, and
-the blank rows would otherwise be the only thing the reader got. It has two
-states and no third:
-**clipped** to a few lines,
-whose last row says what it is not showing (`⋯ +37 lines`), and **whole**, which
-`Enter` / `za` on the row toggles. A message the clip already shows in full has
-only one of those states, and the key then means what it means on any other row
-— the record's own fold — rather than repainting the same screen. A clip may
-never be silent about what it
-left out, and the record itself is never further than `zt`, which opens the raw
-tree of the record under the cursor whatever its message is doing. `zR` shows
-every message the viewport has reached in full — which is what a batch
-(`--plain`, `--toc`) is — and `zM` puts them all back to their clip.
+the blank rows would otherwise be the only thing the reader got.
+
+**Reasoning is text, so it is shown.** A step that only thought is still one
+line — what it *did* — and what it was thinking goes under that line, clipped
+the same way and in the muted style. It is under the step wherever the step is,
+which, since steps fold into runs, means as soon as the run is open. A folded
+run is therefore as tall as what its steps have to say rather than as tall as
+the count of them; the count is what the shut row is for.
+
+**A record has three levels, and `Enter` / `za` descends one a press:**
+
+```text
+clipped  ->  open  ->  the raw JSON tree  ->  clipped
+```
+
+**Clipped** is the headline and a few rows of what was said or thought, whose
+last row states what it is not showing (`⋯ +37 lines`). **Open** is a record
+read as what it is: the whole of that text, and then the record's tool calls
+listed *as tool calls* — one row each, naming the tool, the argument that says
+what it did and the size of what came back. **The tree** is the record itself,
+every byte of it. The fourth press is the first again.
+
+A record has only the rungs it has content for. One whose text the clip already
+showed in full and which made no calls has nothing between its headline and its
+JSON, so `Enter` there goes straight to the tree; one with no tree either has no
+ladder at all, and the key means what it means on any other row — the record's
+own fold — rather than repainting the same screen.
+
+**A tool call is itself openable.** `Enter` on a call row shows the arguments
+the call was made with, one to a line, and then — under a row that names it —
+the output it returned, clipped like a message body, with the same row saying
+what it left out. The output is named because output whose lines read
+`key   value` is otherwise indistinguishable from two more arguments. One call
+opens at a time; leaving the level shuts it, because the rows are gone and a
+call left open would come back unasked. A call with no arguments and no answer
+has nothing under it, so it carries no marker and its `Enter` is the record's:
+a rung that repaints the same screen is not a rung.
+
+An argument list that is not the object the schema promises — an array, a
+`arguments` string the wire cut in half — is one argument holding what the file
+said, under that name. It may be clipped; it may not go missing.
+
+Every one of those levels is a *reading*. A clip may never be silent about what
+it left out, the sizes a level states are the true ones, and the record itself
+is never further than `zt`, which opens the raw tree of the record under the
+cursor from any level and leaves the level where it was — the way back to the
+bytes without walking round the ladder. `zR` puts every record the viewport has
+reached at the open level and opens its tree — which is what a batch (`--plain`,
+`--toc`) is — and `zM` puts them all back to their clip. A pipe therefore gets
+what was said, what was thought, what was called, and the whole record under it.
 
 A message therefore makes a block as tall as the width allows, and a resize
 re-wraps it. That is the one place in a record document where rows move without

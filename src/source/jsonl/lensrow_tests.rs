@@ -333,35 +333,45 @@ fn the_table_of_contents_is_sanitised() {
 
 // -- the two states of a message, and the key that reaches them ------------------
 
-/// `Enter` / `za` opens the *second* state of a message. A message the clip
-/// already shows whole has no second state, so the key is not consumed: the
-/// row's fold marker stands for the record's own tree, and pressing it there
-/// must open that rather than repaint an identical frame.
+/// A message the clip already shows whole, that made no calls, has no **open**
+/// rung: there is nothing between its headline and its JSON. `Enter` therefore
+/// descends straight to the record's own tree, and again to come back — the
+/// ladder with one rung missing rather than a key that does nothing.
 #[test]
-fn a_message_that_is_already_whole_leaves_the_key_to_the_record() {
+fn a_message_with_nothing_under_it_descends_straight_to_the_tree() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
+    let clipped = s.len();
     // Row 1 is `assistant 14:02 On it.`, row 2 the rest of what it said.
-    assert_eq!(s.fold_here(1), None, "nothing to open on the message itself");
-    assert_eq!(s.fold_here(2), None, "nor from inside it");
-    let entry = s.section_at(1).expect("the record is an outline entry");
-    assert!(s.set_fold(entry, false), "the record's own tree opens instead");
+    assert!(s.fold_here(1).is_some(), "the key is the ladder's");
     let got = rows(&mut s);
-    assert!(got.iter().any(|r| r.contains("timestamp")), "{got:#?}");
+    assert!(got.iter().any(|r| r.contains("timestamp")), "the tree: {got:#?}");
+    assert!(s.len() > clipped);
+    assert!(s.fold_here(1).is_some(), "and round to the clip");
+    assert_eq!(s.len(), clipped);
 }
 
-/// And a message longer than the clip keeps both states.
+/// The ladder, on a message long enough to have every rung: clipped, the whole
+/// of what was said, the record itself, and back to the clip.
 #[test]
-fn a_clipped_message_still_toggles() {
+fn a_clipped_message_descends_the_ladder_and_comes_back() {
     let text = format!(
         "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{}\"}}]}}}}\n",
         (1..=20).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\\n")
     );
     let mut s = lensed(&text);
     let clipped = s.len();
-    assert_eq!(s.fold_here(0), Some(false), "opened");
-    assert!(s.len() > clipped, "the whole message is on screen");
-    assert_eq!(s.fold_here(0), Some(true), "and shut again");
+    assert_eq!(s.fold_here(0), Some(false), "rung two: the whole message");
+    let open = s.len();
+    assert!(open > clipped, "the whole message is on screen");
+    assert!(rows(&mut s).iter().any(|r| r.trim() == "line 20"), "all of it");
+
+    assert!(s.fold_here(0).is_some(), "rung three: the record itself");
+    let tree = rows(&mut s);
+    assert!(tree.iter().any(|r| r.contains("\"type\"")), "{tree:#?}");
+    assert!(!tree.iter().any(|r| r.trim() == "line 20"), "clipped again: {tree:#?}");
+
+    assert!(s.fold_here(0).is_some(), "and round to the clip");
     assert_eq!(s.len(), clipped);
 }
 

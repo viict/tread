@@ -227,8 +227,8 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `w` | widen the column under the cursor to fit the screen |
 | `a` | show or hide what this view hides (dotfiles, code bodies) |
 | `za` | toggle the section at the cursor |
-| `Enter` | follow the focused link, open the row, else fold |
-| `zt` | open the raw record under the cursor |
+| `Enter` | follow the focused link, else one level into the row |
+| `zt` | open the raw record under the cursor, from any level |
 | `zo` | open the section at the cursor |
 | `zc` | close the section at the cursor |
 | `zM` | collapse every section |
@@ -409,6 +409,14 @@ mechanics — tool calls, their results, thinking, the transcript's own
 bookkeeping — collapse into one row that opens with `Enter`. `Tab` steps
 between messages and runs rather than through what a run folded away, and a
 search hit inside a folded run opens it.
+
+**A record has three levels, and `Enter` walks them.** The row is a headline
+with what was said — or, on a step, what it was thinking — clipped underneath.
+`Enter` opens that whole, and lists the record's tool calls as tool calls:
+`▸ bash  cargo test -q  → 32 lines`, one to a line. `Enter` on *that* line shows
+the arguments the call was made with and the output it returned, clipped the
+same way. `Enter` again is the raw record, and again is back to the clip; `zt`
+reaches the raw record from any of them.
 
 A lens only ever *adds* interpretation. A record it does not recognise renders
 exactly as it would without one, and every summary row still opens into the
