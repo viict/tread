@@ -18,6 +18,12 @@
 //! else — search, folding, yanking, the status bar — keeps speaking records,
 //! and this module is the only place that translates.
 //!
+//! An item is what everything above this module calls a **block** — the unit
+//! `j`/`k` move by, and what the status bar counts (SPEC.md §Lenses). The two
+//! words name one thing; `item` survives here because it is this file's own
+//! arithmetic, and `block` is the only one the reader, the keymap and the trait
+//! ever see. There is no third notion of a boundary anywhere.
+//!
 //! # Laziness survives it
 //!
 //! Classifying a record means parsing it, so the plan is built the same way the
@@ -402,14 +408,6 @@ impl Plan {
         }
     }
 
-    /// The item a record belongs to.
-    pub fn item_of_record(&self, record: usize) -> Option<usize> {
-        let i = self.items.partition_point(|it| it.first <= record);
-        let i = i.checked_sub(1)?;
-        let it = &self.items[i];
-        (record < it.first + it.count).then_some(i)
-    }
-
     /// Where a screen row falls.
     pub fn at(&self, row: usize, known: usize, map: &RowMap) -> Spot {
         let prefix = self.prefix_rows(map);
@@ -458,26 +456,6 @@ impl Plan {
         Spot::Record { record, sub: off - used }
     }
 
-    /// The last item whose row is at or before `row`.
-    fn item_at_row(&self, row: usize, map: &RowMap) -> usize {
-        let (mut lo, mut hi) = (0usize, self.items.len().saturating_sub(1));
-        while lo < hi {
-            let mid = (lo + hi).div_ceil(2);
-            match self.row_of_item(mid, map) <= row {
-                true => lo = mid,
-                false => hi = mid - 1,
-            }
-        }
-        lo
-    }
-
-    /// Rows a closed group hides: one per record it holds.
-    pub fn hidden(&self, item: usize) -> usize {
-        match self.items.get(item) {
-            Some(it) if it.is_group() && !it.open => it.count,
-            _ => 0,
-        }
-    }
 }
 
 /// The fold id of a group, in a vocabulary that cannot collide with a record's
@@ -491,6 +469,11 @@ pub fn group_id(first: usize) -> String {
 pub fn group_first(id: &str) -> Option<usize> {
     id.strip_prefix('g')?.parse().ok()
 }
+
+/// Where a block starts and ends — a child module so it can still reach the
+/// prefix sums above, which are this file's own.
+#[path = "plan_block.rs"]
+mod block;
 
 #[cfg(test)]
 #[path = "plan_tests.rs"]

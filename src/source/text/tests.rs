@@ -438,3 +438,12 @@ fn a_short_last_line_is_still_settled_and_whole() {
     assert_eq!(rows(&mut t), ["alpha", "omega"]);
     assert!(!t.store.borrow_mut().row(1).expect("row 1").truncated);
 }
+
+/// Verbatim lines, and no landmarks to move between: `j` stays one row.
+#[test]
+fn plain_text_does_not_read_in_blocks() {
+    let mut s = src("one\ntwo\nthree\n");
+    finish(&mut s);
+    assert!(!s.blocks());
+    assert_eq!(s.block_at(0), None);
+}

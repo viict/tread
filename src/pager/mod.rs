@@ -21,6 +21,7 @@
 #![deny(unsafe_code)]
 
 mod input;
+mod motion;
 pub mod keys;
 mod link;
 pub mod navigate;

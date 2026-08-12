@@ -20,6 +20,15 @@ impl Pager {
     pub(crate) fn in_visual(&self) -> bool {
         self.select.is_some()
     }
+    /// Whether the document under the pager reads in blocks.
+    pub(crate) fn src_blocks(&self) -> bool {
+        self.src.blocks()
+    }
+    /// The rows of the block on `row`, as the source answers it — for the
+    /// framing tests, which have to know what they were framing.
+    pub(crate) fn src_block_at(&self, row: usize) -> Option<std::ops::Range<usize>> {
+        self.src.block_at(row)
+    }
     /// The text the status bar would show right now.
     pub(crate) fn status_line(&self) -> String {
         view::status_text(self)

@@ -210,8 +210,10 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 
 | Key | Action |
 | --- | --- |
-| `j / ↓` | line down |
-| `k / ↑` | line up |
+| `j / ↓` | line down (one block where a document has them) |
+| `k / ↑` | line up (one block where a document has them) |
+| `Ctrl-E` | scroll one row down, blocks or no blocks |
+| `Ctrl-Y` | scroll one row up, blocks or no blocks |
 | `d` | half page down |
 | `u` | half page up |
 | `space / f` | page down |

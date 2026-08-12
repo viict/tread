@@ -77,7 +77,7 @@ viewport's clip of it.
 A step has no body. Mechanics stay one line, which is also what keeps a folded
 run exactly as tall as the records inside it.
 
-**What this costs.** An item's rows now depend on the **width**, so a resize
+**What this costs.** A block's rows now depend on the **width**, so a resize
 that changes it re-lays every body — without reclassifying anything: a record is
 read once, in file order, and only the wrap is redone. It is also why a `Mark`
 into a record document **read through a lens** is the *record* rather than the
@@ -88,16 +88,63 @@ the cursor keeps its place inside an open record.
 
 ## Keys, under a lens
 
+A trajectory read through a lens is a list of **blocks** — a message with what
+was said under it, or a folded run of mechanics — and moving through it one
+terminal row at a time is moving through one message's wrap. So the cursor moves
+between blocks, and a block is exactly what `Tab` always stepped between: there
+is one definition of where a block starts. (`src/source/record/plan.rs` calls a
+block an `Item`, which is the same run of records under an older name; *block*
+is the only word above that module and the only one a reader ever sees.)
+
 | Key | What it does |
 | --- | --- |
+| `j` / `k` | next / previous **block** — a message or a run, skipping what a run folded |
+| `Ctrl-E` / `Ctrl-Y` | scroll one row, so every row of a block is still reachable |
 | `Enter` / `za` | open the run under the cursor, or the whole of the message |
 | `zt` | open the raw record under the cursor, whatever its message is doing |
 | `zR` / `zM` | open the runs and messages the viewport has reached / shut every one |
-| `Tab` / `S-Tab` | next / previous **item** — a message or a run, skipping what a run folded |
+| `Tab` / `S-Tab` | next / previous **message** — the conversation turn |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
 | `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
 
-The status bar reads `agent · record 412/2354 · .message.content[0].text`.
+Landing on a block shows the block: one that fits is scrolled fully on screen,
+one taller than the viewport puts its first row at the top. `d` / `u`,
+`space` / `b` and `g` / `G` still count screens and rows, and `v` then `j`
+therefore extends a visual selection a **block** at a time — `Ctrl-E` is how a
+selection is grown a row at a time.
+
+Two things `j` deliberately does not do. An **open** run is one block, so `j`
+steps over the run rather than into the steps it just revealed; `Ctrl-E` walks
+them. And where there is no next block it moves one row rather than freezing:
+past the classified prefix — the tail of a big trajectory, where grouping is not
+decided yet — and on the **last** block, whose rows are the end of the file. The
+last block is therefore the one place the pair is not symmetric: `j` walks down
+through it a row at a time while the status bar keeps reading `block N/N`, and
+`k` from anywhere inside it comes back to its first row in one press.
+
+`Ctrl-E` / `Ctrl-Y` scroll: the window moves and the cursor rides with it,
+keeping its place on the screen. That is what makes them the way through a
+block taller than the viewport — `j` puts the cursor at the top of the window
+there, and a key that only moved the cursor would show a frozen screen until it
+had crossed the whole window. At the ends of the document the window stops and
+the cursor keeps going, so the last row is still reachable a row at a time.
+
+`Tab` counts a record the dialect did **not** recognise as a message: it is not
+mechanics, and it is the record SPEC.md §Lenses promises is never lost. That is
+also what keeps `Tab` moving through a file no dialect reads, where every block
+is one of those. With no further message — a trailing run of mechanics — `Tab`
+falls back to the next block rather than dead-ending, and never moves past the
+end.
+
+The status bar reads
+`agent · record 412/2354 · block 96/≥181 · .message.content[0].text`. The block
+clause is lens-only, and it carries `≥` for the same reason the record count
+does and then one more: the lens has read a prefix, and grouping makes the block
+total *shrink* as classification catches up. Past that prefix there is no block
+clause at all, rather than a number the next keystroke changes. The record count
+keeps saying **record** — it is the file's own unit, which `#n` and `--toc`
+also mean, and a `.jsonl` line is not a step.
+
 `--toc --lens agent` prints the same reading as a list — `line, actor, time,
 what`, one record per line, tab-separated — with the records the lens does not
 recognise keeping their generic summary.

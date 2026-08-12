@@ -337,3 +337,18 @@ impl CodeSource {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A source line is the unit; the declarations are `Tab`'s, not `j`'s. It
+    /// lives beside the `Source` impl rather than in `tests.rs`, which is over
+    /// the size limit already and must not grow.
+    #[test]
+    fn code_does_not_read_in_blocks() {
+        let s = CodeSource::new(PathBuf::from("t.rs"), "rust", "pub fn open() {\n    let x = 1;\n}\n");
+        assert!(!s.blocks());
+        assert_eq!(s.block_at(0), None);
+    }
+}

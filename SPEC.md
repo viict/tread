@@ -142,7 +142,10 @@ crate. Never slice a String on a non-char boundary.
 ## Keybindings
 
 ```
-j/k ↓/↑        line down/up            d/u        half page
+j/k ↓/↑        line down/up — one       d/u        half page
+               block where a document
+               reads in blocks
+Ctrl-E/Ctrl-Y  scroll one row, blocks or no blocks
 space/f, b     page down/up            g/G        top/bottom
 h/l            horizontal scroll (code blocks, wide tables)
 ←/→            select a link on the row; scrolls where the row scrolls
@@ -399,11 +402,46 @@ tree of the record under the cursor whatever its message is doing. `zR` shows
 every message the viewport has reached in full — which is what a batch
 (`--plain`, `--toc`) is — and `zM` puts them all back to their clip.
 
-A message therefore makes an item as tall as the width allows, and a resize
+A message therefore makes a block as tall as the width allows, and a resize
 re-wraps it. That is the one place in a record document where rows move without
 a fold changing, and it is why a mark into a file read *through a lens* is the
 **record**: the cursor comes back to what it was reading, on that record's own
 row. With no lens nothing wraps, and a mark there is the row it always was.
+
+**A document read in blocks moves in blocks.** A trajectory under a lens is a
+list of **blocks** — a message with what was said under it, or a folded run of
+mechanics — and a row is then a part of one rather than a thing, so `j` / `k`
+move to the next and previous *block* rather than one terminal row. Landing on
+a block shows the block: one that fits is scrolled fully into view, one taller
+than the viewport puts its first row at the top. There is one definition of
+where a block starts, and it is the same one `Tab` has always stepped between.
+
+Block motion is the default unit and never the only one, because every row must
+stay reachable — a line of a message, a tree row inside an open record, a step
+inside a run someone opened. `Ctrl-E` / `Ctrl-Y` **scroll** one row on any
+document — the window moves and the cursor rides with it, so the first press
+moves the text even where `j` has just parked the cursor at the top of a block
+taller than the screen; at the ends of the document the window stops and the
+cursor keeps going, so the last row stays reachable one row at a time. `d` / `u`
+and `space` / `b` keep counting screens, and `g` / `G` are unchanged.
+
+Where there is no next block — past the classified prefix of a big trajectory,
+and on the **last** block, whose rows are the end of the file — `j` moves one
+row rather than freezing, and `k` from inside a block goes back to its first
+row. So the last block is the one place the two are not symmetric: `j` walks
+down through it a row at a time and `k` returns to its top in one press.
+
+`Tab` / `S-Tab` under a lens are then the next and previous **message** — the
+conversation turn — since `j` already walks every block and half of those are
+mechanics. A record no dialect recognised counts as a message: it is not
+mechanics and SPEC's "nothing is hidden" applies to motion too, which is also
+what keeps `Tab` moving through a file whose dialect nothing reads. Where there
+is no further message — a trailing run of mechanics — `Tab` falls back to the
+next block rather than dead-ending, and neither answer is ever past the end.
+
+Every other format keeps rows as its unit: prose, a CSV row, a source line, a
+tree node and a record file with no lens are each already the thing they look
+like, and their `Tab` is untouched.
 
 **Records inside a document.** A record file is usually one record per line, but
 a trajectory in the ATIF interchange format is a single JSON document whose

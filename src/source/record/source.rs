@@ -454,6 +454,41 @@ impl<S: Store> RecordSource<S> {
         ops::next_item(self.plan.as_ref(), &self.map, self.known(), row, forward)
     }
 
+    /// The rows of the block a row falls in.
+    pub(crate) fn block_rows(&self, row: usize) -> Option<std::ops::Range<usize>> {
+        ops::block_at(self.plan.as_ref(), &self.map, row)
+    }
+
+    /// `(index, count)` of the block a row is on, for the status bar.
+    pub(crate) fn block_of_row(&self, row: usize) -> Option<(usize, usize)> {
+        ops::block_of_row(self.plan.as_ref(), &self.map, row)
+    }
+
+    /// The status bar's block clause — `  ·  block 2/23` — or nothing at all.
+    ///
+    /// Nothing in three cases, each of them honest rather than tidy: with no
+    /// lens there are no blocks, and past the classified prefix the block a row
+    /// will end up in is not decided yet, so a number there would be one the
+    /// next keystroke changes. The total carries the same `≥` the record count
+    /// does, and for the same reason twice over: the lens has only read a
+    /// prefix, and grouping makes that total *shrink* as it catches up.
+    pub(crate) fn block_text(&self, row: usize) -> String {
+        let Some((i, n)) = self.block_of_row(row) else {
+            return String::new();
+        };
+        let classified = self.plan.as_ref().map(|p| p.classified()).unwrap_or(0);
+        let total = match self.complete() && classified >= self.known() {
+            true => format!("{n}"),
+            false => format!("\u{2265}{n}"),
+        };
+        format!("  \u{b7}  block {}/{total}", i.saturating_add(1))
+    }
+
+    /// `Tab` / `S-Tab` under a lens: the next message, not the next block.
+    pub(crate) fn next_message_row(&self, row: usize, forward: bool) -> Option<usize> {
+        ops::next_message(self.plan.as_ref(), &self.map, self.known(), row, forward)
+    }
+
     /// `Y` on a group's row: every record the run holds.
     pub(crate) fn yank_group(&self, item: usize) -> Option<Yank> {
         ops::yank_group(self, self.plan.as_ref(), item)

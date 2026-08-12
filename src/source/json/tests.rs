@@ -428,3 +428,13 @@ fn a_missing_file_is_an_error_not_a_panic() {
 
 
 
+
+/// A tree row is one node, already its own unit. Making `j` jump top-level
+/// members would make a nested document unreadable — that is what `Tab` is for.
+#[test]
+fn a_tree_does_not_read_in_blocks() {
+    let mut s = src(DOC);
+    let _ = s.lines(0..s.len());
+    assert!(!s.blocks());
+    assert_eq!(s.block_at(0), None);
+}

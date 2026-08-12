@@ -1,7 +1,8 @@
 //! Input dispatch: key press -> [`Action`] -> state change.
 //!
 //! Split out of `mod.rs` to keep both files well under the size limit; these
-//! are the same `Pager` methods, just living next door.
+//! are the same `Pager` methods, just living next door. Where the cursor
+//! actually goes once an action is picked is `motion.rs`, one more door down.
 #![deny(unsafe_code)]
 
 use super::keys::{self, Action};
@@ -83,8 +84,10 @@ impl Pager {
     fn motion(&mut self, a: Action) {
         let h = self.content_rows().max(1);
         match a {
-            Action::LineDown => self.move_cursor(1),
-            Action::LineUp => self.move_cursor(-1),
+            Action::LineDown => self.step_block(true),
+            Action::LineUp => self.step_block(false),
+            Action::ScrollDown => self.scroll_row(1),
+            Action::ScrollUp => self.scroll_row(-1),
             Action::HalfDown => self.move_cursor((h as isize + 1) / 2),
             Action::HalfUp => self.move_cursor(-((h as isize + 1) / 2)),
             Action::PageDown => self.move_cursor(h as isize),
@@ -157,84 +160,6 @@ impl Pager {
             },
             // Handled by `act`, or already matched in `motion`.
             _ => {}
-        }
-    }
-
-    // -- movement -----------------------------------------------------------
-
-    fn move_cursor(&mut self, delta: isize) {
-        let n = self.len();
-        if n == 0 {
-            return;
-        }
-        let max = n as isize - 1;
-        let next = (self.cursor as isize).saturating_add(delta).clamp(0, max);
-        self.cursor = next as usize;
-        self.clamp();
-    }
-
-    pub(super) fn goto(&mut self, row: usize) {
-        if self.len() == 0 {
-            return;
-        }
-        self.cursor = row.min(self.len() - 1);
-        self.clamp();
-    }
-
-    /// `h` / `l`. A format may scroll by its own unit — a CSV moves a whole
-    /// column, and its pinned header moves with the body because both are
-    /// painted at this one offset (SPEC.md §CSV).
-    ///
-    /// The format is told the *viewport* width, the same `cols` the painter
-    /// slices rows to and [`Pager::max_hoff`] measures against — not the layout
-    /// width, which `--width` can set far wider than the terminal.
-    pub(super) fn scroll_h(&mut self, delta: isize) {
-        let max = self.max_hoff();
-        let hoff = self.hoff;
-        let view = self.cols.max(1);
-        let next = match self.src.hscroll(hoff, delta.signum(), view) {
-            Some(off) => off as isize,
-            None => (hoff as isize).saturating_add(delta),
-        };
-        self.hoff = next.clamp(0, max as isize) as usize;
-    }
-
-    /// `w`: let the format widen whatever is under the cursor.
-    fn widen(&mut self) {
-        match self.src.widen() {
-            Some(msg) => {
-                self.notify(msg);
-                self.clamp();
-            }
-            None => self.notify("nothing to widen here"),
-        }
-    }
-
-    /// Move the cursor to a row that is already visible, scrolling it in.
-    pub(super) fn jump_to_row(&mut self, row: usize) {
-        self.cursor = row.min(self.len().saturating_sub(1));
-        let h = self.content_rows().max(1);
-        if self.cursor < self.top || self.cursor >= self.top + h {
-            self.top = self.cursor.saturating_sub(h / 3);
-        }
-        self.clamp();
-    }
-
-    /// Move the cursor to a place in the document, unfolding whatever hides it.
-    pub(super) fn jump_to(&mut self, anchor: Anchor) {
-        match self.src.reveal(anchor) {
-            Some(row) => self.jump_to_row(row),
-            None => self.clamp(),
-        }
-    }
-
-    fn jump_heading(&mut self, forward: bool) {
-        match self.src.next_landmark(self.cursor, forward) {
-            Some(row) => self.goto(row),
-            None => self.notify(match forward {
-                true => "no further heading",
-                false => "no previous heading",
-            }),
         }
     }
 

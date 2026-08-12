@@ -65,6 +65,20 @@ impl<S: Store> Source for RecordSource<S> {
         true
     }
 
+    /// A lens turns a record document into a list of blocks — a message with
+    /// what was said under it, or a folded run of mechanics — and a row is then
+    /// a part of one rather than a thing, so `j`/`k` move between blocks. With
+    /// no lens this is the generic tree again: one record per row, one node per
+    /// row, each already its own unit. `plan.is_some()` is the one spelling of
+    /// "is a lens on" this file uses (see [`Source::mark`]).
+    fn blocks(&self) -> bool {
+        self.plan.is_some()
+    }
+
+    fn block_at(&self, row: usize) -> Option<Range<usize>> {
+        self.block_rows(row)
+    }
+
     fn position_text(&self, row: usize) -> Option<String> {
         let (record, sub) = match self.spot(row) {
             Spot::Record { record, sub } => (record, sub),
@@ -82,7 +96,11 @@ impl<S: Store> Source for RecordSource<S> {
             }
         };
         let head = match self.lens_name() {
-            Some(lens) => format!("{lens}  \u{b7}  record {}/{total}", record.saturating_add(1)),
+            Some(lens) => format!(
+                "{lens}  \u{b7}  record {}/{total}{}",
+                record.saturating_add(1),
+                self.block_text(row)
+            ),
             None => format!("record {}/{total}", record.saturating_add(1)),
         };
         // The path only means something inside an open record; on the summary
@@ -339,6 +357,16 @@ impl<S: Store> Source for RecordSource<S> {
             false if sub > 0 => Some(self.map.row_of(record)),
             false if record > 0 => Some(self.map.row_of(record - 1)),
             false => None,
+        }
+    }
+
+    /// `Tab` / `S-Tab` under a lens: the next **message**, since `j`/`k` already
+    /// step between blocks and half of those are mechanics. With no lens there
+    /// are no messages and `Tab` is the next record, exactly what it was.
+    fn next_message(&self, row: usize, forward: bool) -> Option<usize> {
+        match self.plan.is_some() {
+            true => self.next_message_row(row, forward),
+            false => self.next_landmark(row, forward),
         }
     }
 

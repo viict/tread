@@ -13,8 +13,12 @@ pub enum Action {
     Quit,
     /// Ctrl-C: leave immediately, without stepping back through the nav stack.
     ForceQuit,
+    /// `j` / `↓`: one block where the document reads in blocks, else one row.
     LineDown,
     LineUp,
+    /// `Ctrl-E` / `Ctrl-Y`: scroll one row, whatever the document's blocks are.
+    ScrollDown,
+    ScrollUp,
     HalfDown,
     HalfUp,
     PageDown,
@@ -113,15 +117,29 @@ use Action as A;
 pub const BINDINGS: &[Binding] = &[
     Binding {
         keys: "j / \u{2193}",
-        desc: "line down",
+        desc: "line down (one block where a document has them)",
         action: A::LineDown,
         triggers: &[Trigger::c('j'), Trigger::k(Key::Down)],
     },
     Binding {
         keys: "k / \u{2191}",
-        desc: "line up",
+        desc: "line up (one block where a document has them)",
         action: A::LineUp,
         triggers: &[Trigger::c('k'), Trigger::k(Key::Up)],
+    },
+    // The way through a block taller than the screen: why block motion can be
+    // the default unit without being the only one.
+    Binding {
+        keys: "Ctrl-E",
+        desc: "scroll one row down, blocks or no blocks",
+        action: A::ScrollDown,
+        triggers: &[Trigger::k(Key::Ctrl('e'))],
+    },
+    Binding {
+        keys: "Ctrl-Y",
+        desc: "scroll one row up, blocks or no blocks",
+        action: A::ScrollUp,
+        triggers: &[Trigger::k(Key::Ctrl('y'))],
     },
     Binding {
         keys: "d",
@@ -362,7 +380,13 @@ pub const BINDINGS: &[Binding] = &[
 
 /// Resolve a key press (with any pending chord prefix) to an action.
 pub fn lookup(prefix: Option<char>, ev: KeyEvent) -> Option<Action> {
-    if ev.mods.ctrl || ev.mods.alt {
+    // A modifier no binding asked for means the press is not that binding:
+    // `Ctrl-j` is not `j`. But a key that *is* a control key already says so in
+    // `Key::Ctrl`, and the two decoders disagree about the modifier bits on it
+    // — a raw `0x19` carries none, kitty's `CSI u` sets `ctrl` — so rejecting
+    // on the bit alone would make `Ctrl-E` and `Ctrl-C` work on one terminal
+    // and be swallowed on another.
+    if (ev.mods.ctrl && !matches!(ev.key, Key::Ctrl(_))) || ev.mods.alt {
         return None;
     }
     BINDINGS
@@ -428,6 +452,24 @@ mod tests {
     fn modified_keys_do_not_fire_bindings() {
         let ctrl_j = KeyEvent::with(Key::Char('j'), Mods { ctrl: true, ..Mods::NONE });
         assert_eq!(lookup(None, ctrl_j), None);
+    }
+
+    /// The one-row keys, from both decoders. A raw `0x05` arrives as
+    /// `Key::Ctrl('e')` with no modifier bits; kitty's `CSI u` sends the same
+    /// key *with* `ctrl` set, and both must reach the same binding — the hole
+    /// that would otherwise have swallowed `Ctrl-C` on one terminal and not
+    /// the other.
+    #[test]
+    fn the_one_row_keys_resolve_from_either_decoder() {
+        let raw = KeyEvent::plain(Key::Ctrl('e'));
+        assert_eq!(lookup(None, raw), Some(A::ScrollDown));
+        let kitty = KeyEvent::with(Key::Ctrl('e'), Mods { ctrl: true, ..Mods::NONE });
+        assert_eq!(lookup(None, kitty), Some(A::ScrollDown));
+        assert_eq!(lookup(None, KeyEvent::plain(Key::Ctrl('y'))), Some(A::ScrollUp));
+        let kitty_c = KeyEvent::with(Key::Ctrl('c'), Mods { ctrl: true, ..Mods::NONE });
+        assert_eq!(lookup(None, kitty_c), Some(A::ForceQuit));
+        // A chord prefix still gates them: `z` then Ctrl-E is nothing.
+        assert_eq!(lookup(Some('z'), raw), None);
     }
 
     #[test]

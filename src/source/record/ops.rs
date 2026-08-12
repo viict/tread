@@ -143,6 +143,52 @@ pub(crate) fn next_item(
     }
 }
 
+/// The rows of the block `row` falls in — what the pager frames when `j`/`k`
+/// land on one. `None` with no lens (there are no blocks) and `None` past the
+/// classified prefix.
+pub(crate) fn block_at(plan: Option<&Plan>, map: &RowMap, row: usize) -> Option<std::ops::Range<usize>> {
+    plan?.block_at(row, map)
+}
+
+/// `(index, count)` of the block `row` is on, for the status bar.
+pub(crate) fn block_of_row(plan: Option<&Plan>, map: &RowMap, row: usize) -> Option<(usize, usize)> {
+    plan?.block_of_row(row, map)
+}
+
+/// `Tab` / `S-Tab` under a lens: the next **message** — the conversation turn —
+/// now that `j`/`k` step between blocks and a block is as often a folded run of
+/// mechanics as it is something someone said.
+///
+/// The test is [`super::plan::Item::step`], so an *unrecognised* record is a
+/// message here: it is not mechanics, the lens said nothing about it, and it is
+/// exactly the thing SPEC.md §Lenses promises is never lost. It is also what
+/// makes `Tab` keep moving through a file whose dialect nothing recognises,
+/// where every block is one of these.
+///
+/// `None` when there is no further message; the caller then falls back to the
+/// next block rather than dead-ending on a trailing run of mechanics.
+pub(crate) fn next_message(
+    plan: Option<&Plan>,
+    map: &RowMap,
+    known: usize,
+    row: usize,
+    forward: bool,
+) -> Option<usize> {
+    let plan = plan?;
+    let record = lensrow::record_at(Some(plan), map, known, row);
+    let cur = plan.item_of_record(record)?;
+    let items = plan.items();
+    let at = |i: usize| plan.row_of_item(i, map);
+    match forward {
+        true => (cur + 1..items.len()).find(|&i| !items[i].step).map(at),
+        // Inside a message, the first press goes back to its own row — the same
+        // rule `next_item` follows, so `Tab` and `S-Tab` agree about where a
+        // thing starts.
+        false if row > at(cur) && !items[cur].step => Some(at(cur)),
+        false => (0..cur).rev().find(|&i| !items[i].step).map(at),
+    }
+}
+
 /// `Y` on a group's row: every record the run holds, one JSON document per
 /// line — the folded rows as data, so what was copied is what was hidden.
 pub(crate) fn yank_group<R: Records>(src: &R, plan: Option<&Plan>, item: usize) -> Option<Yank> {

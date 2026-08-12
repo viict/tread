@@ -91,9 +91,32 @@ fn quit_sets_the_flag() {
 #[test]
 fn every_action_is_reachable_and_survives_being_fired_blind() {
     let mut p = pager(DOC, 40, 6);
+    fire_every_action(&mut p);
+    assert!(!p.should_quit());
+}
+
+/// The same barrage against a document that reads in **blocks**, where `j`/`k`
+/// and `Tab` run framing code markdown never reaches. A tiny viewport is the
+/// point: the arithmetic that brings a block on screen is where an off-by-one
+/// panics.
+#[test]
+fn every_action_survives_being_fired_blind_at_a_lensed_document() {
+    let mut src = crate::source::jsonl::JsonlSource::from_bytes(super::lens::run().into_bytes());
+    src.set_lens(crate::lens::find("agent").expect("the agent lens"));
+    let mut p = Pager::new(Box::new(src), "session.jsonl".into(), 24, 3, None);
+    let _ = p.visible_text();
+    fire_every_action(&mut p);
+    fire_every_action(&mut p);
+    assert!(!p.should_quit());
+    assert!(p.cursor < p.line_count());
+}
+
+fn fire_every_action(p: &mut Pager) {
     for a in [
         Action::LineDown,
         Action::LineUp,
+        Action::ScrollDown,
+        Action::ScrollUp,
         Action::HalfDown,
         Action::HalfUp,
         Action::PageDown,
@@ -121,7 +144,6 @@ fn every_action_is_reachable_and_survives_being_fired_blind() {
         let mut f = Frame::new(true);
         p.paint(&mut f);
     }
-    assert!(!p.should_quit());
 }
 
 #[test]

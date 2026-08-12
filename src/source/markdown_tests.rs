@@ -170,3 +170,13 @@ fn an_empty_document_answers_everything_without_panicking() {
     assert_eq!(s.yank_block(0), None);
     assert_eq!(s.yank_rows(0..3), None);
 }
+
+/// A rendered line is the unit here, so `j` stays one row: block motion is for
+/// a document whose rows are parts of something bigger (SPEC.md §Lenses), and a
+/// default that silently caught prose would change how the whole reader moves.
+#[test]
+fn prose_does_not_read_in_blocks() {
+    let s = MarkdownSource::new(md::parse(DOC));
+    assert!(!s.blocks());
+    assert_eq!(s.block_at(0), None);
+}

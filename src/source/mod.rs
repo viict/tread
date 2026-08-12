@@ -53,6 +53,7 @@ pub mod markdown;
 pub mod record;
 pub mod search;
 pub mod text;
+mod types;
 
 use std::ops::Range;
 
@@ -60,104 +61,7 @@ use crate::render::Line;
 use crate::select::Yank;
 use search::Dir;
 
-/// A place in the document that survives folding but not re-layout.
-///
-/// Opaque to everything above the seam: the pager only ever compares anchors
-/// (they order the same way the document reads) and hands them back to the
-/// source it got them from.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Anchor(pub usize);
-
-/// A place in the *content* that survives re-layout, so a resize can put the
-/// cursor back where it was.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Mark(pub usize);
-
-/// Opaque, format-defined fold state: the ids of the closed sections.
-///
-/// The pager stores it in a history [`Snapshot`](crate::nav::history::Snapshot)
-/// and hands it back verbatim; it never inspects an id. Ids must be stable
-/// across re-layout, which is what lets folds survive a resize.
-pub type FoldState = Vec<String>;
-
-/// One entry of the document outline (`o`, and the collapse tree).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Entry {
-    /// Nesting depth, 1 = outermost. Drives indentation and the fold ranges.
-    pub level: u8,
-    /// Stable id for this section: the key fold state is stored under, and the
-    /// target of an anchor link (`#some-heading`).
-    pub id: String,
-    /// Text shown in the outline overlay.
-    pub text: String,
-    /// Where the section starts.
-    pub anchor: Anchor,
-    /// True when this section is currently folded shut.
-    pub folded: bool,
-}
-
-/// One link occurrence in the document, in reading order.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct LinkSite {
-    /// The row the link sits on, as an anchor (it may be folded away).
-    pub anchor: Anchor,
-    /// Display column the link starts at, within its row.
-    pub col: usize,
-    pub url: String,
-}
-
-/// One search match on a row, in display columns of that row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct MatchSpan {
-    pub start: usize,
-    pub end: usize,
-    /// True for the match the cursor is currently sitting on.
-    pub current: bool,
-}
-
-/// Where `G` lands, and whether the format still has work to do to know.
-///
-/// A format that discovers its document lazily — a CSV's row index — genuinely
-/// does not know where the end is until it has scanned there, and the *worst*
-/// answer is the confident one: jumping to the end of whatever happens to be
-/// indexed puts the cursor in the middle of the file and says nothing about it.
-/// [`End::Scanning`] is that honest "not yet", carrying the percentage the
-/// status bar shows while the pager drives the scan a slice at a time.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum End {
-    /// The last row `G` should put the cursor on.
-    At(usize),
-    /// The end is not known yet; `0..=100` of the way there.
-    Scanning(u8),
-}
-
-/// Where a search landed, and whether it wrapped around the document.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Hit {
-    pub anchor: Anchor,
-    pub wrapped: bool,
-}
-
-/// One row expanded into labelled fields.
-///
-/// A grid shows as many columns as fit and no more, which is exactly wrong for
-/// the row you actually care about: a wide CSV hides most of it off-screen, and
-/// a ragged row can carry fields the header never named. This is that row read
-/// the other way round — one field per line, label beside value, nothing
-/// hidden. A future tree format would return a node's children the same way.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Detail {
-    /// What the overlay is titled, e.g. `Row 41`.
-    pub title: String,
-    /// `(label, value)`, in the format's own order. A field the format has no
-    /// name for still appears — labelled positionally rather than dropped.
-    ///
-    /// Values are **raw**: exactly the bytes the document holds, control
-    /// characters and all. Painting them is what makes them safe
-    /// ([`crate::render::visible`]), so that copying one yields the real value
-    /// rather than the dotted display form.
-    pub fields: Vec<(String, String)>,
-}
+pub use types::{Anchor, Detail, End, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan};
 
 /// A document behind the format seam.
 ///
@@ -225,6 +129,43 @@ pub trait Source {
     /// still wins over both.
     fn full_width(&self) -> bool {
         false
+    }
+
+    /// True when this document reads in **blocks** rather than rows, so `j`/`k`
+    /// move from one block to the next instead of one terminal row at a time
+    /// (SPEC.md §Lenses).
+    ///
+    /// A block is whatever [`Source::next_landmark`] already steps between —
+    /// one definition of a boundary, not two — and it is worth being the unit
+    /// only where a row is a *part* of something rather than a thing: a
+    /// trajectory read through a lens is a message with what was said under it,
+    /// or a folded run of mechanics, and walking that a row at a time is
+    /// walking one message's wrap.
+    ///
+    /// The default is `false` and every format but one keeps it: prose, a CSV
+    /// row, a source line, a tree node and a record with no lens are each their
+    /// own unit already, and `false` costs none of them its `Tab`. Block motion
+    /// is the default unit and never the only one — `Ctrl-E`/`Ctrl-Y` still
+    /// move one row, so every row of a block stays reachable.
+    fn blocks(&self) -> bool {
+        false
+    }
+
+    /// The rows the block containing `row` occupies, for framing it when the
+    /// cursor lands on it: a block that fits is scrolled fully on screen, one
+    /// taller than the viewport puts its first row at the top.
+    ///
+    /// `None` — the default — is a format with no blocks, and also a row a
+    /// blocked format cannot place yet (past a lazily classified prefix); the
+    /// pager then frames the landing row alone.
+    ///
+    /// A real accessor rather than two [`Source::next_landmark`] calls, because
+    /// that pair cannot answer at either end: forward from the last block it is
+    /// `None` though the block does have an extent, and backward from inside
+    /// one it gives that block's own header row, not the previous boundary.
+    fn block_at(&self, row: usize) -> Option<Range<usize>> {
+        let _ = row;
+        None
     }
 
     /// `h` / `l`: the horizontal offset one step in `dir` (`-1` left, `+1`
@@ -331,9 +272,23 @@ pub trait Source {
     /// summary in the gutter.
     fn hidden_at(&self, row: usize) -> Option<usize>;
 
-    /// `Tab` / `S-Tab`: the next or previous structural landmark strictly after
-    /// (before) `row`, in rows. `None` when there is none that way.
+    /// The next or previous structural landmark strictly after (before) `row`,
+    /// in rows. `None` when there is none that way.
+    ///
+    /// The one definition of a boundary in the crate: `Tab` / `S-Tab` step
+    /// between these ([`Source::next_message`] defaults to it), and so do
+    /// `j` / `k` where [`Source::blocks`] is true.
     fn next_landmark(&self, row: usize, forward: bool) -> Option<usize>;
+
+    /// `Tab` / `S-Tab`, for a document whose landmarks are already the unit
+    /// `j`/`k` move by. The default is [`Source::next_landmark`], so every
+    /// format whose `j` is still a row keeps exactly the `Tab` it had. Only a
+    /// [`Source::blocks`] document needs a second answer: its blocks are
+    /// messages *and* folded runs of mechanics, `j` walks all of them, and what
+    /// `Tab` is for there is the conversation turn.
+    fn next_message(&self, row: usize, forward: bool) -> Option<usize> {
+        self.next_landmark(row, forward)
+    }
 
     /// Jump to a section by its [`Entry::id`] — an anchor link (`#slug`).
     /// Opens the section and everything hiding it, and returns its row.

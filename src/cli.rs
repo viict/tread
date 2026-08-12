@@ -119,6 +119,7 @@ OPTIONS
 
 KEYS
     j/k d/u space/b g/G   scroll        h/l         scroll horizontally
+    Ctrl-E/Ctrl-Y         scroll a row  j/k         one block, under a lens
     za Enter zM zR        collapse      Tab/S-Tab   next/prev heading
     n \u{2190}/\u{2192}                 pick a link   Enter    follow / open
     Backspace             back

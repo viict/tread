@@ -9,7 +9,7 @@ use crate::source::{Anchor, Dir};
 /// A small trajectory in the shape a Claude Code session file has: a prompt,
 /// an answer, a run of mechanics, another answer, and one record from a
 /// dialect nobody has taught this lens.
-const RUN: &str = concat!(
+pub(super) const RUN: &str = concat!(
     r#"{"type":"user","timestamp":"2026-08-05T14:01:00.000Z","message":{"role":"user","content":"add a lens"}}"#,
     "\n",
     r#"{"type":"assistant","timestamp":"2026-08-05T14:02:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"On it.\nStarting now."}]}}"#,
@@ -28,7 +28,7 @@ const RUN: &str = concat!(
     "\n",
 );
 
-fn lensed(text: &str) -> JsonlSource {
+pub(super) fn lensed(text: &str) -> JsonlSource {
     let mut s = JsonlSource::from_bytes(text.as_bytes().to_vec());
     s.set_lens(crate::lens::find("agent").expect("the agent lens"));
     s.set_width(200);
@@ -36,7 +36,7 @@ fn lensed(text: &str) -> JsonlSource {
     s
 }
 
-fn rows(s: &mut JsonlSource) -> Vec<String> {
+pub(super) fn rows(s: &mut JsonlSource) -> Vec<String> {
     let n = s.len();
     s.lines(0..n)
         .iter()

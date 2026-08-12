@@ -257,3 +257,11 @@ fn enter_opens_a_file_from_a_listing_named_by_a_relative_parent_path() {
     );
 }
 
+/// A listing row is one entry: `j` stays one row (SPEC.md §Lenses).
+#[test]
+fn a_listing_does_not_read_in_blocks() {
+    let t = tmp("blocks");
+    let s = DirSource::open(&t.0);
+    assert!(!s.blocks());
+    assert_eq!(s.block_at(0), None);
+}

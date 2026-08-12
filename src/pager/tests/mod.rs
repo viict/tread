@@ -2,7 +2,7 @@
 //! driven with synthetic key events and inspected through its state.
 #![deny(unsafe_code)]
 
-use super::keys::Action;
+use super::keys::{self, Action};
 use super::search::Dir;
 use super::{Mode, Pager};
 use crate::key::{Key, KeyEvent};
@@ -300,7 +300,8 @@ fn help_overlay_opens_and_closes() {
     let mut f = Frame::new(true);
     p.paint(&mut f);
     assert!(f.as_str().contains("line down"), "frame was: {}", f.as_str());
-    for _ in 0..30 {
+    // Far enough to reach the bottom of the table, whatever it has grown to.
+    for _ in 0..keys::BINDINGS.len() {
         press(&mut p, "j");
     }
     let mut f = Frame::new(true);
@@ -474,4 +475,23 @@ fn y_on_a_metadata_row_copies_the_field() {
     press(&mut p, "y");
     let y = p.peek_yank().expect("a field yank");
     assert_eq!(y.text, "models/A.md\n");
+}
+
+/// Prose has no blocks, so `j`/`k` are one rendered line — the default that
+/// must not move under a format that never opted in. `Ctrl-E`/`Ctrl-Y` are the
+/// same one row here, which is what makes them safe to press anywhere.
+#[test]
+fn j_and_k_move_one_row_on_a_document_with_no_blocks() {
+    let mut p = pager(DOC, 60, 20);
+    assert!(!p.src_blocks());
+    for expected in 1..6 {
+        press(&mut p, "j");
+        assert_eq!(p.cursor, expected);
+    }
+    press(&mut p, "k");
+    assert_eq!(p.cursor, 4);
+    key(&mut p, Key::Ctrl('e'));
+    assert_eq!(p.cursor, 5);
+    key(&mut p, Key::Ctrl('y'));
+    assert_eq!(p.cursor, 4);
 }

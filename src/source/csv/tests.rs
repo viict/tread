@@ -426,3 +426,13 @@ fn positions_are_stable_and_never_panic() {
     s.set_width(30);
     assert_eq!(s.locate(Mark(4)), Some(4));
 }
+
+/// A CSV row *is* the unit, and this format has no landmarks at all: `j` stays
+/// one row (SPEC.md §Lenses).
+#[test]
+fn a_grid_does_not_read_in_blocks() {
+    let s = src_from("a,b\n1,2\n3,4\n");
+    assert!(!s.blocks());
+    assert_eq!(s.block_at(1), None);
+    assert_eq!(s.next_landmark(0, true), None);
+}

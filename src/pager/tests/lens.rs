@@ -21,7 +21,7 @@ fn long_message() -> String {
 
 /// A prompt with a long message, a tool call and its result, and a short
 /// answer. Hand-written, in the shape a Claude Code session file has.
-fn run() -> String {
+pub(super) fn run() -> String {
     format!(
         concat!(
             r#"{{"type":"user","timestamp":"2026-08-05T14:01:00.000Z","#,
@@ -124,11 +124,18 @@ fn zt_opens_the_raw_record_whatever_the_body_is_doing() {
 }
 
 /// From inside a message, `zt` opens the record that message came from.
+///
+/// `Ctrl-E` is what gets there now that `j` is a block: the two presses put the
+/// cursor on line 3 of the first message, which is a row of the block rather
+/// than the block itself.
 #[test]
 fn zt_from_a_body_row_opens_the_record_it_belongs_to() {
     let mut p = lens_pager(80, 40);
     let before = p.line_count();
-    press(&mut p, "jjzt");
+    key(&mut p, Key::Ctrl('e'));
+    key(&mut p, Key::Ctrl('e'));
+    assert_eq!(p.cursor_text(), "line 3 of what was said");
+    press(&mut p, "zt");
     assert!(p.line_count() > before, "{}", p.status_line());
     assert!(p.visible_text().iter().any(|r| r.contains("\"uuid\"") || r.contains("\"type\"")));
 }
@@ -180,7 +187,9 @@ fn a_resize_keeps_the_cursor_on_the_same_record() {
 #[test]
 fn a_resize_from_inside_a_body_lands_on_its_summary_row() {
     let mut p = lens_pager(80, 40);
-    press(&mut p, "jjj");
+    for _ in 0..3 {
+        key(&mut p, Key::Ctrl('e'));
+    }
     let _ = p.visible_text();
     assert_eq!(p.cursor_text(), "line 4 of what was said");
     let mark = p.cursor_mark();
@@ -201,4 +210,194 @@ fn zr_opens_the_bodies_and_zm_clips_them_again() {
     assert!(open.iter().any(|r| r == "line 12 of what was said"), "{open:#?}");
     press(&mut p, "zM");
     assert_eq!(p.line_count(), clipped);
+}
+
+// -- block motion ------------------------------------------------------------
+//
+// SPEC.md §Lenses: a trajectory reads in blocks, so `j`/`k` move between them
+// and `Ctrl-E`/`Ctrl-Y` keep moving one row. Every assertion below is the
+// pager's own state after a synthetic key press — there is no frame here to
+// reconstruct, and none of these read one.
+
+/// Two long messages, so a block reached by `j` is taller than one row and
+/// framing has something to do.
+fn two_long_messages() -> String {
+    format!(
+        concat!(
+            r#"{{"type":"user","timestamp":"2026-08-05T14:01:00.000Z","#,
+            r#""message":{{"role":"user","content":"{}"}}}}"#,
+            "\n",
+            r#"{{"type":"assistant","timestamp":"2026-08-05T14:02:00.000Z","message":{{"role":"assistant","#,
+            r#""content":[{{"type":"text","text":"{}"}}]}}}}"#,
+            "\n"
+        ),
+        long_message(),
+        long_message()
+    )
+}
+
+fn pager_over(text: String, cols: usize, rows: usize) -> Pager {
+    let mut src = JsonlSource::from_bytes(text.into_bytes());
+    src.set_lens(crate::lens::find("agent").expect("the agent lens"));
+    let mut p = Pager::new(Box::new(src), "session.jsonl".into(), cols, rows, None);
+    let _ = p.visible_text();
+    p
+}
+
+/// The whole of it: `j` walks the three blocks — a message, the run its
+/// mechanics folded into, the answer — and stops at the last rather than
+/// running into its rows or off the end. `k` walks back and stays put at the
+/// first.
+#[test]
+fn j_and_k_step_between_blocks_and_stop_at_the_ends() {
+    let mut p = lens_pager(80, 40);
+    assert_eq!(p.cursor, 0);
+    assert!(p.cursor_text().contains("line 1 of what was said"));
+    press(&mut p, "j");
+    assert!(p.cursor_text().contains("\u{27e8}"), "the folded run: {:?}", p.cursor_text());
+    let run = p.cursor;
+    press(&mut p, "j");
+    assert!(p.cursor_text().contains("Done."), "{:?}", p.cursor_text());
+    let last = p.cursor;
+    press(&mut p, "j");
+    assert_eq!(p.cursor, last, "the last block does not run off the end");
+    assert!(p.cursor < p.line_count());
+    press(&mut p, "k");
+    assert_eq!(p.cursor, run);
+    press(&mut p, "k");
+    assert_eq!(p.cursor, 0, "back to the first block");
+    press(&mut p, "k");
+    assert_eq!(p.cursor, 0, "and `k` on the first block stays put");
+}
+
+/// A block that fits the viewport is scrolled fully into view — not merely far
+/// enough to show the row `j` landed on, which is all the cursor clamp does.
+#[test]
+fn landing_on_a_block_that_fits_brings_all_of_it_on_screen() {
+    let mut p = pager_over(two_long_messages(), 80, 9);
+    let h = p.content_rows();
+    assert_eq!((p.cursor, p.top), (0, 0));
+    press(&mut p, "j");
+    let block = p.src_block_at(p.cursor).expect("the second block");
+    assert!(block.end - block.start <= h, "the block fits: {block:?} in {h}");
+    assert!(p.top <= block.start, "the block starts on screen: {block:?}, top {}", p.top);
+    assert!(
+        block.end <= p.top + h,
+        "and ends on it: {block:?}, top {} + {h}",
+        p.top
+    );
+    assert!(p.top > 0, "which took a scroll the cursor alone would not have");
+}
+
+/// A block taller than the viewport cannot be shown whole, so its first row
+/// goes to the top and the reader starts at the beginning of what was said.
+#[test]
+fn landing_on_a_block_taller_than_the_viewport_puts_its_first_row_at_the_top() {
+    let mut p = pager_over(two_long_messages(), 80, 6);
+    let h = p.content_rows();
+    press(&mut p, "j");
+    let block = p.src_block_at(p.cursor).expect("the second block");
+    assert!(block.end - block.start > h, "the block is taller: {block:?} in {h}");
+    assert_eq!(p.cursor, block.start);
+    assert_eq!(p.top, block.start, "its first row is the top of the screen");
+}
+
+/// And the key that reads it moves the text on the **first** press. Landing on
+/// a block taller than the viewport puts the cursor at the top of the window,
+/// where a cursor-only step would scroll nothing until the cursor had crossed a
+/// whole screen — the reader would press `Ctrl-E` `h - 1` times at every long
+/// message and watch a frozen screen. `Ctrl-E` scrolls, carrying the cursor.
+#[test]
+fn ctrl_e_scrolls_the_text_on_the_first_press_inside_a_tall_block() {
+    let mut p = pager_over(two_long_messages(), 80, 6);
+    press(&mut p, "j");
+    let top = p.top;
+    // `visible_text` is the whole document, so the row *at the top of the
+    // window* is what the reader's first screen row is.
+    let rows = p.visible_text();
+    let first = rows[top].clone();
+    key(&mut p, Key::Ctrl('e'));
+    assert_eq!(p.top, top + 1, "the window moved on press one");
+    assert_ne!(p.visible_text()[p.top], first, "so the top of the screen is a new row");
+    assert_eq!(p.cursor, top + 1, "and the cursor kept its place on the screen");
+    // And back: `Ctrl-Y` is symmetric, one press for one row.
+    key(&mut p, Key::Ctrl('y'));
+    assert_eq!((p.top, p.cursor), (top, top));
+    assert_eq!(p.visible_text()[p.top], first);
+}
+
+/// The window runs out before the cursor does, at both ends: `Ctrl-E` on the
+/// last screen still walks the cursor down to the final row, and `Ctrl-Y` on
+/// the first screen still walks it up to row 0 — a scroll that stopped moving
+/// the cursor when `top` stopped would strand the tail of the document.
+#[test]
+fn ctrl_e_still_reaches_the_last_row_once_the_window_has_stopped() {
+    let mut p = pager_over(two_long_messages(), 80, 6);
+    let n = p.line_count();
+    for _ in 0..n * 2 {
+        key(&mut p, Key::Ctrl('e'));
+    }
+    assert_eq!(p.cursor, n - 1, "the last row is reachable one row at a time");
+    for _ in 0..n * 2 {
+        key(&mut p, Key::Ctrl('y'));
+    }
+    assert_eq!((p.cursor, p.top), (0, 0));
+}
+
+/// Block motion is the default unit, never the only one: `Ctrl-E` moves one
+/// row, and walking a whole document with it reaches every row there is —
+/// including a message's lines and the rows of a record opened inside a block.
+#[test]
+fn ctrl_e_moves_one_row_and_reaches_every_row() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "zt");
+    let _ = p.visible_text();
+    let n = p.line_count();
+    assert!(n > 9, "a record was opened inside the first block: {n}");
+    let mut seen = vec![p.cursor];
+    for _ in 0..n * 2 {
+        let before = p.cursor;
+        key(&mut p, Key::Ctrl('e'));
+        assert!(p.cursor <= before + 1, "one row at a time: {before} -> {}", p.cursor);
+        if p.cursor != before {
+            seen.push(p.cursor);
+        }
+    }
+    assert_eq!(seen, (0..n).collect::<Vec<_>>(), "every row was reachable");
+    for _ in 0..n * 2 {
+        key(&mut p, Key::Ctrl('y'));
+    }
+    assert_eq!(p.cursor, 0, "and Ctrl-Y walks back to the top");
+}
+
+/// `Tab` is the conversation turn now that `j` is a block: it steps over the
+/// folded run of mechanics that `j` stops on.
+#[test]
+fn tab_steps_to_the_next_message_and_j_stops_on_the_run() {
+    let mut p = lens_pager(80, 40);
+    key(&mut p, Key::Tab);
+    assert!(p.cursor_text().contains("Done."), "{:?}", p.cursor_text());
+    // There is nothing further to say, and `Tab` neither dead-ends silently on
+    // a wrong row nor moves past the end.
+    let last = p.cursor;
+    key(&mut p, Key::Tab);
+    assert_eq!(p.cursor, last);
+    assert!(p.cursor < p.line_count());
+    key(&mut p, Key::BackTab);
+    assert_eq!(p.cursor, 0, "and back to the message before it");
+}
+
+/// The status bar says which block the cursor is on, in the same shape and the
+/// same vocabulary as the record it already counted.
+#[test]
+fn the_status_bar_names_the_block() {
+    let mut p = lens_pager(80, 40);
+    assert!(p.status_line().contains("block 1/3"), "{}", p.status_line());
+    press(&mut p, "j");
+    assert!(p.status_line().contains("block 2/3"), "{}", p.status_line());
+    press(&mut p, "j");
+    let last = p.status_line();
+    assert!(last.contains("agent"), "{last}");
+    assert!(last.contains("record 4/4"), "{last}");
+    assert!(last.contains("block 3/3"), "{last}");
 }
