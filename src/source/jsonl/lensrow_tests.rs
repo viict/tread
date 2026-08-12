@@ -251,10 +251,13 @@ fn fold_all_both_ways_keeps_every_record() {
     assert_eq!(rows(&mut s).len(), 6, "every body back to its clip too");
 }
 
-/// `Tab` moves between the things that stand on their own — messages and
-/// runs — rather than through the records a run has folded away.
+/// A landmark is the thing that stands on its own — a message, or a run —
+/// rather than a record the run has folded away. Renamed for what it always
+/// tested: every run here is **shut**, and a shut run is one landmark. Opening
+/// one adds its steps to the sequence, which
+/// `block_tests::a_boundary_descends_into_an_open_run` is the test for.
 #[test]
-fn landmarks_are_the_items() {
+fn landmarks_are_the_items_while_every_run_is_shut() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
     assert_eq!(s.next_landmark(0, true), Some(1));

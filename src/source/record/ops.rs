@@ -119,28 +119,13 @@ pub(crate) fn restore(plan: Option<&mut Plan>, map: &mut RowMap, folds: &[String
     }
 }
 
-/// `Tab` / `S-Tab` under a lens: the next thing that stands on its own — a
-/// message, or a folded run — rather than the next record, most of which a lens
-/// has deliberately folded away.
-pub(crate) fn next_item(
-    plan: Option<&Plan>,
-    map: &RowMap,
-    known: usize,
-    row: usize,
-    forward: bool,
-) -> Option<usize> {
-    let plan = plan?;
-    let record = lensrow::record_at(Some(plan), map, known, row);
-    let cur = plan.item_of_record(record)?;
-    let base = plan.row_of_item(cur, map);
-    match forward {
-        true if cur + 1 < plan.items().len() => Some(plan.row_of_item(cur + 1, map)),
-        true => None,
-        // Inside an item, the first press goes back to its header row.
-        false if row > base => Some(base),
-        false if cur > 0 => Some(plan.row_of_item(cur - 1, map)),
-        false => None,
-    }
+/// `j` / `k` under a lens, and what `Tab` falls back to: the next block
+/// boundary — a message, a shut run, or, inside a run the reader has opened,
+/// one of the steps in it. [`Plan::next_block`] is the crate's single
+/// definition of where a block starts, and `Plan::block_at` is the same table
+/// read for an extent.
+pub(crate) fn next_block(plan: Option<&Plan>, map: &RowMap, row: usize, forward: bool) -> Option<usize> {
+    plan?.next_block(row, map, forward)
 }
 
 /// The rows of the block `row` falls in — what the pager frames when `j`/`k`
@@ -165,8 +150,16 @@ pub(crate) fn block_of_row(plan: Option<&Plan>, map: &RowMap, row: usize) -> Opt
 /// makes `Tab` keep moving through a file whose dialect nothing recognises,
 /// where every block is one of these.
 ///
+/// **`Tab` does not descend into an open run, and that is deliberate.** `j`
+/// descends because opening a run means "show me what is in here"; `Tab` is the
+/// conversation turn, and every member of a run is by construction a step — so
+/// descending would only make `Tab` stop on mechanics, which is the one thing it
+/// exists not to do. Opening a run therefore changes what `j` steps by and
+/// leaves `Tab` exactly where it was.
+///
 /// `None` when there is no further message; the caller then falls back to the
-/// next block rather than dead-ending on a trailing run of mechanics.
+/// next block rather than dead-ending on a trailing run of mechanics — and
+/// *that* fallback does descend, since it is the block boundary.
 pub(crate) fn next_message(
     plan: Option<&Plan>,
     map: &RowMap,
@@ -182,8 +175,9 @@ pub(crate) fn next_message(
     match forward {
         true => (cur + 1..items.len()).find(|&i| !items[i].step).map(at),
         // Inside a message, the first press goes back to its own row — the same
-        // rule `next_item` follows, so `Tab` and `S-Tab` agree about where a
-        // thing starts.
+        // rule [`Plan::next_block`] follows, so `Tab` and `S-Tab` agree about
+        // where a thing starts. The two answers part only inside an open run,
+        // where a block starts on the member's row and a message on the run's.
         false if row > at(cur) && !items[cur].step => Some(at(cur)),
         false => (0..cur).rev().find(|&i| !items[i].step).map(at),
     }

@@ -449,9 +449,10 @@ impl<S: Store> RecordSource<S> {
         ops::restore(self.plan.as_mut(), &mut self.map, folds);
     }
 
-    /// `Tab` / `S-Tab` under a lens: the next item, not the next record.
-    pub(crate) fn next_item(&self, row: usize, forward: bool) -> Option<usize> {
-        ops::next_item(self.plan.as_ref(), &self.map, self.known(), row, forward)
+    /// `j` / `k` under a lens: the next block boundary, not the next record —
+    /// and inside an open run, its steps are blocks.
+    pub(crate) fn next_block_row(&self, row: usize, forward: bool) -> Option<usize> {
+        ops::next_block(self.plan.as_ref(), &self.map, row, forward)
     }
 
     /// The rows of the block a row falls in.
@@ -471,7 +472,9 @@ impl<S: Store> RecordSource<S> {
     /// will end up in is not decided yet, so a number there would be one the
     /// next keystroke changes. The total carries the same `≥` the record count
     /// does, and for the same reason twice over: the lens has only read a
-    /// prefix, and grouping makes that total *shrink* as it catches up.
+    /// prefix, and grouping makes that total *shrink* as it catches up. It
+    /// *grows* on the keystroke that opens a run, whose steps are blocks while
+    /// it is open; both numbers are read off the one table `j` steps by.
     pub(crate) fn block_text(&self, row: usize) -> String {
         let Some((i, n)) = self.block_of_row(row) else {
             return String::new();

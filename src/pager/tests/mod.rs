@@ -54,6 +54,7 @@ fn heading_ids(p: &Pager) -> Vec<String> {
 
 mod csv;
 mod lens;
+mod openrun;
 mod paint;
 
 // -- scrolling ---------------------------------------------------------------

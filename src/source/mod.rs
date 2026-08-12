@@ -284,8 +284,10 @@ pub trait Source {
     /// `j`/`k` move by. The default is [`Source::next_landmark`], so every
     /// format whose `j` is still a row keeps exactly the `Tab` it had. Only a
     /// [`Source::blocks`] document needs a second answer: its blocks are
-    /// messages *and* folded runs of mechanics, `j` walks all of them, and what
-    /// `Tab` is for there is the conversation turn.
+    /// messages, folded runs of mechanics, *and* — once the reader opens a run —
+    /// the steps inside it, since [`Source::next_landmark`] descends into an
+    /// open group. `j` walks all of those, and what `Tab` is for there is the
+    /// conversation turn, which is why it does not descend.
     fn next_message(&self, row: usize, forward: bool) -> Option<usize> {
         self.next_landmark(row, forward)
     }

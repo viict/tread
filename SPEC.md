@@ -416,9 +416,17 @@ a block shows the block: one that fits is scrolled fully into view, one taller
 than the viewport puts its first row at the top. There is one definition of
 where a block starts, and it is the same one `Tab` has always stepped between.
 
+**A boundary descends into a run that is open.** A shut run is one block — that
+is what makes it a summary — but opening one is the reader saying "show me what
+is in here", so the steps inside it become the blocks: the run's own row, then
+one block per step, a step and whatever tree it has open counting as one the
+same way a message and its body do. `k` mirrors that exactly, out of the run
+and on to the block above it, and the block the status bar counts is the block
+`j` steps by, so opening a run makes the total grow rather than drift.
+
 Block motion is the default unit and never the only one, because every row must
-stay reachable — a line of a message, a tree row inside an open record, a step
-inside a run someone opened. `Ctrl-E` / `Ctrl-Y` **scroll** one row on any
+stay reachable — a line of a message, a tree row inside an open record.
+`Ctrl-E` / `Ctrl-Y` **scroll** one row on any
 document — the window moves and the cursor rides with it, so the first press
 moves the text even where `j` has just parked the cursor at the top of a block
 taller than the screen; at the ends of the document the window stops and the
@@ -433,11 +441,17 @@ down through it a row at a time and `k` returns to its top in one press.
 
 `Tab` / `S-Tab` under a lens are then the next and previous **message** — the
 conversation turn — since `j` already walks every block and half of those are
-mechanics. A record no dialect recognised counts as a message: it is not
+mechanics. `Tab` does *not* descend into an open run while there is a message
+to reach, which is the deliberate half of the pair: every step in a run is
+mechanics, so stopping on one is the thing `Tab` exists not to do. A record no
+dialect recognised counts as a message: it is not
 mechanics and SPEC's "nothing is hidden" applies to motion too, which is also
 what keeps `Tab` moving through a file whose dialect nothing reads. Where there
 is no further message — a trailing run of mechanics — `Tab` falls back to the
-next block rather than dead-ending, and neither answer is ever past the end.
+next block rather than dead-ending, and that fallback *is* the block boundary,
+so at the tail of a document `Tab` does land inside a run that is open: a
+mechanic step is a better answer there than no movement at all. Neither answer
+is ever past the end.
 
 Every other format keeps rows as its unit: prose, a CSV row, a source line, a
 tree node and a record file with no lens are each already the thing they look

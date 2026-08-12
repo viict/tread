@@ -345,10 +345,10 @@ impl<S: Store> Source for RecordSource<S> {
         }
     }
 
-    /// `Tab` / `S-Tab`: the next record, which is the only landmark a log has.
+    /// Block boundaries: `j`/`k`, and `Tab`'s fallback — see `plan_block.rs`.
     fn next_landmark(&self, row: usize, forward: bool) -> Option<usize> {
         if self.plan.is_some() {
-            return self.next_item(row, forward);
+            return self.next_block_row(row, forward);
         }
         let (record, sub) = self.map.at(row);
         match forward {

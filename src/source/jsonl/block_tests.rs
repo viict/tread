@@ -75,3 +75,88 @@ fn the_status_bar_counts_blocks_too() {
     let last = s.position_text(5).expect("position");
     assert!(last.contains("block 5/5"), "{last}");
 }
+
+/// A boundary **descends into an open run**: the run's own row, then one block
+/// per step in it (SPEC.md §Lenses). A shut run is one block — that is what
+/// makes it a summary — so opening one is what changes the sequence.
+#[test]
+fn a_boundary_descends_into_an_open_run() {
+    let mut s = lensed(RUN);
+    let _ = rows(&mut s);
+    // Shut: the run is one block, and `j` steps over it.
+    assert_eq!(s.block_at(3), Some(3..4));
+    assert_eq!(s.next_landmark(3, true), Some(4));
+    let entry = s.section_at(3).expect("the run is an outline entry");
+    assert!(s.set_fold(entry, false), "the run opens");
+    let _ = rows(&mut s);
+    // Open: rows 4..8 are its four steps, each one a block of its own.
+    assert_eq!(s.block_at(3), Some(3..4), "the run's own row");
+    assert_eq!(s.next_landmark(3, true), Some(4), "then the first step");
+    for row in 4..8 {
+        assert_eq!(s.block_at(row), Some(row..row + 1), "step {row}");
+        assert_eq!(s.next_landmark(row, true), Some(row + 1));
+        assert_eq!(s.next_landmark(row, false), Some(row - 1), "and `k` mirrors it");
+    }
+    assert_eq!(s.next_landmark(8, false), Some(7), "back into the run from below");
+    // And every block still starts where the one before it ends.
+    for row in 0..s.len() {
+        let block = s.block_at(row).expect("a block");
+        assert_eq!(s.next_landmark(block.start, true), Some(block.end).filter(|e| *e < s.len()));
+    }
+}
+
+/// A member and the tree it has open are one block, exactly as a message and
+/// its body are: `j` clears the member's rows in one press.
+#[test]
+fn a_member_with_an_open_tree_is_one_block() {
+    let mut s = lensed(RUN);
+    let _ = rows(&mut s);
+    let run = s.section_at(3).expect("the run");
+    assert!(s.set_fold(run, false));
+    let _ = rows(&mut s);
+    let member = s.section_at(4).expect("the first step of the run");
+    assert!(s.set_fold(member, false), "its record opens");
+    let _ = rows(&mut s);
+    let block = s.block_at(4).expect("the member's block");
+    assert_eq!(block.start, 4);
+    assert!(block.end > 5, "its tree is inside it: {block:?}");
+    assert_eq!(s.block_at(block.end - 1), Some(block.clone()), "the last tree row too");
+    assert_eq!(s.next_landmark(4, true), Some(block.end), "one step clears it");
+    assert_eq!(s.next_landmark(block.end - 1, false), Some(4), "and one comes back");
+}
+
+/// The status bar counts what `j` steps by, so opening a run grows the total
+/// rather than leaving the counter saying something `j` disagrees with.
+#[test]
+fn the_block_count_grows_when_a_run_opens() {
+    let mut s = lensed(RUN);
+    let _ = rows(&mut s);
+    assert!(s.position_text(3).expect("position").contains("block 3/5"), "shut");
+    let entry = s.section_at(3).expect("the run");
+    assert!(s.set_fold(entry, false));
+    let _ = rows(&mut s);
+    let at_run = s.position_text(3).expect("position");
+    assert!(at_run.contains("block 3/9"), "{at_run}");
+    let first_step = s.position_text(4).expect("position");
+    assert!(first_step.contains("block 4/9"), "{first_step}");
+    let after = s.position_text(9).expect("position");
+    assert!(after.contains("block 9/9"), "{after}");
+}
+
+/// `Tab` does **not** descend into an open run, and that is the deliberate
+/// half of the pair: `Tab` is the conversation turn, and every member of a run
+/// is a step, so descending would only make it stop on mechanics. Opening a run
+/// changes what `j` steps by and leaves `Tab` exactly where it was.
+#[test]
+fn tab_does_not_descend_into_an_open_run() {
+    let mut s = lensed(RUN);
+    let _ = rows(&mut s);
+    let before = s.next_message(1, true);
+    assert_eq!(before, Some(4), "the message after the shut run");
+    let entry = s.section_at(3).expect("the run");
+    assert!(s.set_fold(entry, false), "the run opens");
+    let _ = rows(&mut s);
+    assert_eq!(s.next_message(1, true), Some(8), "the same message, four rows lower");
+    assert_eq!(s.next_message(4, true), Some(8), "and from inside the run too");
+    assert_eq!(s.next_message(8, false), Some(1), "back over the whole run");
+}

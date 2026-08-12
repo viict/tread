@@ -18,11 +18,14 @@
 //! else — search, folding, yanking, the status bar — keeps speaking records,
 //! and this module is the only place that translates.
 //!
-//! An item is what everything above this module calls a **block** — the unit
-//! `j`/`k` move by, and what the status bar counts (SPEC.md §Lenses). The two
-//! words name one thing; `item` survives here because it is this file's own
-//! arithmetic, and `block` is the only one the reader, the keymap and the trait
-//! ever see. There is no third notion of a boundary anywhere.
+//! What everything above calls a **block** — the unit `j`/`k` move by and what
+//! the status bar counts (SPEC.md §Lenses) — is an item *while that item is
+//! shut*, and not the same count once one is open: a boundary descends into a
+//! run the reader has opened, so an open group is one item and `1 + count`
+//! blocks. `item` survives here because it is this file's own arithmetic;
+//! `block` is the only word the reader, the keymap and the trait ever see.
+//! Count blocks with [`Plan::blocks_of_item`] or the `bstarts` prefix sum
+//! beside it, never `items().len()`; `plan_block.rs` defines every boundary.
 //!
 //! # Laziness survives it
 //!
@@ -105,6 +108,13 @@ pub struct Plan {
     body: Vec<usize>,
     /// Own rows of every item before this one — no tree rows in it.
     starts: Vec<usize>,
+    /// Blocks before item `i`. An item is one block while it is shut and
+    /// `1 + count` while it is an open group, because a block boundary descends
+    /// into a run the reader has opened ([`Plan::blocks_of_item`]). Kept as a
+    /// prefix sum next to `starts`, and rebuilt by the same `sync`, so the block
+    /// index the status bar prints and the boundary `j` steps to are read off
+    /// one table rather than counted twice.
+    bstarts: Vec<usize>,
     /// First index of `starts` that may be wrong.
     dirty: usize,
     /// Columns the bodies were laid out for.
@@ -121,6 +131,7 @@ impl Plan {
             items: Vec::new(),
             body: Vec::new(),
             starts: Vec::new(),
+            bstarts: Vec::new(),
             dirty: 0,
             width: 80,
             all_full: false,
@@ -350,13 +361,20 @@ impl Plan {
             return;
         }
         self.starts.truncate(self.dirty);
+        self.bstarts.truncate(self.dirty);
         let mut run = match self.dirty {
             0 => 0,
             n => self.starts[n - 1] + self.own(n - 1),
         };
+        let mut blocks = match self.dirty {
+            0 => 0,
+            n => self.bstarts[n - 1] + self.blocks_of_item(n - 1),
+        };
         for i in self.dirty..self.items.len() {
             self.starts.push(run);
+            self.bstarts.push(blocks);
             run += self.own(i);
+            blocks += self.blocks_of_item(i);
         }
         self.dirty = self.items.len();
     }
