@@ -52,7 +52,7 @@
 #![deny(unsafe_code)]
 
 use super::usage::{self, Field, Tokens};
-use super::{record_clock, record_type, Class, Lens, Summary, Who};
+use super::{record_clock, record_type, Class, Lens, Part, Summary, Who};
 use crate::json::Value;
 
 pub const NAME: &str = "usage";
@@ -115,6 +115,98 @@ impl Lens for Usage {
         };
         Some(sum.at(time))
     }
+
+    /// The exact numbers, and everything the row had no column for.
+    ///
+    /// Four columns of floored numbers are what a row can honestly carry; this
+    /// is where they become the integers the file wrote, and where the fields a
+    /// column would have been 99.96% noise for finally appear — a `service_tier`
+    /// or a `speed` that is *not* `standard` is exactly the anomaly a reader
+    /// opened the row to find, and one that is `standard` says nothing and is
+    /// not shown.
+    ///
+    /// `Part::Text` only: this lens is not re-telling the conversation, so a
+    /// call gets no part of its own. `&self` and nothing stored — a `Vec<Part>`
+    /// is per keystroke.
+    fn detail(&self, v: &Value) -> Vec<Part> {
+        let mut out: Vec<Part> = Vec::new();
+        if let Some(u) = v.get("message").and_then(|m| m.get("usage")) {
+            out.extend(usage::part("tokens", token_lines(u)));
+            out.extend(usage::part("request", request_lines(u)));
+        }
+        out.extend(usage::part("model", model_lines(v)));
+        out.extend(usage::part("envelope", envelope_lines(v)));
+        out
+    }
+}
+
+/// Every counter the record wrote, exact — including the two the row has no
+/// column for, and the cache-creation breakdown when the record splits it.
+fn token_lines(u: &Value) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for key in [
+        "input_tokens",
+        "output_tokens",
+        "cache_creation_input_tokens",
+        "cache_read_input_tokens",
+    ] {
+        lines.extend(usage::exact(u, key));
+    }
+    if let Some(c) = u.get("cache_creation") {
+        for key in ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"] {
+            lines.extend(usage::exact(c, key));
+        }
+    }
+    // A subset of `output_tokens`, which is why it gets no column and is never
+    // added to the total.
+    if let Some(d) = u.get("output_tokens_details") {
+        lines.extend(usage::exact(d, "thinking_tokens"));
+    }
+    lines
+}
+
+/// How the request itself went, when it went in a way worth saying.
+fn request_lines(u: &Value) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for key in ["service_tier", "speed"] {
+        if let Some(text) = u.get(key).and_then(|t| t.as_str()) {
+            // Nearly every record says `standard`, so saying it again is noise;
+            // anything else is the reason a reader is here.
+            if text != "standard" {
+                lines.push(usage::line(key, text));
+            }
+        }
+    }
+    // A list whose elements repeat the outer counters per attempt. Its *length*
+    // is the fact — the request was retried — and its contents are never summed
+    // (`usage::Tokens::total` says why).
+    if let Some(n) = u.get("iterations").and_then(|i| i.as_array()).map(|a| a.len()) {
+        if n > 1 {
+            lines.push(usage::line("iterations", n));
+        }
+    }
+    lines
+}
+
+/// Which model the numbers were spent on. Without it a count is a number with
+/// no price attached to it.
+fn model_lines(v: &Value) -> Vec<String> {
+    let Some(m) = v.get("message") else {
+        return Vec::new();
+    };
+    ["model", "id", "stop_reason"]
+        .into_iter()
+        .filter_map(|key| usage::named(m, key))
+        .collect()
+}
+
+/// What wrote the record. `version` above all: it is the schema-drift signal, so
+/// a row whose numbers look wrong can be checked against the build that wrote it.
+fn envelope_lines(v: &Value) -> Vec<String> {
+    ["requestId", "sessionId", "gitBranch", "version"]
+        .into_iter()
+        .filter_map(|key| usage::named(v, key))
+        .collect()
 }
 
 /// `message.usage`, read into the four counters. `None` when the record carries

@@ -205,3 +205,98 @@ fn a_counter_that_is_not_a_count_is_refused() {
     assert_eq!(s.tokens, 7);
     assert!(s.what.starts_with("in     -  out    -  read   7"), "{}", s.what);
 }
+
+// -- the open level --------------------------------------------------------------
+
+/// Every part's label and text, for asking what the open level says.
+fn detail_text(json: &str) -> Vec<(&'static str, String)> {
+    let v = crate::json::parse(json.as_bytes()).expect("fixture parses");
+    Usage
+        .detail(&v)
+        .into_iter()
+        .map(|p| match p {
+            Part::Text { label, body } => (label, body.head),
+            Part::Call { tool, .. } => panic!("this lens builds no call parts, got {tool}"),
+        })
+        .collect()
+}
+
+fn part_of<'a>(parts: &'a [(&'static str, String)], label: &str) -> &'a str {
+    &parts.iter().find(|(l, _)| *l == label).unwrap_or_else(|| panic!("no {label} part")).1
+}
+
+/// The row floors to four columns; the level under it is the integer the file
+/// wrote. That is the whole bargain of flooring.
+#[test]
+fn the_open_level_is_where_the_numbers_are_exact() {
+    let record = r#"{"type":"assistant","message":{"role":"assistant","content":[],
+        "model":"a-model-id","usage":{"input_tokens":1999,"output_tokens":7,
+        "cache_creation":{"ephemeral_5m_input_tokens":11,"ephemeral_1h_input_tokens":2},
+        "output_tokens_details":{"thinking_tokens":3}}}}"#;
+    assert!(sum(record).what.starts_with("in  1.9k"), "the row floors");
+    let parts = detail_text(record);
+    let tokens = part_of(&parts, "tokens");
+    for want in [
+        "input_tokens                1999",
+        "output_tokens               7",
+        "ephemeral_5m_input_tokens   11",
+        "ephemeral_1h_input_tokens   2",
+        "thinking_tokens             3",
+    ] {
+        assert!(tokens.contains(want), "{want:?} not in {tokens:?}");
+    }
+    assert!(part_of(&parts, "model").contains("a-model-id"));
+}
+
+/// `standard` is what nearly every record says, so saying it again is noise;
+/// anything else is the anomaly a reader opened the row to find.
+#[test]
+fn a_tier_is_shown_only_when_it_is_not_standard() {
+    let with = |tier: &str| {
+        format!(
+            r#"{{"type":"assistant","message":{{"role":"assistant",
+               "usage":{{"input_tokens":1,"service_tier":{tier}}}}}}}"#
+        )
+    };
+    let standard = detail_text(&with(r#""standard""#));
+    assert!(!standard.iter().any(|(l, _)| *l == "request"), "{standard:?}");
+    assert!(part_of(&detail_text(&with(r#""priority""#)), "request").contains("priority"));
+    // A tier that is null is not a string and says nothing either.
+    assert!(!detail_text(&with("null")).iter().any(|(l, _)| *l == "request"));
+}
+
+/// One attempt is the ordinary case and says nothing; two is a retry, and the
+/// *length* is the fact. The elements are never summed into the total.
+#[test]
+fn iterations_appear_only_when_there_was_more_than_one() {
+    let one = r#"{"type":"assistant","message":{"role":"assistant",
+        "usage":{"input_tokens":1,"iterations":[{"input_tokens":1}]}}}"#;
+    assert!(!detail_text(one).iter().any(|(l, _)| *l == "request"));
+    let two = r#"{"type":"assistant","message":{"role":"assistant",
+        "usage":{"input_tokens":1,"iterations":[{"input_tokens":1},{"input_tokens":1}]}}}"#;
+    let parts = detail_text(two);
+    let req = part_of(&parts, "request");
+    assert!(req.contains("iterations"), "{req}");
+    assert!(req.contains('2'), "{req}");
+}
+
+/// `version` is the schema-drift signal: a row whose numbers look wrong can be
+/// checked against the build that wrote it.
+#[test]
+fn the_envelope_carries_what_wrote_the_record() {
+    let parts = detail_text(
+        r#"{"type":"assistant","requestId":"req-1","sessionId":"s-1","gitBranch":"main",
+            "version":"9.9.9","message":{"role":"assistant","usage":{"input_tokens":1}}}"#,
+    );
+    let env = part_of(&parts, "envelope");
+    for want in ["req-1", "s-1", "main", "9.9.9"] {
+        assert!(env.contains(want), "{env}");
+    }
+}
+
+/// A record with nothing to say at this level says nothing, rather than a row
+/// with an empty part hanging under it.
+#[test]
+fn a_record_with_nothing_to_open_has_no_parts() {
+    assert!(detail_text(r#"{"type":"file-history-snapshot"}"#).is_empty());
+}

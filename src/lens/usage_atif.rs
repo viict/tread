@@ -42,7 +42,7 @@
 use super::atif::STEPS;
 use super::usage::{self, Field, Tokens};
 use super::usage_agent::count;
-use super::{record_clock, Class, Lens, RecordsAt, Summary, Who};
+use super::{record_clock, Class, Lens, Part, RecordsAt, Summary, Who};
 use crate::json::Value;
 
 pub const NAME: &str = "usage-atif";
@@ -74,6 +74,42 @@ impl Lens for UsageAtif {
             None => session(v),
         }
     }
+
+    /// The exact numbers, and the two fields the row has no column for.
+    ///
+    /// Nothing is invented for the four counters this format does not have:
+    /// there is no cache-creation part here under any circumstance, because
+    /// there is no cache-creation number to show.
+    fn detail(&self, v: &Value) -> Vec<Part> {
+        let mut out: Vec<Part> = Vec::new();
+        if let Some(m) = v.get("metrics") {
+            out.extend(usage::part("tokens", metric_lines(m)));
+        }
+        out.extend(usage::part("model", model_lines(v)));
+        out
+    }
+}
+
+/// Every counter `metrics` wrote, exact, plus the two that get no column:
+/// `reasoning_tokens`, which is a subset of the completion count, and
+/// `llm_call_count`, which counts calls to a model rather than tokens.
+fn metric_lines(m: &Value) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for key in ["prompt_tokens", "completion_tokens", "cached_tokens", "total_tokens"] {
+        lines.extend(usage::exact(m, key));
+    }
+    if let Some(extra) = m.get("extra") {
+        lines.extend(usage::exact(extra, "reasoning_tokens"));
+    }
+    lines
+}
+
+/// Which model the numbers were spent on, and how many times it was called.
+fn model_lines(v: &Value) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    lines.extend(usage::named(v, "model_name"));
+    lines.extend(usage::exact(v, "llm_call_count"));
+    lines
 }
 
 /// One step of the trajectory.

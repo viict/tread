@@ -126,3 +126,60 @@ fn reasoning_is_not_added_to_the_total() {
     );
     assert_eq!(s.tokens, 150, "not 190");
 }
+
+// -- the open level --------------------------------------------------------------
+
+fn detail_text(json: &str) -> Vec<(&'static str, String)> {
+    let v = crate::json::parse(json.as_bytes()).expect("fixture parses");
+    UsageAtif
+        .detail(&v)
+        .into_iter()
+        .map(|p| match p {
+            Part::Text { label, body } => (label, body.head),
+            Part::Call { tool, .. } => panic!("this lens builds no call parts, got {tool}"),
+        })
+        .collect()
+}
+
+fn part_of<'a>(parts: &'a [(&'static str, String)], label: &str) -> &'a str {
+    &parts.iter().find(|(l, _)| *l == label).unwrap_or_else(|| panic!("no {label} part")).1
+}
+
+/// The row floors; the level under it is exact, and it carries the two numbers
+/// the row has no column for.
+#[test]
+fn the_open_level_is_where_the_numbers_are_exact() {
+    let record = r#"{"step_id":1,"source":"agent","model_name":"a-model-id","llm_call_count":11,
+        "metrics":{"prompt_tokens":1999,"completion_tokens":50,"cached_tokens":3,
+                   "extra":{"reasoning_tokens":40}}}"#;
+    assert!(sum(record).what.starts_with("in  1.9k"), "the row floors");
+    let parts = detail_text(record);
+    let tokens = part_of(&parts, "tokens");
+    for want in ["prompt_tokens               1999", "reasoning_tokens            40"] {
+        assert!(tokens.contains(want), "{want:?} not in {tokens:?}");
+    }
+    let model = part_of(&parts, "model");
+    assert!(model.contains("a-model-id"), "{model}");
+    assert!(model.contains("llm_call_count"), "{model}");
+}
+
+/// There is no cache-creation number in this format, so no part ever mentions
+/// one — nothing is invented for a counter the file does not have.
+#[test]
+fn no_step_ever_opens_into_a_cache_creation_number() {
+    for fixture in [
+        r#"{"step_id":1,"source":"agent","metrics":{"prompt_tokens":1,"cached_tokens":2}}"#,
+        r#"{"step_id":2,"source":"user","metrics":{"completion_tokens":9}}"#,
+    ] {
+        for (_, text) in detail_text(fixture) {
+            assert!(!text.contains("cache_creation"), "{text}");
+            assert!(!text.contains("ephemeral"), "{text}");
+        }
+    }
+}
+
+/// The envelope is a headline over a tree, and `Enter` opens the tree.
+#[test]
+fn the_session_record_has_no_parts() {
+    assert!(detail_text(r#"{"schema_version":"ATIF-v1.7","session_id":"s-1"}"#).is_empty());
+}

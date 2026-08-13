@@ -36,7 +36,8 @@
 //! pans across it rather than losing the action off the end.
 #![deny(unsafe_code)]
 
-use crate::lens::tokens;
+use crate::json::Value;
+use crate::lens::{tokens, Body, Part};
 
 /// Columns a field's label gets, left-justified.
 const LABEL: usize = 4;
@@ -199,6 +200,46 @@ pub fn collapse(items: Vec<String>) -> Vec<String> {
             n => format!("{text} \u{d7}{n}"),
         })
         .collect()
+}
+
+// -- the open level -------------------------------------------------------------
+//
+// Where the row's floored four columns become exact, and where everything the
+// row had no column for lands. Nothing a record holds is unreachable, which is
+// the seam's rule — and this level is built from `Part::Text` alone, because
+// this lens is not re-telling the conversation.
+
+/// One `name  value` line of an open level, aligned so a column of numbers
+/// still reads as a column when it is exact.
+pub fn line(name: &str, value: impl std::fmt::Display) -> String {
+    format!("{name:<28}{value}")
+}
+
+/// A `name  value` line for an integer field, when the record has one.
+///
+/// The **exact** integer, not [`tokens`]: the row above is floored to four
+/// columns and this is the rung a reader descends to when they need the real
+/// number — `1999` on the row is `1.9k`, and here it is `1999`.
+pub fn exact(v: &Value, key: &str) -> Option<String> {
+    Some(line(key, v.get(key)?.as_number()?.as_i64()?))
+}
+
+/// A `name  value` line for a string field, when the record has one.
+pub fn named(v: &Value, key: &str) -> Option<String> {
+    Some(line(key, v.get(key)?.as_str()?))
+}
+
+/// The lines gathered under `label` as one part, or nothing when there were
+/// none — an empty part is a row that says a name and shows nothing under it.
+///
+/// The body has an **empty path**: it is a summary this module composed, not a
+/// string node of the record, so there is nothing to walk back to. Every byte
+/// of it is short, and the record's own tree is one `r` away regardless.
+pub fn part(label: &'static str, lines: Vec<String>) -> Option<Part> {
+    match lines.is_empty() {
+        true => None,
+        false => Some(Part::Text { label, body: Body::new(&lines.join("\n"), Vec::new()) }),
+    }
 }
 
 #[cfg(test)]
