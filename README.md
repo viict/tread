@@ -52,6 +52,19 @@ $env:INSTALL_PATH = 'C:\tools'; irm https://raw.githubusercontent.com/viict/trea
 $env:VERSION = 'v0.1.0'; irm https://raw.githubusercontent.com/viict/tread/master/install.ps1 | iex
 ```
 
+From a package manager, if you already have one:
+
+```sh
+cargo install tread            # crates.io; builds from source
+npx @viict/tread README.md     # npm; fetches the build for your machine once
+```
+
+The unscoped `tread` on npm is an unrelated package, so the scope is not
+optional. `npm install -g @viict/tread` puts the binary on your `PATH` under its
+own name. Set `TREAD_BINARY` to a `tread` you already have and the npm launcher
+downloads nothing at all — which is what one global install shared by several
+accounts, or a CI runner with no route out, wants.
+
 Prefer not to pipe the internet into a shell? Read
 [`install.sh`](install.sh) or [`install.ps1`](install.ps1) first, or take a
 `.tar.gz` — a `.zip` on Windows — from the
