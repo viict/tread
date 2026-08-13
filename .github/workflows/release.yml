@@ -195,3 +195,114 @@ jobs:
               --generate-notes \
               artifacts/*
           fi
+
+  # -- registries -------------------------------------------------------------
+  #
+  # Both jobs authenticate by trusted publishing: the runner proves who it is
+  # with a short-lived OIDC token and the registry hands back a credential that
+  # expires with the run. There is no long-lived secret in either, which is why
+  # `id-token: write` appears and `secrets` does not.
+  #
+  # Each registry has to be told to trust this workflow, and *neither* can be
+  # configured for a package that does not exist yet. The first publish of any
+  # new package is therefore a manual one from a laptop; every release after it
+  # goes through here.
+
+  crate:
+    name: publish to crates.io
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment: Packaging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # A crates.io version can never be republished, not even after a yank, so
+      # a tag that disagrees with Cargo.toml must stop the release here rather
+      # than burn the version number it would have gone out under.
+      - name: The tag and Cargo.toml must agree
+        run: |
+          WANT="${GITHUB_REF_NAME#v}"
+          HAVE="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          if [ "$WANT" != "$HAVE" ]; then
+            echo "tag says $WANT, Cargo.toml says $HAVE"
+            exit 1
+          fi
+        shell: bash
+
+      - name: Install toolchain
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+        shell: bash
+
+      # Re-tagging is a normal thing to do while a project is young, and the
+      # release job above is built for it. `cargo publish` is not: it fails
+      # outright on a version the registry already has, which would redden a
+      # rerun whose only crime is that it already succeeded.
+      - name: Has crates.io got this version already?
+        id: need
+        run: |
+          WANT="${GITHUB_REF_NAME#v}"
+          CODE="$(curl -sS -o /dev/null -w '%{http_code}' \
+            -A "tread-release" "https://crates.io/api/v1/crates/tread/$WANT")"
+          if [ "$CODE" = "200" ]; then
+            echo "tread $WANT is already on crates.io; nothing to publish"
+            echo "publish=no" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=yes" >> "$GITHUB_OUTPUT"
+          fi
+        shell: bash
+
+      - uses: rust-lang/crates-io-auth-action@v1
+        id: auth
+        if: steps.need.outputs.publish == 'yes'
+
+      - run: cargo publish --locked
+        if: steps.need.outputs.publish == 'yes'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+
+  npm:
+    name: publish to npm
+    # Not `needs: build`. The launcher this publishes downloads its binary from
+    # the GitHub release at first run, so publishing it before the release
+    # exists would ship a package that cannot work until the next job finishes.
+    needs: publish
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment: Packaging
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs a newer npm than the runner image ships.
+      - run: npm install -g npm@latest && npm --version
+
+      # The published version is the tag, always. package.json carries 0.0.0 in
+      # the repository so there is no second place to forget to bump.
+      - name: Stamp the version from the tag
+        working-directory: npm
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
+
+      # Same reasoning as the crate job: a rerun of a tag that already shipped
+      # must be a no-op, not a red run.
+      - name: Publish
+        working-directory: npm
+        run: |
+          WANT="${GITHUB_REF_NAME#v}"
+          if npm view "@viict/tread@$WANT" version > /dev/null 2>&1; then
+            echo "@viict/tread $WANT is already on npm; nothing to publish"
+            exit 0
+          fi
+          npm publish --access public --provenance
