@@ -13,11 +13,21 @@
 //!
 //! # Where the numbers are
 //!
-//! Exactly one path, `message.usage`, and nothing else is read for a number. In
-//! the sessions this was written against it is present on every `assistant`
-//! record and on no record of any other type, so a record without it is not a
-//! record whose numbers are hidden somewhere else — it is a record that spent
-//! nothing this file recorded, and it shows its `type` and stops.
+//! Exactly one path, `message.usage`, and nothing else is read for a number.
+//! Measured over whole session logs it is on every `assistant` record and on no
+//! record of any other type — so a row that shows no numbers is never an
+//! `assistant` whose counters this lens failed to find.
+//!
+//! It is **not** the only usage object a session log contains. A `user` record
+//! that carries the result of a subagent call has one at
+//! `toolUseResult.usage`, with the same key names. This lens does not read it,
+//! and such a record shows `user` and no number columns at all. That is the
+//! right answer here: every number in this column is one request's spend, and
+//! the counters on a subagent result are the *total* of a whole run of them —
+//! putting a sum in a column of per-request numbers would make the column mean
+//! two things and make it un-addable. Nothing is lost: those records are a
+//! handful per corpus, the object is in the record's own tree one `r` away, and
+//! the subagent's own session log has the same spend a request at a time.
 //!
 //! | key | column |
 //! | --- | --- |
@@ -232,8 +242,16 @@ fn read_usage(v: &Value) -> Option<Tokens> {
 /// Exact, through the number's own literal text: these are added up into a
 /// session total, and a count that went through an `f64` would stop being the
 /// number the file wrote somewhere past 2⁵³. A negative or fractional value is
-/// not a token count and is refused rather than clamped — the record then shows
-/// `-` in that cell, which is true.
+/// not a token count and is refused rather than clamped.
+///
+/// **Refusing spells it `-`, the same cell an unwritten field gets**, so a
+/// malformed counter is not told apart from one the record never wrote. That is
+/// deliberate and it is the one place the three-way distinction in `usage.rs`
+/// is blurred: no record of any session measured has ever carried a counter
+/// that is not a non-negative integer, and a fourth spelling in a four-column
+/// block would be vocabulary a reader has to learn for something they will not
+/// see. The value is not hidden either way — `r` shows the record's own tree,
+/// with whatever it really wrote in it.
 pub(super) fn count(usage: &Value, key: &str) -> Option<u64> {
     u64::try_from(usage.get(key)?.as_number()?.as_i64()?).ok()
 }
