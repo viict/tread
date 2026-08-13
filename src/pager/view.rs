@@ -82,7 +82,7 @@ fn compose(p: &Pager, row: usize, line: &Line) -> Vec<Span> {
     let off = if scroll { p.hoff } else { 0 };
     // Borrowed unless a fold summary rewrote the row: cloning the spans would
     // cost a copy of every cell of a 10k-column CSV row, on every frame.
-    let summary = fold_summary(p, row, line);
+    let summary = fold_summary(p, row, line, width, off);
     let base: &[Span] = summary.as_deref().unwrap_or(&line.spans);
     let full_width = base.iter().map(Span::width).sum::<usize>();
     let mut cells = Cells::from_spans(&slice_spans(base, off, width));
@@ -113,7 +113,13 @@ fn selected(p: &Pager, row: usize) -> bool {
 }
 
 /// A folded section shows `\u{25b8} Title  (N lines)`.
-fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
+fn fold_summary(
+    p: &Pager,
+    row: usize,
+    line: &Line,
+    width: usize,
+    off: usize,
+) -> Option<Vec<Span>> {
     let hidden = p.src.hidden_at(row)?;
     let mut spans = line.spans.clone();
     if let Some(first) = spans.first_mut() {
@@ -127,13 +133,44 @@ fn fold_summary(p: &Pager, row: usize, line: &Line) -> Option<Vec<Span>> {
         return Some(spans);
     }
     // A source may describe what it hides better than a line count can.
-    if let Some(note) = p.src.fold_note(row) {
-        spans.push(Span::new(format!("  \u{b7} {note}"), theme::muted()));
-        return Some(spans);
+    let note = match p.src.fold_note(row) {
+        Some(note) => format!("  \u{b7} {note}"),
+        None => {
+            let unit = if hidden == 1 { "line" } else { "lines" };
+            format!("  ({hidden} {unit})")
+        }
+    };
+    Some(with_count(spans, note, width, off))
+}
+
+/// The row plus what it hides, with the text cut short when the two together
+/// do not fit.
+///
+/// The count is the reason the row is folded, so it is the half that must
+/// survive: a headline that filled the width used to push its `(49 lines)`
+/// off the right edge, where only a sideways scroll would find it. The text
+/// is cut to leave room and marked with [`CUT_RIGHT`], and because the *line*
+/// is still the full one, scrolling right reads the rest of it as before —
+/// this trims what is painted at rest, never what the row holds.
+pub(super) fn with_count(spans: Vec<Span>, note: String, width: usize, off: usize) -> Vec<Span> {
+    let text: usize = spans.iter().map(Span::width).sum();
+    let note_width = crate::render::str_width(&note);
+    // Scrolled sideways the reader is reading the text itself, and a cut that
+    // moved with the window would fight them for the columns.
+    if off > 0 || text + note_width <= width {
+        let mut out = spans;
+        out.push(Span::new(note, theme::muted()));
+        return out;
     }
-    let unit = if hidden == 1 { "line" } else { "lines" };
-    spans.push(Span::new(format!("  ({hidden} {unit})"), theme::muted()));
-    Some(spans)
+    // One column for the cut mark. A width with no room for both keeps the
+    // count: a row that says only `(49 lines)` is still true.
+    let keep = width.saturating_sub(note_width + 1);
+    let mut out = crate::render::slice_spans(&spans, 0, keep);
+    if keep > 0 {
+        out.push(Span::new(CUT_RIGHT.to_string(), theme::muted()));
+    }
+    out.push(Span::new(note, theme::muted()));
+    out
 }
 
 /// The focused link is drawn reversed, so it reads differently from the other

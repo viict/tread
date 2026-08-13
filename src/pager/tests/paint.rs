@@ -45,6 +45,61 @@ fn a_folded_heading_shows_a_line_count() {
     assert!(f.as_str().contains(crate::theme::MARKER_CLOSED));
 }
 
+/// The first painted row, with the escapes taken out — what the reader sees
+/// on the top line.
+fn top_row(p: &mut Pager) -> String {
+    let mut f = Frame::new(true);
+    p.paint(&mut f);
+    let s = f.as_str();
+    let start = s.find("\u{1b}[1;1H").map(|i| i + 6).unwrap_or(0);
+    let rest = &s[start..];
+    let end = rest.find('\u{1b}').unwrap_or(rest.len());
+    rest[..end].to_string()
+}
+
+/// The count is why the row is folded, so a headline that fills the width is
+/// cut to make room for it rather than pushing it off the right edge — where
+/// only a sideways scroll would have found it.
+#[test]
+fn a_long_folded_heading_keeps_its_line_count_on_screen() {
+    let long = "# ".to_string() + &"heading ".repeat(20) + "\n\nbody\nbody\nbody\n";
+    let mut p = pager(&long, 40, 20);
+    key(&mut p, Key::Tab);
+    press(&mut p, "zc");
+    let head = top_row(&mut p);
+    assert!(head.contains("lines)"), "the count is on the row: {head:?}");
+    assert!(
+        crate::render::str_width(&head) <= 40,
+        "and inside the width: {head:?}"
+    );
+}
+
+/// What the cut does and does not do, at the one function that decides it —
+/// a row that scrolls (a lens headline) rather than wraps (a heading).
+#[test]
+fn the_count_is_kept_and_the_text_gives_way() {
+    use crate::pager::view::with_count;
+    use crate::render::Span;
+    let row = || vec![Span::plain("x".repeat(60))];
+    let note = "  (49 lines)".to_string();
+
+    // At rest: cut to leave room, and the whole row fits the width.
+    let cut = with_count(row(), note.clone(), 40, 0);
+    let text: String = cut.iter().map(|s| s.text.as_str()).collect();
+    assert!(text.ends_with("(49 lines)"), "{text:?}");
+    assert!(crate::render::str_width(&text) <= 40, "{text:?}");
+
+    // Scrolled: the reader is reading the text, so nothing is cut for them.
+    let scrolled = with_count(row(), note.clone(), 40, 5);
+    let text: String = scrolled.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(crate::render::str_width(&text), 60 + 12, "{text:?}");
+
+    // A row that already fits is untouched but for the count.
+    let short = with_count(vec![Span::plain("short")], note, 40, 0);
+    let text: String = short.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(text, "short  (49 lines)");
+}
+
 /// The focused link keeps its own colour, so which link leaves the reader is
 /// visible even while it is the one under focus (SPEC.md §Navigation).
 #[test]
