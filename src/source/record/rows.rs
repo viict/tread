@@ -5,7 +5,7 @@
 //! `source.rs` so both stay under the size limit. Everything here is `&self`
 //! where it can be: laying a row out is a read of the file behind the store's
 //! own `RefCell`, not a change to the document. The exceptions are the three
-//! things that *re-lay* rows — a resize, a body toggled open, `zt` — and they
+//! things that *re-lay* rows — a resize, a body toggled open, `r` — and they
 //! are here because they are the same arithmetic seen from the other side.
 #![deny(unsafe_code)]
 
@@ -255,9 +255,12 @@ impl<S: Store> RecordSource<S> {
         lensrow::body_text(self, self.plan.as_ref(), record)
     }
 
-    /// `zt`: the record's own tree, open or shut, whatever its body is doing.
+    /// `r`: the record's own tree, open or shut, whatever its level is doing
+    /// (SPEC.md §Lenses). On a call row it is the row's **record**: a call has
+    /// no JSON of its own separate from the record it was made in.
     /// `None` when there is nothing there to open — a group's row (which
-    /// `Enter` opens), or a record with no tree under it.
+    /// `Enter` opens), or a record with no tree under it — and the pager says
+    /// so rather than appearing to do nothing.
     pub(crate) fn open_tree_at(&mut self, row: usize) -> Option<String> {
         if let Spot::Group { .. } = self.spot(row) {
             return None;

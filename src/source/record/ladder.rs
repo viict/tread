@@ -1,11 +1,15 @@
 //! The **ladder**: how far into a record `Enter` goes, and what that costs.
 //!
-//! SPEC.md §Lenses gives a record three levels, and this is the one place the
-//! key that walks them lives:
+//! SPEC.md §Lenses gives a record two levels, and this is the one place the key
+//! that walks them lives:
 //!
 //! ```text
-//! clipped  ->  open  ->  the raw JSON tree  ->  clipped
+//! clipped  <->  open
 //! ```
+//!
+//! The raw JSON tree is **not** a rung: it is `r`, which is orthogonal to the
+//! level and lives in `rows.rs`. This module never opens a tree and never shuts
+//! one, which is the whole of why `Enter` can no longer undo `r`'s work.
 //!
 //! A third `impl RecordSource`, beside `rows.rs` and `view.rs`, split out for
 //! the same reason they were: three sides of one type, each under the size
@@ -40,21 +44,29 @@ impl<S: Store> RecordSource<S> {
         }
     }
 
-    /// `Enter` / `za`: **one rung down the ladder** (SPEC.md §Lenses).
+    /// `Enter` / `za`: **the record's two levels** (SPEC.md §Lenses).
     ///
     /// ```text
-    /// clipped  ->  open  ->  the raw JSON tree  ->  clipped
+    /// clipped  <->  open
     /// ```
     ///
     /// A record with nothing under its headline and no calls has no *open*
-    /// rung and goes straight to its tree; one with no tree either has no
-    /// ladder at all and says `None`, which sends the key back to the outline —
-    /// the same answer a message that already fits has always given.
+    /// level, so it has no rung at all and says `None` — at **either** level,
+    /// asked before the level is consulted, because the two show the same rows.
+    /// `None` here does not mean the key is free: [`Source::fold_here`] claims
+    /// it for the record's row anyway, since the fall-through above is the
+    /// outline and a record's outline entry is the raw tree that belongs to
+    /// `r`. Its bytes are `r`, and only `r`.
+    ///
+    /// **With the record's tree open this leaves the tree alone** and toggles
+    /// the record's own rows underneath it. `r` owns the tree, and a key that
+    /// silently shut what another key opened is exactly what the third rung was
+    /// removed for; the way out of a tree is the `r` that opened it.
     ///
     /// On a **call row** the key belongs to that call rather than to the record:
     /// it shows the arguments it was made with and the output it returned, and
     /// shuts them again. That is the one place a row inside a record has a fold
-    /// of its own, and it is why this is not simply a level counter.
+    /// of its own, and it is why this is not simply a level flag.
     ///
     /// `None` on a group's row: `Enter` there opens the run, through the
     /// outline, exactly as it did.
@@ -71,24 +83,23 @@ impl<S: Store> RecordSource<S> {
             Spot::Record { record, sub: 0 } => record,
             _ => return None,
         };
-        let plan = self.plan.as_ref()?;
-        // Rung three, whichever way it was reached: `zt` puts a record in the
-        // tree state from any level, and the way out of it is the way out of
-        // any rung — down, and round to the clip.
-        if self.map.is_open(record) {
-            self.map.close(record);
-            self.set_level(record, false);
-            return Some(true);
+        // No rung at all — the clip already shows the whole of this record's
+        // text and it made no calls. Asked *before* the level is consulted,
+        // not only on the way in: `zR` puts every record at the open level,
+        // and a rungless one that answered "was open, now clipped" would spend
+        // a press repainting rows that are the same at both levels.
+        // `opens_further` is a question about the record and the width, never
+        // about which level it is at, so it is the same answer either way.
+        if !self.opens_further(record) {
+            return None;
         }
-        if !plan.full_at(record) && self.opens_further(record) {
+        let plan = self.plan.as_ref()?;
+        // Two levels, and nothing here touches `self.map`: a tree the reader
+        // opened with `r` stays open across both of them.
+        if !plan.full_at(record) {
             return self.set_level(record, true);
         }
-        if self.tree_len(record) > 0 {
-            let was = self.set_level(record, false);
-            self.open_record(record);
-            return was.or(Some(true));
-        }
-        // No tree under it: the ladder is two rungs, and this is the wrap.
+        // Already open: back to the clip.
         self.set_level(record, false)
     }
 
@@ -146,5 +157,4 @@ impl<S: Store> RecordSource<S> {
             self.remeasure_item(item);
         }
     }
-
 }

@@ -34,7 +34,7 @@ Two rules the seam is built around, and neither is negotiable:
   openable into the whole record. Nothing is hidden and nothing is dropped.
 * **Every row still opens into the raw record.** A summary is a headline.
   `Enter` / `za` on a record descends one level — what was said in full and its
-  tool calls listed, then the record itself; `zt` shows that record as a tree
+  tool calls listed, and back again; `r` shows that record as a tree
   from any level. On a folded run, `Enter` shows the records inside it, each of
   which opens in turn. `Y` on a run copies every record it holds, as JSON.
 
@@ -63,24 +63,34 @@ type first.
 is what `--toc` prints, which is the right answer for a list rather than for a
 screen.
 
-## The three levels a record has
+## The two levels a record has, and the key that shows its bytes
 
-`Enter` / `za` descends one a press and wraps (SPEC.md §Lenses):
+`Enter` / `za` toggles the two (SPEC.md §Lenses); `r` is the record itself, from
+either of them:
 
 ```text
-clipped  ->  open  ->  the raw JSON tree  ->  clipped
+clipped  <->  open        r: the raw JSON tree, over whichever level is showing
 ```
 
 | Level | What is on the screen |
 | --- | --- |
 | **clipped** | the headline, and the text under it cut to six rows in all — whose last row says what it is not showing, in the text's own lines, or in bytes when what is left is the tail of one long line |
 | **open** | the whole of that text, then one row per tool call: `▸ bash  cargo test -q  → 32 lines` |
-| **tree** | the record itself, every byte, exactly as with no lens at all |
 
-A record has only the rungs it has content for. A message the clip already
+A record has only the levels it has content for. A message the clip already
 shows whole that made no calls has nothing between its headline and its JSON, so
-`Enter` goes straight to the tree; one with no tree either has no ladder, and
-the key falls through to the outline instead of repainting the same rows.
+it has no `Enter` rung at all and the key does nothing there rather than
+repainting the same rows. It does **not** fall through to the record's own tree:
+a record row claims `Enter` whether or not it has a rung, at either level, with
+that tree open or shut — the absolute below has no exception for the records that
+happen to have nothing to open. `r` is still the way to its bytes.
+
+**`Enter` never opens a tree and never shuts one.** It used to: the tree was a
+third rung, and getting from it back to the clip meant walking round the whole
+ladder. Now `r` owns the tree and `Enter` owns the reading, so with a tree open
+`Enter` leaves it alone and toggles the record's own rows *underneath* it — a
+key that silently undid another key's work is the thing that was removed. Two
+keys, two jobs, and each one is its own way back.
 
 **A call row opens too.** `Enter` on one shows the arguments the call was made
 with, one to a line, and then the output it returned under a row that **names**
@@ -118,9 +128,13 @@ Everything under a member of an open run is inset with that member's own row, so
 a step's reasoning and its calls line up with the step's words rather than
 sitting two columns left of them.
 
-`zt` is orthogonal to all of it: it opens the record's own tree from any level
-and leaves the level alone, which makes it both the way to the bytes in one
-press and the way back to them without walking round the ladder.
+`r` is orthogonal to all of it: it opens the record's own tree from either
+level and leaves the level alone, which makes it the way to the bytes in one
+press and the same press back. On a **call row** `r` is the row's *record*: a
+call has no JSON of its own separate from the record it was made in, so that is
+the honest raw thing under it. On a **run's row** there is no one record, so `r`
+says "nothing to open here" rather than appearing to do nothing — `Enter` is the
+key that opens a run.
 
 `zR` puts every record the viewport has reached at the **open** level and opens
 its tree; `zM` puts every one back to its clip and drops any call that was open.
@@ -177,8 +191,8 @@ word above that module and the only one a reader ever sees.)
 | --- | --- |
 | `j` / `k` | next / previous **row** — a message's next line, a step, a row of an opened record |
 | `Tab` / `S-Tab` | next / previous **block** — a message, a shut run, or a step inside a run that is open |
-| `Enter` / `za` | one rung down: clipped → open → the raw tree → clipped. On a run's row, open the run; on a call row, that call's arguments and output |
-| `zt` | open the raw record under the cursor, from any level, leaving the level where it was |
+| `Enter` / `za` | the record's two levels: clipped ↔ open. On a run's row, open the run; on a call row, that call's arguments and output. Never opens or shuts a tree |
+| `r` | show the raw record under the cursor, from either level, leaving the level where it was; on a call row, that row's record |
 | `zR` / `zM` | every record the viewport has reached at the open level, with its tree / every one back to its clip |
 | `/` `n` `N` | search the record source text; a hit inside a folded run **opens that run** |
 | `y` | the value under the cursor · `Y` the record (or the whole run) · `c` the record's own source text verbatim |
@@ -377,7 +391,7 @@ Adding one is a module and a line, and nothing else:
      the contract: `read` runs far ahead of the viewport, so whatever state a
      dialect carried across records is long past by the time a key is pressed.
      A dialect that cannot answer from *this record alone* returns what it can
-     and leaves the rest `None`; the raw tree is one `zt` away, and a gap is
+     and leaves the rest `None`; the raw tree is one `r` away, and a gap is
      better than a guess.
 2. **One entry in `lens::LENSES`** — `(NAME, || Box::new(Mine::default()))`.
 3. **Tests beside it** (`src/lens/<name>_tests.rs`), with **hand-written
@@ -411,7 +425,7 @@ There is **one** reading of an argument list, `lens::part::args_of`, and both
 dialects use it. An object is its members; anything else — an array, a bare or
 half-written `arguments` string — is one entry named `arguments` holding what
 the file said. Dropping those was the seam's one silent clip: the open level
-said the call had no arguments while the command sat in the tree one `zt` away.
+said the call had no arguments while the command sat in the tree one `r` away.
 Absent, `null` and `[]` still mean the same thing, and mean it quietly.
 
 `result` is an `Option` because of the `agent` dialect and not in spite of it:
@@ -427,7 +441,7 @@ step cost. Two of those paths are real and one is not, and the code says which:
 a **result** is one string node of the record (`observation.results[3].content`)
 and opens whole; an **argument** sits under a key that is its own name, and a
 `Step::Key` is `&'static str`, so it is a head with no path — clipped, with the
-row under it stating the true remainder, and whole in the tree one `zt` away.
+row under it stating the true remainder, and whole in the tree one `r` away.
 
 A `Summary` is kept for **every** classified record, and nothing here may
 allocate per document — so a `Body` is *not* the message. It is the first

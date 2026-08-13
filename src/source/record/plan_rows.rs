@@ -11,22 +11,22 @@
 //!
 //! # The ladder
 //!
-//! `Enter` / `za` descends one rung and wraps (SPEC.md §Lenses):
+//! `Enter` / `za` toggles the record's two levels (SPEC.md §Lenses):
 //!
 //! ```text
-//! clipped  ->  open  ->  the raw JSON tree  ->  clipped
+//! clipped  <->  open
 //! ```
 //!
 //! **clipped** is the headline and a few rows of what was said; **open** is the
-//! whole of it and the record's tool calls listed as tool calls; the **tree** is
-//! the record itself. The rungs a record has depend on what is in it — a record
-//! with nothing under the headline and no calls has only the tree, and one with
-//! neither has no ladder at all and leaves the key to the outline.
+//! whole of it and the record's tool calls listed as tool calls. Whether a
+//! record has the second level at all depends on what is in it — one with
+//! nothing under the headline and no calls has no rung, and leaves the key to
+//! the outline.
 //!
-//! The tree rung is deliberately **not** a level here. Tree rows are
+//! The record's own **tree** is deliberately **not** a level here. Tree rows are
 //! [`RowMap`]'s, keyed by record, shared with the no-lens path and toggled by
-//! `zt` from any rung; the ladder writes *through* to it rather than owning it,
-//! which is what leaves `zt` orthogonal and the prefix sums untouched.
+//! `r` from either level; the ladder writes *through* to it rather than owning
+//! it, which is what leaves `r` orthogonal and the prefix sums untouched.
 //!
 //! # What is stored, and what is not
 //!

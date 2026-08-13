@@ -36,7 +36,8 @@ pub enum Action {
     /// Show or hide what the format hides by default (a listing's dotfiles).
     ToggleHidden,
     ToggleCollapse,
-    /// `zt`: open the raw record under the cursor, where a row stands for one.
+    /// `r`: show the raw record under the cursor, where a row stands for one —
+    /// open its JSON tree, or shut the one that is open (SPEC.md §Lenses).
     OpenTree,
     OpenSection,
     CloseSection,
@@ -214,10 +215,10 @@ pub const BINDINGS: &[Binding] = &[
         triggers: &[Trigger::k(Key::Enter)],
     },
     Binding {
-        keys: "zt",
-        desc: "open the raw record under the cursor, from any level",
+        keys: "r",
+        desc: "show the raw record under the cursor, from either level",
         action: A::OpenTree,
-        triggers: &[Trigger::z('t')],
+        triggers: &[Trigger::c('r')],
     },
     Binding {
         keys: "zo",

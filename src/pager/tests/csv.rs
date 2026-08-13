@@ -390,6 +390,29 @@ fn enter_opens_the_row_under_the_cursor_as_a_form() {
     assert_eq!(p.mode, Mode::Normal, "Esc closes it");
 }
 
+/// `r` is not one of the row detail's own keys, and taking it had to be free
+/// in **every** mode rather than in the ones a lens uses. Inside the form it
+/// falls through to the normal dispatcher, exactly as any unbound key there
+/// does — the overlay stays up, the selected field does not move, and since a
+/// CSV has no record to open the pager says so. Stated here so that binding `r`
+/// inside this overlay one day is a failing test rather than a silent shadow.
+#[test]
+fn r_is_not_one_of_the_row_details_keys() {
+    let mut p = csv_pager(&csv_body(), 60, ROWS);
+    p.cursor = HEAD_ROWS;
+    key(&mut p, Key::Enter);
+    assert_eq!(p.mode, Mode::Detail);
+    let rows = p.line_count();
+    press(&mut p, "j");
+    let sel = p.detail_sel;
+    assert_eq!(sel, 1, "`j` is one of them");
+    press(&mut p, "r");
+    assert_eq!(p.mode, Mode::Detail, "the overlay is still up");
+    assert_eq!(p.detail_sel, sel, "and `r` moved nothing in it");
+    assert_eq!(p.line_count(), rows, "nor anything behind it");
+    assert!(p.status_line().contains("nothing to open"), "{}", p.status_line());
+}
+
 /// The fields a header-shaped grid cannot show are exactly what the form is
 /// for: they must be in it, and the grid must say so with the marker.
 #[test]

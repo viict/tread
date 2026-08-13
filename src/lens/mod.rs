@@ -310,7 +310,7 @@ pub trait Lens {
     /// accident: `read` runs far ahead of the viewport, so any state a dialect
     /// carried across records is long past by the time a reader presses `Enter`.
     /// A dialect that cannot answer from **this record alone** must return the
-    /// parts it can and leave the rest `None` — the raw tree is still one `zt`
+    /// parts it can and leave the rest `None` — the raw tree is still one `r`
     /// away, and a guess would be worse than a gap.
     ///
     /// The default is no parts, which is a level with nothing in it: the ladder

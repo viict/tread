@@ -334,44 +334,56 @@ fn the_table_of_contents_is_sanitised() {
 // -- the two states of a message, and the key that reaches them ------------------
 
 /// A message the clip already shows whole, that made no calls, has no **open**
-/// rung: there is nothing between its headline and its JSON. `Enter` therefore
-/// descends straight to the record's own tree, and again to come back — the
-/// ladder with one rung missing rather than a key that does nothing.
+/// level: there is nothing between its headline and its JSON, so `Enter` has no
+/// rung to descend and nothing moves. The key is still **claimed** — a record's
+/// row answers for `Enter` even when the answer is "nowhere to go", because the
+/// caller's fall-through is the outline and a record's outline entry is the raw
+/// tree `r` owns. `r` is what shows that record, and it is one press either way.
 #[test]
-fn a_message_with_nothing_under_it_descends_straight_to_the_tree() {
+fn a_message_with_nothing_under_it_has_no_rung_and_r_shows_it() {
     let mut s = lensed(RUN);
     let _ = rows(&mut s);
     let clipped = s.len();
     // Row 1 is `assistant 14:02 On it.`, row 2 the rest of what it said.
-    assert!(s.fold_here(1).is_some(), "the key is the ladder's");
+    assert_eq!(s.fold_here(1), Some(false), "claimed, and no rung to descend");
+    assert_eq!(s.fold_here(1), Some(false), "and the second press says the same");
+    assert_eq!(s.len(), clipped, "and nothing was repainted");
+    s.toggle_tree(1).expect("`r` reaches the record");
     let got = rows(&mut s);
     assert!(got.iter().any(|r| r.contains("timestamp")), "the tree: {got:#?}");
     assert!(s.len() > clipped);
-    assert!(s.fold_here(1).is_some(), "and round to the clip");
+    s.toggle_tree(1).expect("and shuts it again");
     assert_eq!(s.len(), clipped);
 }
 
-/// The ladder, on a message long enough to have every rung: clipped, the whole
-/// of what was said, the record itself, and back to the clip.
+/// The two levels, on a message long enough to have both: clipped, the whole of
+/// what was said, and back to the clip — with the record's own JSON at neither
+/// of them, because that is `r`.
 #[test]
-fn a_clipped_message_descends_the_ladder_and_comes_back() {
+fn a_clipped_message_opens_and_comes_back_without_showing_its_json() {
     let text = format!(
         "{{\"type\":\"assistant\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"{}\"}}]}}}}\n",
         (1..=20).map(|n| format!("line {n}")).collect::<Vec<_>>().join("\\n")
     );
     let mut s = lensed(&text);
     let clipped = s.len();
-    assert_eq!(s.fold_here(0), Some(false), "rung two: the whole message");
+    assert_eq!(s.fold_here(0), Some(false), "the open level: the whole message");
     let open = s.len();
     assert!(open > clipped, "the whole message is on screen");
-    assert!(rows(&mut s).iter().any(|r| r.trim() == "line 20"), "all of it");
+    let got = rows(&mut s);
+    assert!(got.iter().any(|r| r.trim() == "line 20"), "all of it");
+    assert!(!got.iter().any(|r| r.contains("\"type\"")), "and no JSON: {got:#?}");
 
-    assert!(s.fold_here(0).is_some(), "rung three: the record itself");
-    let tree = rows(&mut s);
-    assert!(tree.iter().any(|r| r.contains("\"type\"")), "{tree:#?}");
-    assert!(!tree.iter().any(|r| r.trim() == "line 20"), "clipped again: {tree:#?}");
+    assert!(s.fold_here(0).is_some(), "and back to the clip in one press");
+    assert_eq!(s.len(), clipped);
+    let back = rows(&mut s);
+    assert!(!back.iter().any(|r| r.trim() == "line 20"), "clipped again: {back:#?}");
+    assert!(!back.iter().any(|r| r.contains("\"type\"")), "still no JSON: {back:#?}");
 
-    assert!(s.fold_here(0).is_some(), "and round to the clip");
+    // The record itself is `r`, and it leaves the level where it was.
+    s.toggle_tree(0).expect("the record");
+    assert!(rows(&mut s).iter().any(|r| r.contains("\"type\"")));
+    s.toggle_tree(0).expect("shut");
     assert_eq!(s.len(), clipped);
 }
 

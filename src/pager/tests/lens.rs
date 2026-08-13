@@ -1,9 +1,9 @@
 //! The pager driving a trajectory read through `--lens`: the message under a
-//! row, the two states it has, `zt`, and what a resize does to the cursor.
+//! row, the two states it has, `r`, and what a resize does to the cursor.
 //!
 //! Pager tests, not format tests — everything below goes through key presses
 //! and the rows the source hands back, which is the only way to prove that a
-//! chord (`za`, `zt`) reaches the source at all. No terminal, no pty: the
+//! key (`za`, `r`) reaches the source at all. No terminal, no pty: the
 //! reconstructed-frame trap does not apply because there is no frame to
 //! reconstruct.
 #![deny(unsafe_code)]
@@ -83,11 +83,11 @@ fn a_message_s_first_line_is_on_the_screen_exactly_once() {
     assert_eq!(hits, 1, "{open:#?}");
 }
 
-/// The ladder (SPEC.md §Lenses): `za` descends one rung a press and wraps.
-/// Three presses, not two — the raw record is a rung of its own now, and the
-/// third press is what comes back to the clip.
+/// The two levels (SPEC.md §Lenses): `za` toggles clipped and open, and the
+/// raw JSON is not one of them. Three presses, and the record's own bytes are
+/// on the screen at no point in the cycle — that is `r`'s job now.
 #[test]
-fn za_descends_a_rung_a_press_and_comes_back_to_the_clip() {
+fn za_toggles_the_two_levels_and_never_reaches_the_tree() {
     let mut p = lens_pager(80, 40);
     let clipped = p.line_count();
     press(&mut p, "za");
@@ -95,17 +95,21 @@ fn za_descends_a_rung_a_press_and_comes_back_to_the_clip() {
     assert!(p.line_count() > clipped, "the body grew");
     assert!(open.iter().any(|r| r == "line 12 of what was said"), "{open:#?}");
     assert!(!open.iter().any(|r| r.starts_with('\u{22ef}')), "nothing left to say");
+    assert!(!open.iter().any(|r| r.contains("\"type\"")), "no JSON: {open:#?}");
 
     press(&mut p, "za");
-    let tree = p.visible_text();
-    assert!(tree.iter().any(|r| r.contains("\"type\"")), "the record itself: {tree:#?}");
+    assert_eq!(p.line_count(), clipped, "and back to the clip in one press");
+    let back = p.visible_text();
+    assert!(back.iter().any(|r| r == "\u{22ef} +6 lines"), "{back:#?}");
+    assert!(!back.iter().any(|r| r.contains("\"type\"")), "still no JSON: {back:#?}");
+
+    press(&mut p, "za");
+    assert!(p.line_count() > clipped, "and open again");
     assert!(
-        !tree.iter().any(|r| r == "line 12 of what was said"),
-        "and what was said is back to its clip: {tree:#?}"
+        !p.visible_text().iter().any(|r| r.contains("\"type\"")),
+        "three presses and the JSON never appeared: {:#?}",
+        p.visible_text()
     );
-
-    press(&mut p, "za");
-    assert_eq!(p.line_count(), clipped, "and round to the clip");
 }
 
 /// `Enter` on a message row is the same key as `za` — it reaches the body
@@ -119,32 +123,77 @@ fn enter_on_a_message_row_opens_its_body_too() {
 }
 
 /// The non-negotiable: whatever the body is doing, the record itself is one
-/// keypress away, and it is the record — not a reading of it.
+/// keypress away, and it is the record — not a reading of it. `r` from the
+/// clipped level, and `r` again to shut it.
 #[test]
-fn zt_opens_the_raw_record_whatever_the_body_is_doing() {
+fn r_shows_the_raw_record_whatever_the_body_is_doing() {
     let mut p = lens_pager(80, 40);
     let before = p.line_count();
-    press(&mut p, "zt");
+    press(&mut p, "r");
     let rows = p.visible_text();
     assert!(p.line_count() > before, "the tree was spliced in");
     assert!(rows.iter().any(|r| r.contains("\"type\"")), "{rows:#?}");
     assert!(rows.iter().any(|r| r.contains("timestamp")), "{rows:#?}");
     // And the body is still doing what it was doing.
     assert!(rows.iter().any(|r| r == "\u{22ef} +6 lines"), "{rows:#?}");
-    press(&mut p, "zt");
+    press(&mut p, "r");
     assert_eq!(p.line_count(), before, "and it shuts again");
+    assert!(!p.visible_text().iter().any(|r| r.contains("\"type\"")));
 }
 
-/// From inside a message, `zt` opens the record that message came from. Two
+/// The same key from the **open** level, which is the other rung it has to
+/// work from: the tree goes in over the whole message, and comes back out
+/// leaving that message open.
+#[test]
+fn r_shows_the_raw_record_from_the_open_level_too() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "za");
+    let open = p.line_count();
+    press(&mut p, "r");
+    let with_tree = p.visible_text();
+    assert!(p.line_count() > open, "the tree went in");
+    assert!(with_tree.iter().any(|r| r.contains("\"type\"")), "{with_tree:#?}");
+    assert!(
+        with_tree.iter().any(|r| r == "line 12 of what was said"),
+        "and the level is where it was: {with_tree:#?}"
+    );
+    press(&mut p, "r");
+    assert_eq!(p.line_count(), open, "shut, and the message still open");
+    assert!(p.visible_text().iter().any(|r| r == "line 12 of what was said"));
+}
+
+/// The documented answer to "what does `Enter` do while the tree is open": it
+/// leaves the tree alone and toggles the record's own rows underneath it. `r`
+/// owns the tree, and a key that silently undid another key's work is the thing
+/// this change removed (SPEC.md §Lenses).
+#[test]
+fn enter_with_the_tree_open_leaves_the_tree_and_toggles_the_record() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "r");
+    let with_tree = p.line_count();
+    press(&mut p, "za");
+    let open = p.visible_text();
+    assert!(p.line_count() > with_tree, "the message opened under it");
+    assert!(open.iter().any(|r| r.contains("\"type\"")), "tree still there: {open:#?}");
+    assert!(open.iter().any(|r| r == "line 12 of what was said"), "{open:#?}");
+    press(&mut p, "za");
+    assert_eq!(p.line_count(), with_tree, "back to the clip, tree untouched");
+    assert!(p.visible_text().iter().any(|r| r.contains("\"type\"")), "and it is still open");
+    // And `r` is what shuts it, from either level.
+    press(&mut p, "r");
+    assert!(!p.visible_text().iter().any(|r| r.contains("\"type\"")));
+}
+
+/// From inside a message, `r` opens the record that message came from. Two
 /// presses of `j` is how the cursor gets to line 3 of the first message: `j` is
 /// a row, so it walks into the body rather than over the message.
 #[test]
-fn zt_from_a_body_row_opens_the_record_it_belongs_to() {
+fn r_from_a_body_row_opens_the_record_it_belongs_to() {
     let mut p = lens_pager(80, 40);
     let before = p.line_count();
     press(&mut p, "jj");
     assert_eq!(p.cursor_text(), "line 3 of what was said");
-    press(&mut p, "zt");
+    press(&mut p, "r");
     assert!(p.line_count() > before, "{}", p.status_line());
     assert!(p.visible_text().iter().any(|r| r.contains("\"uuid\"") || r.contains("\"type\"")));
 }
@@ -152,7 +201,7 @@ fn zt_from_a_body_row_opens_the_record_it_belongs_to() {
 /// On a folded run there is no one record to open, and the pager says so
 /// rather than appearing to do nothing — `Enter` is the key that opens a run.
 #[test]
-fn zt_on_a_run_says_there_is_nothing_to_open() {
+fn r_on_a_run_says_there_is_nothing_to_open() {
     let mut p = lens_pager(80, 40);
     let rows = p.visible_text();
     let run = rows
@@ -161,9 +210,52 @@ fn zt_on_a_run_says_there_is_nothing_to_open() {
         .expect("a folded run");
     p.goto(run);
     let before = p.line_count();
-    press(&mut p, "zt");
+    press(&mut p, "r");
     assert_eq!(p.line_count(), before);
     assert!(p.status_line().contains("nothing to open"), "{}", p.status_line());
+}
+
+/// Taking `r` had to be free everywhere, not just on a lens row. In the search
+/// prompt it is a letter of the query. In the outline overlay it is none of the
+/// overlay's own keys, so the selection does not move and it falls through to
+/// the normal dispatcher — which is what every unbound key there has always
+/// done, and what the chord it replaced did from the same place. A live
+/// visual selection is
+/// `Mode::Normal`, so there it opens the record and the selection follows the
+/// cursor.
+///
+/// The one other overlay that falls *through* is the CSV row detail, pinned in
+/// `pager::tests::csv::r_is_not_one_of_the_row_details_keys`. The two that do
+/// not need one swallow the key by construction rather than by binding it:
+/// `Mode::Index` consumes every key it does not know (`Pager::index_key`'s
+/// `_ => {}`, and its filter takes letters as query text), and `Mode::Help`
+/// closes on any key at all.
+#[test]
+fn r_is_free_in_every_mode() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "/");
+    assert_eq!(p.mode, Mode::Search(Dir::Forward));
+    let clipped = p.line_count();
+    press(&mut p, "r");
+    assert_eq!(p.query, "r", "the prompt takes it as a letter");
+    assert_eq!(p.line_count(), clipped, "and no tree opened behind it");
+    key(&mut p, Key::Esc);
+    assert_eq!(p.line_count(), clipped);
+
+    p.mode = Mode::Outline;
+    p.outline_sel = 0;
+    press(&mut p, "r");
+    assert_eq!(p.outline_sel, 0, "the overlay has no `r` of its own");
+    assert!(p.line_count() > clipped, "it fell through, as any unbound key does");
+    press(&mut p, "r");
+    assert_eq!(p.line_count(), clipped, "and the second press shut it again");
+    p.mode = Mode::Normal;
+
+    press(&mut p, "v");
+    assert!(p.select.is_some(), "visual mode");
+    press(&mut p, "r");
+    assert!(p.line_count() > clipped, "and there it is the raw record");
+    assert!(p.select.is_some(), "the selection survives it");
 }
 
 /// A resize re-wraps every body, so rows move. The cursor stays on the record
@@ -419,4 +511,69 @@ fn the_status_bar_names_the_block() {
     assert!(last.contains("agent"), "{last}");
     assert!(last.contains("record 4/4"), "{last}");
     assert!(last.contains("block 3/3"), "{last}");
+}
+
+/// The half of "`Enter` never opens a tree and never shuts one" that the
+/// headline of a record *with* a rung cannot prove. `Done.` fits its row and
+/// made no calls, so it has no rung at all — and a record with no rung is
+/// exactly where the key used to fall through to the outline, whose entry for a
+/// record is its raw tree. With the tree `r` opened, `Enter` there leaves it
+/// alone; shut, `Enter` does not open one.
+#[test]
+fn enter_on_a_record_with_no_rung_leaves_its_tree_alone() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "G");
+    assert!(p.cursor_text().contains("Done."), "{:?}", p.cursor_text());
+    let shut = p.line_count();
+    key(&mut p, Key::Enter);
+    assert_eq!(p.line_count(), shut, "no rung, and no tree: `Enter` did nothing");
+    assert!(!p.visible_text().iter().any(|r| r.contains("\"type\"")), "and no JSON");
+    press(&mut p, "za");
+    assert_eq!(p.line_count(), shut, "`za` is the same key and the same answer");
+
+    press(&mut p, "r");
+    let with_tree = p.line_count();
+    assert!(with_tree > shut, "`r` is what opens it");
+    key(&mut p, Key::Enter);
+    assert_eq!(p.line_count(), with_tree, "and `Enter` leaves it exactly where it is");
+    assert!(p.visible_text().iter().any(|r| r.contains("\"type\"")), "tree still there");
+    press(&mut p, "r");
+    assert_eq!(p.line_count(), shut, "the `r` that opened it is the way out");
+}
+
+/// The other row the fall-through reached: a row **inside** an open tree. It is
+/// a row of the record, so the key is the record's — and this record has no
+/// rung, so nothing moves. What it must not do is shut the tree the cursor is
+/// standing in.
+#[test]
+fn enter_inside_an_open_tree_does_not_shut_it() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "G");
+    press(&mut p, "r");
+    let with_tree = p.line_count();
+    press(&mut p, "j");
+    assert!(p.cursor_text().contains('"'), "a row of the tree: {:?}", p.cursor_text());
+    key(&mut p, Key::Enter);
+    assert_eq!(p.line_count(), with_tree, "the tree the cursor is in survives");
+    press(&mut p, "za");
+    assert_eq!(p.line_count(), with_tree);
+    assert!(p.visible_text().iter().any(|r| r.contains("\"type\"")));
+}
+
+/// `zR` puts every record at the open level, rungless ones included. `Enter`
+/// there is still not a rung: it neither repaints the same rows and calls it a
+/// descent, nor — on the press after — falls through and toggles the JSON `zR`
+/// had opened.
+#[test]
+fn enter_on_a_record_with_no_rung_after_zr_is_inert_every_press() {
+    let mut p = lens_pager(80, 40);
+    press(&mut p, "zR");
+    let rows = p.visible_text();
+    let done = rows.iter().position(|r| r.contains("Done.")).expect("the answer");
+    p.goto(done);
+    let open = p.line_count();
+    for press_no in 0..3 {
+        key(&mut p, Key::Enter);
+        assert_eq!(p.line_count(), open, "press {press_no} moved rows");
+    }
 }

@@ -226,7 +226,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `a` | show or hide what this view hides (dotfiles, code bodies) |
 | `za` | toggle the section at the cursor |
 | `Enter` | follow the focused link, else one level into the row |
-| `zt` | open the raw record under the cursor, from any level |
+| `r` | show the raw record under the cursor, from either level |
 | `zo` | open the section at the cursor |
 | `zc` | close the section at the cursor |
 | `zM` | collapse every section |
@@ -408,13 +408,17 @@ bookkeeping — collapse into one row that opens with `Enter`. `Tab` steps
 between messages and runs rather than through what a run folded away, and a
 search hit inside a folded run opens it.
 
-**A record has three levels, and `Enter` walks them.** The row is a headline
+**A record has two levels, and `Enter` toggles them.** The row is a headline
 with what was said — or, on a step, what it was thinking — clipped underneath.
 `Enter` opens that whole, and lists the record's tool calls as tool calls:
 `▸ bash  cargo test -q  → 32 lines`, one to a line. `Enter` on *that* line shows
 the arguments the call was made with and the output it returned, clipped the
-same way. `Enter` again is the raw record, and again is back to the clip; `zt`
-reaches the raw record from any of them.
+same way. `Enter` again is back to the clip. The raw record is `r`, from either
+level and back: one key reads the record, the other shows its bytes, and
+neither undoes the other. `r` is about records, so in a format that has none —
+markdown, CSV, code, plain text, a JSON document — it says `nothing to open
+here`; on a `.jsonl` with no lens it opens the record's tree, which is all a row
+there is.
 
 A lens only ever *adds* interpretation. A record it does not recognise renders
 exactly as it would without one, and every summary row still opens into the

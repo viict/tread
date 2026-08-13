@@ -161,6 +161,22 @@ fn enter_expands_a_record_into_its_tree() {
     assert_eq!(s.len(), 3);
 }
 
+/// With **no lens** there is no ladder, so a record row has no fold of its own
+/// and `Enter` must reach the outline — where a record's entry is exactly the
+/// tree above. Under a lens the same row claims the key instead (the record's
+/// two levels, and `r` owning the tree); this is the other side of that fork,
+/// and the reason it is asked as "is there a plan" rather than assumed.
+#[test]
+fn without_a_lens_enter_falls_through_to_the_outline() {
+    let mut s = src(THREE);
+    let _ = s.lines(0..3);
+    assert_eq!(s.fold_here(1), None, "no rung of its own without a lens");
+    assert_eq!(s.len(), 3, "and nothing opened behind the answer");
+    let entry = s.section_at(1).expect("the outline still has the record");
+    assert!(s.set_fold(entry, false), "which is what opens its tree");
+    assert!(s.len() > 3);
+}
+
 #[test]
 fn fold_state_is_the_open_records_and_survives_a_round_trip() {
     let mut s = src(THREE);

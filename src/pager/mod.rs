@@ -392,7 +392,7 @@ impl Pager {
         self.clamp();
     }
 
-    /// `zt`: the raw thing under the cursor, where the format has one — a
+    /// `r`: the raw thing under the cursor, where the format has one — a
     /// record behind a lens row. The same shape `a` has, and for the same
     /// reason: the source answers, or the pager says there was nothing there
     /// rather than appearing to do nothing.

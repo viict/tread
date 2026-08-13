@@ -355,7 +355,7 @@ pub trait Source {
         None
     }
 
-    /// `zt`: open the raw record under `row` — or shut it again — whatever
+    /// `r`: open the raw record under `row` — or shut it again — whatever
     /// else that row is doing, returning what to say about it.
     ///
     /// `None` — the default — means this format has no such thing, or there is

@@ -111,9 +111,9 @@ fn j_reads_the_tree_a_member_has_open_and_tab_clears_it() {
     let mut p = with_open_run(60);
     press(&mut p, "j");
     let member = p.cursor;
-    // `zt` is what opens a step's raw record: a step has no message to unfold,
+    // `r` is what opens a step's raw record: a step has no message to unfold,
     // so `Enter` on one is not the key that gives it a tree.
-    press(&mut p, "zt");
+    press(&mut p, "r");
     let block = p.src_block_at(member).expect("the member's block");
     assert_eq!(block.start, member);
     assert!(block.end > member + 1, "the tree is in it: {block:?}");

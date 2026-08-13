@@ -134,7 +134,10 @@ fn the_readme_table_invents_nothing() {
 #[test]
 fn the_cli_help_mentions_the_core_keys() {
     let cli = read("src/cli.rs");
-    for needle in ["za", "zM", "zR", "Tab", "Backspace", "q"] {
+    // `r` is pinned by its sentence rather than by the letter: a bare "r"
+    // matches almost any word in the help text, so it would pass with the key
+    // deleted — which is exactly the drift this test exists to catch.
+    for needle in ["za", "zM", "zR", "Tab", "Backspace", "q", "r shows the raw record"] {
         assert!(cli.contains(needle), "--help never mentions {needle}");
     }
 }

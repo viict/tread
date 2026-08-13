@@ -275,15 +275,39 @@ impl<S: Store> Source for RecordSource<S> {
         }
     }
 
-    /// `Enter` / `za`: one rung down the record's ladder — clipped, open, the
-    /// raw tree, and round again (SPEC.md §Lenses). The row's own fold, which
-    /// is not an outline entry and could not be reached through one. A group
-    /// row falls through to the outline, which is what opens a run.
+    /// `Enter` / `za`: the record's two levels — clipped and open, and back
+    /// again (SPEC.md §Lenses). The row's own fold, which is not an outline
+    /// entry and could not be reached through one. The raw tree is `r`, not a
+    /// rung, so this never opens or shuts one. A group row falls through to the
+    /// outline, which is what opens a run.
+    ///
+    /// **A record's row claims the key even when it has no rung.** Falling
+    /// through would hand `Enter` to the outline, and a record's outline entry
+    /// *is* its raw tree — so on exactly the records with nothing between the
+    /// headline and the JSON (a message the clip already showed whole, which
+    /// made no calls) the key would open and shut what `r` owns, and the tree
+    /// `r` had opened would vanish under a press of `Enter`. Under a lens the
+    /// answer there is "nothing to descend into", and it is answered here.
+    /// With **no lens** there is no ladder and no lens rows: a record row is a
+    /// collapsed tree and the outline is what opens it, so the key falls
+    /// through exactly as it always did.
     fn fold_here(&mut self, row: usize) -> Option<bool> {
-        self.descend(row)
+        if let Some(was) = self.descend(row) {
+            return Some(was);
+        }
+        // No lens, no ladder: the key belongs to the outline, as it always did.
+        self.plan.as_ref()?;
+        match self.spot(row) {
+            // A run is opened *through* the outline, which is the one thing
+            // here that is an outline entry in its own right.
+            Spot::Group { .. } => None,
+            // Claimed, and nothing moved: no level changed, so "was open" is
+            // false and the pager repaints the rows it already had.
+            _ => Some(false),
+        }
     }
 
-    /// `zt`: the raw record under the cursor, whatever its body is doing.
+    /// `r`: the raw record under the cursor, whatever its body is doing.
     fn toggle_tree(&mut self, row: usize) -> Option<String> {
         self.open_tree_at(row)
     }

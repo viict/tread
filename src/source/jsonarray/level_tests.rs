@@ -1,5 +1,5 @@
 //! The **ladder**, driven through the seam: `Enter` on a record, `Enter` on a
-//! call inside it, `zt` from anywhere, `zR`/`zM`, and the arithmetic under all
+//! call inside it, `r` from either level, `zR`/`zM`, and the arithmetic under all
 //! of it (SPEC.md §Lenses).
 //!
 //! Deterministic from end to end — a source, a row number, a key. No terminal
@@ -85,10 +85,11 @@ fn painted(rows: &[String], needle: &str) -> bool {
 
 // -- the ladder ------------------------------------------------------------------
 
-/// One rung a press, and round: clipped, the whole of what was said with its
-/// calls listed as calls, the record itself, and back to the clip.
+/// The two levels, a press apiece: clipped, the whole of what was said with its
+/// calls listed as calls, and back to the clip. The record's own JSON is `r`
+/// and appears at neither of them (SPEC.md §Lenses).
 #[test]
-fn enter_descends_one_rung_a_press_and_wraps() {
+fn enter_toggles_the_two_levels_and_never_shows_the_json() {
     let mut s = lensed(92);
     let row = message_row(&s);
     let clipped = s.len();
@@ -110,39 +111,74 @@ fn enter_descends_one_rung_a_press_and_wraps() {
     assert!(!has(&open, "out line 1"), "a call is one row until it is opened: {open:#?}");
     assert!(s.len() > clipped);
 
-    // Rung three: the record itself.
-    assert!(s.fold_here(row).is_some());
-    let tree = rows(&mut s);
-    assert!(has(&tree, "\"step_id\""), "the raw record: {tree:#?}");
-    assert!(has(&tree, "\"reasoning_content\""), "{tree:#?}");
-    assert!(!painted(&tree, "said line 9"), "back to the clip above it: {tree:#?}");
+    assert!(!has(&open, "\"step_id\""), "and no JSON at this level: {open:#?}");
 
-    // And round.
+    // And back, in one press rather than two.
     assert!(s.fold_here(row).is_some());
-    assert_eq!(s.len(), clipped, "{:#?}", rows(&mut s));
+    let back = rows(&mut s);
+    assert_eq!(s.len(), clipped, "{back:#?}");
+    assert!(!has(&back, "\"step_id\""), "still no JSON: {back:#?}");
+    assert!(has(&back, "\u{22ef} +"), "the clip is back: {back:#?}");
+
+    // A third press opens it again — two levels, not three.
+    assert!(s.fold_here(row).is_some());
+    assert!(painted(&rows(&mut s), "said line 9"));
+    assert!(!has(&rows(&mut s), "\"step_id\""), "the JSON never appeared");
 }
 
-/// A record with nothing under its headline and no calls has **one rung
-/// fewer**: there is nothing between what it said and its JSON, so `Enter` goes
-/// straight to the tree and straight back. Consuming the key for a repaint of
-/// the same rows is the thing this avoids.
+/// The other half of the same contract: with the tree open, `Enter` leaves it
+/// open and toggles the record's own rows underneath it. `r` owns the tree, and
+/// a key that silently shut what another key opened is what the third rung was
+/// removed for (SPEC.md §Lenses).
 #[test]
-fn a_record_with_no_body_and_no_calls_has_fewer_rungs() {
+fn enter_with_the_tree_open_leaves_the_tree_alone() {
+    let mut s = lensed(92);
+    let row = message_row(&s);
+    s.toggle_tree(row).expect("the record's own tree");
+    let with_tree = s.len();
+    assert!(has(&rows(&mut s), "\"step_id\""));
+
+    s.fold_here(row).expect("the open level, under the tree");
+    let open = rows(&mut s);
+    assert!(s.len() > with_tree);
+    assert!(has(&open, "\"step_id\""), "the tree is still open: {open:#?}");
+    assert!(painted(&open, "said line 9"), "and the message is whole: {open:#?}");
+
+    s.fold_here(row).expect("and back to the clip");
+    assert_eq!(s.len(), with_tree, "the tree is untouched by both presses");
+    assert!(has(&rows(&mut s), "\"step_id\""));
+    // And `r` is what shuts it.
+    s.toggle_tree(row).expect("shut");
+    assert!(!has(&rows(&mut s), "\"step_id\""));
+}
+
+/// A record with nothing under its headline and no calls has **no rung at all**:
+/// there is nothing between what it said and its JSON, so `Enter` has nowhere to
+/// go. It still claims the key — `Some(false)`, no level changed — because the
+/// caller's fall-through for `None` is the outline, and a record's outline entry
+/// is the raw tree that belongs to `r`. Consuming the key for a repaint of the
+/// same rows is what this states; `r` is still its bytes, which is why nothing
+/// is out of reach.
+#[test]
+fn a_record_with_no_body_and_no_calls_has_no_rung_and_r_is_its_bytes() {
     let mut s = lensed(92);
     // `done.` — one line, no calls, no thought.
     let row = s.row_of_record(DONE);
     let clipped = s.len();
-    assert!(s.fold_here(row).is_some(), "the ladder still has the tree");
+    assert_eq!(s.fold_here(row), Some(false), "claimed, and no level to descend to");
+    assert_eq!(s.len(), clipped, "and nothing repainted");
+    s.toggle_tree(row).expect("`r` still reaches the record");
     let tree = rows(&mut s);
-    assert!(has(&tree, "\"step_id\""), "straight to the record: {tree:#?}");
-    assert!(s.fold_here(row).is_some(), "and back");
+    assert!(has(&tree, "\"step_id\""), "the record itself: {tree:#?}");
+    assert!(s.len() > clipped);
+    s.toggle_tree(row).expect("and shuts again");
     assert_eq!(s.len(), clipped);
 }
 
-/// `zt` is the way to the record from **any** rung, and the way back to it
-/// without cycling — orthogonal to the level, exactly as it always was.
+/// `r` is the way to the record from **either** level, and the same press back —
+/// orthogonal to the level, which is the whole point of giving it its own key.
 #[test]
-fn zt_reaches_the_tree_from_every_rung() {
+fn r_reaches_the_tree_from_either_level_and_shuts_it_again() {
     for descents in [0usize, 1] {
         let mut s = lensed(92);
         let row = message_row(&s);
@@ -150,14 +186,14 @@ fn zt_reaches_the_tree_from_every_rung() {
             assert!(s.fold_here(row).is_some(), "descent {descents}");
         }
         let before = s.len();
-        assert!(s.toggle_tree(row).is_some(), "rung {descents}: zt opened it");
+        assert!(s.toggle_tree(row).is_some(), "level {descents}: `r` opened it");
         let open = rows(&mut s);
         assert!(has(&open, "\"step_id\""), "rung {descents}: {open:#?}");
         // And the level is untouched: what was showing is still showing.
         assert_eq!(
             painted(&open, "said line 9"),
             descents == 1,
-            "rung {descents}: zt did not move the level"
+            "level {descents}: `r` did not move the level"
         );
         assert!(s.toggle_tree(row).is_some(), "and shuts again");
         assert_eq!(s.len(), before);
@@ -207,6 +243,32 @@ fn enter_on_a_call_row_shows_its_arguments_and_its_output_and_shuts_again() {
     assert_eq!(s.len(), shut, "{:#?}", rows(&mut s));
 }
 
+/// `r` on a **call row** has a defined answer, and it is the row's *record*: a
+/// call has no JSON of its own separate from the record it was made in, so the
+/// honest raw thing under that row is the whole record. `Enter` there is still
+/// the call's (SPEC.md §Lenses).
+#[test]
+fn r_on_a_call_row_is_the_records_own_tree() {
+    let mut s = lensed(92);
+    let row = message_row(&s);
+    s.fold_here(row).expect("the open level");
+    let open = s.len();
+    let call = rows(&mut s)
+        .iter()
+        .position(|r| r.contains("cargo test -q") && r.contains('\u{25b8}'))
+        .expect("a call row");
+    assert!(!has(&rows(&mut s), "\"step_id\""));
+
+    s.toggle_tree(call).expect("`r` answers on a call row");
+    let with_tree = rows(&mut s);
+    assert!(has(&with_tree, "\"step_id\""), "the record itself: {with_tree:#?}");
+    assert!(has(&with_tree, "out line 30"), "every byte of it: {with_tree:#?}");
+    assert!(painted(&with_tree, "said line 9"), "the level is untouched: {with_tree:#?}");
+
+    s.toggle_tree(call).expect("and the same press shuts it");
+    assert_eq!(s.len(), open);
+}
+
 /// Leaving the open level takes the opened call with it: the rows are gone, and
 /// a call left open would reappear on the next descent unasked.
 #[test]
@@ -220,9 +282,8 @@ fn an_opened_call_does_not_survive_the_level_it_was_opened_at() {
         .position(|r| r.contains("cargo test -q") && r.contains('\u{25b8}'))
         .expect("a call row");
     s.fold_here(call).expect("the call opens");
-    s.fold_here(row).expect("on down the ladder");
-    s.fold_here(row).expect("and round");
-    s.fold_here(row).expect("back to the open level");
+    s.fold_here(row).expect("back to the clip, and the call's rows with it");
+    s.fold_here(row).expect("and open again");
     assert_eq!(s.len(), shut, "the call is shut again: {:#?}", rows(&mut s));
 }
 
@@ -247,6 +308,25 @@ fn zr_opens_every_level_and_zm_shuts_them() {
     assert!(has(&open, "out line 30"), "{open:#?}");
     s.fold_all(true);
     assert_eq!(s.len(), clipped, "{:#?}", rows(&mut s));
+}
+
+/// A rungless record is rungless **at both levels**. `zR` puts every record at
+/// the open level, including the ones whose two levels are the same rows; asking
+/// only on the way in would then let `Enter` report a descent and flip the level
+/// back while the screen stayed identical — a dead press, and the press after it
+/// would be the one that fell through to the outline and toggled the JSON.
+/// Whether a record opens further is a question about the record and the width,
+/// never about which level it is at, so the answer is the same both ways round.
+#[test]
+fn a_rungless_record_has_no_rung_after_zr_either() {
+    let mut s = lensed(92);
+    s.fold_all(false);
+    let open = s.len();
+    let row = s.row_of_record(DONE);
+    assert_eq!(s.fold_here(row), Some(false), "still no rung at the open level");
+    assert_eq!(s.len(), open, "and no press of it moves a row");
+    assert_eq!(s.fold_here(row), Some(false), "nor does the next one");
+    assert_eq!(s.len(), open);
 }
 
 // -- the arithmetic ------------------------------------------------------------------
@@ -320,6 +400,8 @@ fn every_level_accounts_for_the_whole_message_and_the_whole_output() {
     let mut s = lensed(92);
     let row = message_row(&s);
 
+    // Every state a record can be in: its two levels, and each of them with the
+    // record's own tree open underneath (`r`, which is orthogonal to the level).
     for level in 0..4usize {
         let painted = rows(&mut s);
         // Rows belonging to this record: from its own row to the next record's.
@@ -349,12 +431,19 @@ fn every_level_accounts_for_the_whole_message_and_the_whole_output() {
                 "the call row states the whole size: {mine:#?}"
             );
         }
-        s.fold_here(row);
+        match level {
+            0 => drop(s.fold_here(row).expect("the open level")),
+            1 => drop(s.toggle_tree(row).expect("`r`: the tree, over the open level")),
+            2 => drop(s.fold_here(row).expect("back to the clip, tree untouched")),
+            _ => {}
+        }
     }
 
     // And at the level that shows the output, what is missing from it is stated
-    // in its own lines. Four descents is a whole turn of the ladder, so the
-    // record is back at the open level and its calls are listed.
+    // in its own lines: `r` shuts the tree again and `Enter` opens the record,
+    // which is where its calls are listed.
+    s.toggle_tree(row).expect("the tree shuts");
+    s.fold_here(row).expect("the open level");
     let call = rows(&mut s)
         .iter()
         .position(|r| r.contains("cargo test -q") && r.contains('\u{25b8}'))
@@ -373,7 +462,7 @@ fn every_level_accounts_for_the_whole_message_and_the_whole_output() {
         out.len()
     );
 
-    // The floor under all of it: `zt` is every byte, always.
+    // The floor under all of it: `r` is every byte, always.
     s.toggle_tree(row).expect("the record itself");
     let raw = rows(&mut s).join("\n");
     assert!(raw.contains("out line 30"), "the record holds every byte");

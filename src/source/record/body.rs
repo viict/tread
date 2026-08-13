@@ -26,7 +26,7 @@
 //! (`Enter` / `za`), and the last row then says what is not on screen — in the
 //! message's own lines when it has more of them, in bytes when the remainder is
 //! the tail of one long line. Opening it paints the whole message, and the raw
-//! record is still one `zt` away either way. A lens never hides anything
+//! record is still one `r` away either way. A lens never hides anything
 //! (SPEC.md §Lenses), so a clip that did not say what it left out would be the
 //! one thing this seam is not allowed to do.
 //!

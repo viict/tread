@@ -171,6 +171,7 @@ space/f, b     page down/up            g/G        top/bottom
 h/l            horizontal scroll (code blocks, wide tables)
 ←/→            select a link on the row; scrolls where the row scrolls
 za / Enter     toggle collapse at cursor heading
+r              show the raw record under the cursor (§Lenses)
 zM / zR        collapse all / expand all
 zo / zc        open / close current section
 Tab / S-Tab    next / previous heading (block, under a lens)
@@ -419,24 +420,42 @@ which, since steps fold into runs, means as soon as the run is open. A folded
 run is therefore as tall as what its steps have to say rather than as tall as
 the count of them; the count is what the shut row is for.
 
-**A record has three levels, and `Enter` / `za` descends one a press:**
+**A record has two levels, and `Enter` / `za` toggles between them:**
 
 ```text
-clipped  ->  open  ->  the raw JSON tree  ->  clipped
+clipped  <->  open
 ```
 
 **Clipped** is the headline and a few rows of what was said or thought, whose
 last row states what it is not showing (`⋯ +37 lines`). **Open** is a record
 read as what it is: the whole of that text, and then the record's tool calls
 listed *as tool calls* — one row each, naming the tool, the argument that says
-what it did and the size of what came back. **The tree** is the record itself,
-every byte of it. The fourth press is the first again.
+what it did and the size of what came back. The second press is the first again.
 
-A record has only the rungs it has content for. One whose text the clip already
+**The raw record is `r`.** `r` shows the record under the cursor as a JSON tree
+— every byte of it — and shuts it again, from either level, leaving the level
+where it was. One key per job: `Enter` reads the record, `r` shows the bytes,
+and neither undoes the other. With a tree open, `Enter` leaves the tree alone
+and still toggles the record's own rows underneath it; the way to shut a tree is
+the `r` that opened it. A key that silently undid another key's work is what
+this replaced — the reader who wanted the clip back had to cycle through the
+JSON to reach it.
+
+`r` is a key about **records**, so where there are none it says so: in markdown,
+CSV, code, plain text and a JSON document read as a document it reports `nothing
+to open here` rather than appearing to do nothing. On a `.jsonl` read with **no
+lens** there are still records — one collapsed tree per row — and `r` opens the
+one under the cursor, which is the same tree the row's own fold shows.
+
+A record has only the levels it has content for. One whose text the clip already
 showed in full and which made no calls has nothing between its headline and its
-JSON, so `Enter` there goes straight to the tree; one with no tree either has no
-ladder at all, and the key means what it means on any other row — the record's
-own fold — rather than repainting the same screen.
+JSON, so it has no `Enter` rung at all: the key does nothing there rather than
+repainting the same screen, and — this is the same rule as the one above, not an
+exception to it — it does not reach for that record's raw tree instead. A record
+row answers for `Enter` whether or not it has anywhere to go, at either level and
+with a tree open or shut, because the alternative is that the key means one thing
+on the records with something to open and `r`'s job on the records without.
+`r` is still the way to that record's bytes.
 
 **A tool call is itself openable.** `Enter` on a call row shows the arguments
 the call was made with, one to a line, and then — under a row that names it —
@@ -446,7 +465,9 @@ what it left out. The output is named because output whose lines read
 opens at a time; leaving the level shuts it, because the rows are gone and a
 call left open would come back unasked. A call with no arguments and no answer
 has nothing under it, so it carries no marker and its `Enter` is the record's:
-a rung that repaints the same screen is not a rung.
+a rung that repaints the same screen is not a rung. `r` on a call row is the
+**record's** tree: a call has no JSON of its own separate from the record it was
+made in, so the honest raw thing under that row is the record.
 
 An argument list that is not the object the schema promises — an array, a
 `arguments` string the wire cut in half — is one argument holding what the file
@@ -454,9 +475,9 @@ said, under that name. It may be clipped; it may not go missing.
 
 Every one of those levels is a *reading*. A clip may never be silent about what
 it left out, the sizes a level states are the true ones, and the record itself
-is never further than `zt`, which opens the raw tree of the record under the
-cursor from any level and leaves the level where it was — the way back to the
-bytes without walking round the ladder. `zR` puts every record the viewport has
+is never further than `r`, which opens the raw tree of the record under the
+cursor from either level and leaves the level where it was — the bytes in one
+press, and one press back. `zR` puts every record the viewport has
 reached at the open level and opens its tree — which is what a batch (`--plain`,
 `--toc`) is — and `zM` puts them all back to their clip. A pipe therefore gets
 what was said, what was thought, what was called, and the whole record under it.

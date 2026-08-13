@@ -31,7 +31,7 @@
 //!   **empty path**, which [`Body::text_in`] resolves to the head. That is not a
 //!   silent clip: the head carries the true `bytes` and `lines`, so the row
 //!   under it says `⋯ +N more` exactly as a clipped message does, and every byte
-//!   is still one `zt` away in the record's own tree.
+//!   is still one `r` away in the record's own tree.
 //!
 //! A lens never hides anything (SPEC.md §Lenses). A part may be clipped; it may
 //! not be quiet about it.
@@ -55,7 +55,7 @@ pub const RAW_ARGS: &str = "arguments";
 ///
 /// An object is its members, in the record's own order. Anything else is one
 /// entry named [`RAW_ARGS`]: a string as itself, and any other value as the
-/// JSON it is — which is what the record's tree would show, and what `zt` is
+/// JSON it is — which is what the record's tree would show, and what `r` is
 /// one press away from.
 ///
 /// Every value is a [`Body`] with an **empty path**: an argument lives under a

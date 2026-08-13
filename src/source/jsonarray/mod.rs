@@ -45,7 +45,8 @@
 #[path = "tests.rs"]
 mod tests;
 
-/// The three levels a record has under a lens, driven through the seam.
+/// The two levels a record has under a lens and the `r` that shows its bytes,
+/// driven through the seam.
 #[cfg(test)]
 #[path = "level_tests.rs"]
 mod level_tests;
