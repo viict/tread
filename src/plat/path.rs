@@ -108,15 +108,36 @@ pub fn is_absolute(p: Platform, s: &str) -> bool {
     }
 }
 
-/// Fold `s`'s components onto `out`. `None` when a `..` walks off the front,
-/// which is how a link that escapes the corpus root is detected.
-fn fold_into(p: Platform, s: &str, out: &mut Vec<String>) -> Option<()> {
+/// What a `..` does when there is nothing above it to remove.
+#[derive(Clone, Copy, PartialEq)]
+enum Up {
+    /// Keep it: `../notes` is a real place, and a relative path that lost its
+    /// `..` would name a different one.
+    Keep,
+    /// Drop it: there is nothing above `/`, so `/..` is `/`.
+    Clamp,
+    /// Refuse the whole path. Joining a link onto a base is the one caller that
+    /// wants this: walking off the front of the base *is* escaping it.
+    Refuse,
+}
+
+/// Fold `s`'s components onto `out`. `None` only under [`Up::Refuse`].
+fn fold_into(p: Platform, s: &str, out: &mut Vec<String>, up: Up) -> Option<()> {
     for part in s.split(|c| is_sep(p, c)) {
         match part {
             "" | "." => {}
-            ".." => {
-                out.pop()?;
-            }
+            // A name above it: `a/b/..` is `a`. A `..` above it cannot be
+            // removed by another one — `../..` is two steps up, not none.
+            ".." => match out.last().map(String::as_str) {
+                Some(name) if name != ".." => {
+                    out.pop();
+                }
+                _ => match up {
+                    Up::Keep => out.push("..".to_string()),
+                    Up::Clamp => {}
+                    Up::Refuse => return None,
+                },
+            },
             other => out.push(other.to_string()),
         }
     }
@@ -124,13 +145,25 @@ fn fold_into(p: Platform, s: &str, out: &mut Vec<String>) -> Option<()> {
 }
 
 /// Take a native path apart, folding `.` and `..`.
+///
+/// A relative path **keeps** the `..` it cannot fold away: `../notes/a.md` names
+/// a real file, and a parse that refused it made every path expressed that way
+/// unusable — [`contains`] said no, so a listing opened as `tread ../notes/`
+/// judged its own entries to be outside it.
 pub fn parse(p: Platform, s: &str) -> Option<Parts> {
     let (prefix, rest) = split_prefix(p, s);
+    let rooted = rest.starts_with(|c| is_sep(p, c));
     let mut comps = Vec::new();
-    fold_into(p, rest, &mut comps)?;
+    // Nothing is above the root, so a rooted path drops what it cannot fold;
+    // a relative one carries it.
+    let up = match rooted {
+        true => Up::Clamp,
+        false => Up::Keep,
+    };
+    fold_into(p, rest, &mut comps, up)?;
     Some(Parts {
         prefix: prefix.to_string(),
-        rooted: rest.starts_with(|c| is_sep(p, c)),
+        rooted,
         comps,
     })
 }
@@ -161,7 +194,9 @@ pub fn render(p: Platform, parts: &Parts) -> String {
 /// saw. On unix `\` stays an ordinary filename byte.
 pub fn join(p: Platform, base: &str, rel: &str) -> Option<String> {
     let mut parts = parse(p, base)?;
-    fold_into(p, rel, &mut parts.comps)?;
+    // The one caller that refuses: `rel` walking off the front of `base` is a
+    // link leaving the corpus, and the answer to that is `None`, not a path.
+    fold_into(p, rel, &mut parts.comps, Up::Refuse)?;
     Some(render(p, &parts))
 }
 

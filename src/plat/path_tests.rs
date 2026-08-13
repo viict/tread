@@ -64,10 +64,44 @@ fn parsing_folds_dot_and_dotdot() {
 }
 
 #[test]
-fn walking_off_the_front_is_an_error_not_a_clamp() {
-    assert_eq!(parse(Linux, "/a/../.."), None);
-    assert_eq!(parse(Windows, "C:\\..\\x"), None);
-    assert_eq!(parse(Linux, "../x"), None);
+fn walking_off_the_front_refuses_a_join_and_survives_a_parse() {
+    // Walking off the front of the base is refused, and that is what `join`'s
+    // `Option` is for. A `..` that merely pops a real component is not off the
+    // front: it produces a path, and `contains` is what then refuses it.
+    assert_eq!(join(Linux, "/corpus", "../etc/passwd").as_deref(), Some("/etc/passwd"));
+    assert!(!contains(Linux, "/corpus", "/etc/passwd"));
+    assert_eq!(join(Linux, "/corpus/a", "../../.."), None);
+    assert_eq!(join(Windows, "C:\\corpus", "..\\..\\x"), None);
+    // Nor may one `..` cancel another and creep back in.
+    assert_eq!(join(Linux, "../notes", "../../etc/passwd"), None);
+
+    // Rooted: nothing is above the root, so it clamps there. `/a/../..` is `/`.
+    assert_eq!(render(Linux, &parse(Linux, "/a/../..").unwrap()), "/");
+    assert_eq!(render(Windows, &parse(Windows, "C:\\..\\x").unwrap()), "C:\\x");
+
+    // Relative: the `..` is part of what the path names and must survive, or
+    // every path written that way becomes unusable — which is what made a
+    // listing opened as `tread ../notes/` refuse its own entries.
+    assert_eq!(render(Linux, &parse(Linux, "../x").unwrap()), "../x");
+    assert_eq!(render(Linux, &parse(Linux, "../../a/b/..").unwrap()), "../../a");
+    assert_eq!(render(Windows, &parse(Windows, "..\\x").unwrap()), "..\\x");
+}
+
+/// The bug this file's `..` rules were changed for: a directory reached by a
+/// relative path holds its own entries, so the containment check must say yes.
+#[test]
+fn a_relative_parent_path_contains_what_is_under_it() {
+    for p in [Linux, Macos] {
+        assert!(contains(p, "../notes", "../notes/a.md"));
+        assert!(contains(p, "..", "../notes/a.md"));
+        assert!(contains(p, "../notes", "../notes/deep/b.md"));
+        // And still says no to what is genuinely outside.
+        assert!(!contains(p, "../notes", "../other/a.md"));
+        assert!(!contains(p, "../notes", "/etc/passwd"));
+    }
+    assert!(contains(Windows, "..\\notes", "..\\notes\\a.md"));
+    // A relative root never contains an absolute path, and the reverse.
+    assert!(!contains(Linux, "/notes", "../notes/a.md"));
 }
 
 #[test]
