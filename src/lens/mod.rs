@@ -46,6 +46,7 @@ pub mod num;
 pub mod part;
 pub mod usage;
 pub mod usage_agent;
+pub mod usage_atif;
 
 pub use num::tokens;
 pub use part::Part;
@@ -349,6 +350,7 @@ const LENSES: &[(&str, Make)] = &[
     (agent::NAME, || Box::new(agent::Agent::default())),
     (atif::NAME, || Box::new(atif::Atif)),
     (usage_agent::NAME, || Box::new(usage_agent::Usage)),
+    (usage_atif::NAME, || Box::new(usage_atif::UsageAtif)),
 ];
 
 /// The lens called `name`, or `None`.
@@ -378,10 +380,14 @@ pub fn names() -> Vec<&'static str> {
 
 /// `--lens list`: the available lenses, one per line. The description comes
 /// from the lens itself, so a dialect says what it is in one place.
+///
+/// The gutter is *after* the padding rather than inside it: `usage-atif` is
+/// exactly ten columns, and a name that filled the field would otherwise run
+/// straight into its own description.
 pub fn list_text() -> String {
     let mut s = String::from("lenses (--lens <name>):\n");
     for (name, make) in LENSES {
-        s.push_str(&format!("    {name:<10}{}\n", make().about()));
+        s.push_str(&format!("    {name:<10}  {}\n", make().about()));
     }
     s.push_str("\nWithout --lens, records render as the generic JSON tree.\n");
     s

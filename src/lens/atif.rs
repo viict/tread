@@ -313,7 +313,7 @@ fn calls_of(v: &Value) -> Vec<Call> {
 /// JSON-encoded string the wire format this schema descends from emits. A
 /// value that is not a string (a `todos` list, a numeric `limit`) names
 /// nothing, which is why the tool then shows its name alone.
-fn arg_of(call: &Value) -> Option<String> {
+pub(super) fn arg_of(call: &Value) -> Option<String> {
     let raw = call.get("arguments")?;
     let decoded;
     let args = match raw.as_str() {
