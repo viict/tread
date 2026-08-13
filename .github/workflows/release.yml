@@ -281,13 +281,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Deliberately no `registry-url`. It writes an .npmrc holding
+      # `_authToken=${NODE_AUTH_TOKEN}` and sets that variable to a placeholder
+      # when no token is supplied, so npm authenticates with the literal string
+      # `XXXXX-XXXXX-XXXXX-XXXXX` and the registry answers 404 on the upload —
+      # its way of saying "not authorized" without admitting the package exists.
+      # A token in the file also wins over the OIDC exchange, which is the whole
+      # point of trusted publishing. Without it, npm asks for its own credential
+      # and there is nothing to conflict with. registry.npmjs.org is the default
+      # registry, so nothing needs to name it.
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
-      # Trusted publishing needs a newer npm than the runner image ships.
-      - run: npm install -g npm@latest && npm --version
+      # Trusted publishing needs a newer npm than the runner image ships, and
+      # `npm whoami` proves the credential exists before anything is uploaded:
+      # the failure mode this replaces was a publish that signed its provenance,
+      # pushed it to the transparency log, and only then discovered it could not
+      # authenticate.
+      - run: |
+          npm install -g npm@latest
+          npm --version
+          npm whoami
 
       # The published version is the tag, always. package.json carries 0.0.0 in
       # the repository so there is no second place to forget to bump.
