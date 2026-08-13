@@ -149,7 +149,7 @@ cargo musl                      # alias for --release --target …-musl
 
 ```
 $ ldd target/x86_64-unknown-linux-musl/release/tread
-        statically linked                             # 649 KiB
+        statically linked                             # 992 KiB
 ```
 
 | Platform | Target | Linkage |
@@ -195,8 +195,9 @@ tread [OPTIONS] [FILE]
                    sniffed.
   --delim <D>      CSV field delimiter: one character, or `tab`, `comma`,
                    `semicolon`, `pipe`. Sniffed among `,` TAB `;` `|` otherwise.
-  --lens <NAME>    Read a record file through a semantic view: `agent` for
-                   Claude Code session logs. `--lens list` prints them all.
+  --lens <NAME>    Read a record file through a semantic view: `agent` and
+                   `atif` for what a run said, `usage` and `usage-atif` for
+                   what it spent. `--lens list` prints them all.
                    Without it, records render as the generic tree.
   --toc            Print the heading outline (CSV: the column names; JSON: the
                    root's members) and exit.
@@ -404,8 +405,13 @@ turns one back into what it recorded:
 ```sh
 tread ~/.claude/projects/<slug>/<session>.jsonl            # the generic tree
 tread --lens agent ~/.claude/projects/<slug>/<session>.jsonl
+tread --lens usage ~/.claude/projects/<slug>/<session>.jsonl
 tread --lens list                                          # what there is
 ```
+
+Four ship: `agent` and `atif` read a run as the conversation it was, over a
+Claude Code session log and an ATIF trajectory respectively; `usage` and
+`usage-atif` read the same records as what they *spent*.
 
 ```
 ▾ user       21:28   I want to create a reader for the terminal…
@@ -439,8 +445,23 @@ whole record: `Y` on a run copies every record in it as JSON. Reading a real
 4 MB, 2354-record session costs under 30 ms to the first screen — 2354
 records fold into 633 rows, and every one of them is still reachable.
 
-[`docs/lenses.md`](docs/lenses.md) documents the `agent` dialect field by field
-and what a new one has to provide.
+A different question over the same records is a different lens, not a different
+reader. `--lens usage` answers what a turn cost rather than what it said: the
+numbers first, because that is the column being scanned, and a record that spent
+nothing says only what kind of record it was.
+
+```
+▾ user        21:28                                          I want to create a…
+▾ assistant   21:29   in 1.2k  out  380  read  18k  new 2.1k  ·  Bash(cargo test)
+▾ ↳assistant  21:29   in 4.8k  out  912  read  31k  new    -  ·  Read ×3
+▾ assistant   21:31   in 1.9k  out 1.1k  read  44k  new 3.4k  ·  ⟨15 steps · 128k tokens⟩
+```
+
+A subagent is marked `↳`, because it is otherwise indistinguishable from the
+main thread and accounts for a large share of a session's total.
+
+[`docs/lenses.md`](docs/lenses.md) documents each dialect field by field and
+what a new one has to provide.
 
 ## Reading code
 
@@ -595,7 +616,7 @@ every syscall is a hand-written `extern "C"` declaration.
 
 ```
 $ cargo tree
-tread v0.3.0
+tread v0.4.0
 ```
 
 All `unsafe` lives in the platform backends under [`src/sys/`](src/sys/); every
