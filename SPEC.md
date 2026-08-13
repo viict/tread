@@ -410,7 +410,10 @@ record **spent**: a fixed-width block of token counters, then what the record
 did, with a record that spent nothing showing its kind and no number columns at
 all. A printed number means the format recorded that value, `-` means this
 record did not record a field its format has, and an absent column means the
-format has no such field. Counts are floored to four columns, so a row that says
+format has no such field — the middle of those three is a defensive path rather
+than observed behaviour: no measured record has yet carried some of its format's
+counters and not the others, and it is held to by tests alone. Counts are
+floored to four columns, so a row that says
 `18k` promises at least 18,000; the exact integers are on the level under it,
 and the exact sums are on the run's row and in the status bar.
 

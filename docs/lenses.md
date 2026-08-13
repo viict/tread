@@ -415,6 +415,14 @@ inside a format that has the field prints `-`. A `0` in the third case would say
 "this agent wrote nothing to cache" when the truth is "this format does not
 record cache writes", which is a different and false claim.
 
+The middle row is a **defensive** path, and a later reader should not take it
+for observed behaviour: in every session log and trajectory this has been
+measured against, a record that carries a usage object carries either all of its
+format's counters or none of them, so no real row has yet printed a `-`. It is
+exercised by hand-written tests only. It stays because a counter set is the
+schema of another program and the day one goes missing the column must still
+line up and must not read as a zero.
+
 **A record with no usage shows its kind and nothing more** —
 `file-history-snapshot`, `queue-operation`, `user` — with no number fields at
 all, so the numeric column is simply absent where nothing was spent rather than
