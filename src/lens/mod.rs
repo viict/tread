@@ -44,6 +44,8 @@ pub mod agent;
 pub mod atif;
 pub mod num;
 pub mod part;
+pub mod usage;
+pub mod usage_agent;
 
 pub use num::tokens;
 pub use part::Part;
@@ -346,6 +348,7 @@ type Make = fn() -> Box<dyn Lens>;
 const LENSES: &[(&str, Make)] = &[
     (agent::NAME, || Box::new(agent::Agent::default())),
     (atif::NAME, || Box::new(atif::Atif)),
+    (usage_agent::NAME, || Box::new(usage_agent::Usage)),
 ];
 
 /// The lens called `name`, or `None`.

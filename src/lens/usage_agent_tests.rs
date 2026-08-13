@@ -1,0 +1,207 @@
+//! The `usage` dialect over hand-written, synthetic session records.
+//!
+//! Nothing here is copied from a real session log; every fixture is written by
+//! hand to the shape the format documents.
+#![deny(unsafe_code)]
+
+use super::*;
+use crate::render::str_width;
+
+/// Columns the row's actor field is padded to (`lensrow::ACTOR`). Named here
+/// because a subagent mark that outgrew it would shift every number on the row,
+/// and this dialect's whole product is that the numbers line up.
+const ACTOR: usize = 10;
+
+fn read(json: &str) -> Option<Summary> {
+    let v = crate::json::parse(json.as_bytes()).expect("fixture parses");
+    Usage.read(&v)
+}
+
+fn sum(json: &str) -> Summary {
+    read(json).expect("the dialect reads this record")
+}
+
+/// An assistant record with all four counters: the block, aligned, and a total
+/// that is the exact sum.
+#[test]
+fn an_assistant_record_shows_the_four_counters_and_totals_them() {
+    let s = sum(
+        r#"{"type":"assistant","timestamp":"2026-08-05T21:31:00.000Z",
+            "message":{"role":"assistant","content":[
+              {"type":"tool_use","id":"a","name":"Bash","input":{"command":"cargo test"}}],
+             "usage":{"input_tokens":1200,"output_tokens":380,
+                      "cache_read_input_tokens":18000,
+                      "cache_creation_input_tokens":2100}}}"#,
+    );
+    assert_eq!(s.what, "in  1.2k  out  380  read 18k  new 2.1k  \u{b7}  Bash(cargo test)");
+    assert_eq!(s.class, Class::Step, "only a human turn is conversation");
+    assert_eq!(s.actor, "assistant");
+    assert_eq!(s.time.as_deref(), Some("21:31"));
+    assert_eq!(s.tokens, 1200 + 380 + 18_000 + 2_100);
+    assert_eq!(s.calls, 1);
+    assert!(s.body.is_none(), "this lens shows no message text at all");
+}
+
+/// A turn that really did spend zero prints zeroes, not dashes.
+#[test]
+fn a_recorded_zero_is_still_a_row_of_numbers() {
+    let s = sum(
+        r#"{"type":"assistant","message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":0,"output_tokens":0}}}"#,
+    );
+    assert!(s.what.starts_with("in     0  out    0"), "{}", s.what);
+    assert_eq!(s.tokens, 0);
+    // The two counters this record did not write are dashes, not zeroes.
+    assert!(s.what.contains("read   -"), "{}", s.what);
+    assert!(s.what.contains("new    -"), "{}", s.what);
+}
+
+/// No usage at all: the record's kind, verbatim, and no number columns anywhere.
+#[test]
+fn a_record_with_no_usage_shows_its_kind_and_nothing_more() {
+    for kind in ["file-history-snapshot", "queue-operation", "bridge-session", "agent-color"] {
+        let s = sum(&format!(r#"{{"type":"{kind}","messageId":"x"}}"#));
+        assert_eq!(s.what, kind, "the kind verbatim");
+        assert_eq!(s.tokens, 0);
+        for label in ["in", "out", "read", "new"] {
+            assert!(!s.what.contains(&format!("{label} ")), "{kind} shows a number column");
+        }
+        assert_eq!(s.actor, "system", "and the actor field still fits");
+    }
+}
+
+/// A type this dialect has never seen prints its own name rather than being
+/// swallowed — the seam's rule that a lens never hides anything.
+#[test]
+fn an_unknown_type_prints_its_own_name() {
+    let s = sum(r#"{"type":"some-future-thing"}"#);
+    assert_eq!(s.what, "some-future-thing");
+}
+
+/// The load-bearing decision: a human turn breaks the run, and a tool result
+/// does not. If the second were a `Message` too, every run would shred into
+/// pairs and no group row would total a turn.
+#[test]
+fn only_a_human_turn_is_conversation() {
+    let typed = sum(r#"{"type":"user","message":{"role":"user","content":"run the tests"}}"#);
+    assert_eq!(typed.class, Class::Message);
+    assert_eq!(typed.actor, "user");
+    assert_eq!(typed.what, "user", "no numbers on a turn that recorded none");
+
+    let result = sum(
+        r#"{"type":"user","message":{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"a","content":"ok"}]}}"#,
+    );
+    assert_eq!(result.class, Class::Step, "a tool result is mechanics");
+
+    // A record with blocks but no result is still a person typing.
+    let blocks = sum(
+        r#"{"type":"user","message":{"role":"user","content":[
+            {"type":"text","text":"and again"}]}}"#,
+    );
+    assert_eq!(blocks.class, Class::Message);
+
+    // Everything else is mechanics whatever it holds.
+    assert_eq!(sum(r#"{"type":"system","subtype":"turn_duration"}"#).class, Class::Step);
+}
+
+/// A run is consecutive steps, so this is the item list the plan would build
+/// from a whole turn: one message, its mechanics, then the next message.
+#[test]
+fn a_turn_is_one_message_then_a_run_of_mechanics() {
+    let records = [
+        r#"{"type":"user","message":{"role":"user","content":"go"}}"#,
+        r#"{"type":"assistant","message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":10,"output_tokens":5}}}"#,
+        r#"{"type":"user","message":{"role":"user","content":[
+            {"type":"tool_result","tool_use_id":"a","content":"ok"}]}}"#,
+        r#"{"type":"assistant","message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":20,"output_tokens":1}}}"#,
+        r#"{"type":"user","message":{"role":"user","content":"thanks"}}"#,
+    ];
+    let classes: Vec<Class> = records.iter().map(|r| sum(r).class).collect();
+    assert_eq!(
+        classes,
+        vec![Class::Message, Class::Step, Class::Step, Class::Step, Class::Message],
+        "one run of three between two turns, not three runs of one"
+    );
+}
+
+/// The subagent mark costs no alignment: `↳assistant` is exactly the ten
+/// columns the actor field is wide, and `↳ assistant` (which `agent` uses)
+/// would be eleven. More than half the records in a real session carry the flag.
+#[test]
+fn a_subagent_is_marked_without_costing_a_column() {
+    let s = sum(
+        r#"{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":1,"output_tokens":1}}}"#,
+    );
+    assert_eq!(s.actor, "\u{21b3}assistant");
+    assert_eq!(str_width(&s.actor), ACTOR, "the mark must not push the numbers right");
+    assert_eq!(s.who, Who::Assistant, "and it still paints as an assistant");
+
+    let side_user = sum(r#"{"type":"user","isSidechain":true,"message":{"role":"user","content":"x"}}"#);
+    assert_eq!(side_user.actor, "\u{21b3}user");
+    assert!(str_width(&side_user.actor) <= ACTOR);
+    assert!(str_width(&sum(r#"{"type":"assistant"}"#).actor) <= ACTOR);
+}
+
+/// `iterations` is a list whose elements repeat the outer counter names.
+/// Summing both double-counts every token on the records that carry it, which is
+/// the mistake this pins against.
+#[test]
+fn iterations_are_never_added_to_the_total() {
+    let s = sum(
+        r#"{"type":"assistant","message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":100,"output_tokens":50,
+                     "iterations":[{"input_tokens":60,"output_tokens":30},
+                                   {"input_tokens":40,"output_tokens":20}]}}}"#,
+    );
+    assert_eq!(s.tokens, 150, "the outer four once, the iterations not at all");
+    assert!(s.what.starts_with("in   100  out   50"), "{}", s.what);
+}
+
+/// Several calls of one kind read as one move with a count.
+#[test]
+fn several_calls_of_one_kind_collapse() {
+    let s = sum(
+        r#"{"type":"assistant","message":{"role":"assistant","content":[
+            {"type":"tool_use","id":"a","name":"Read","input":{"file_path":"a.rs"}},
+            {"type":"tool_use","id":"b","name":"Read","input":{"file_path":"a.rs"}},
+            {"type":"tool_use","id":"c","name":"Read","input":{"file_path":"a.rs"}}],
+            "usage":{"input_tokens":1}}}"#,
+    );
+    assert!(s.what.ends_with("Read(a.rs) \u{d7}3"), "{}", s.what);
+    assert_eq!(s.calls, 3);
+}
+
+/// Not this dialect's record: it falls back to the generic tree rather than
+/// being summarised wrongly or hidden.
+#[test]
+fn a_record_that_is_not_an_object_is_not_read() {
+    assert!(read("[1,2,3]").is_none());
+    assert!(read(r#""just a string""#).is_none());
+    assert!(read(r#"{"no":"type"}"#).is_none());
+    assert!(read(r#"{"type":7}"#).is_none(), "a non-string type is not a type");
+}
+
+/// A `usage` object that is present but says none of the four is a record with
+/// no numbers, and reads as its kind rather than as four dashes.
+#[test]
+fn a_usage_object_with_no_counters_is_not_a_row_of_dashes() {
+    let s = sum(r#"{"type":"assistant","message":{"role":"assistant","usage":{"service_tier":"standard"}}}"#);
+    assert_eq!(s.what, "assistant");
+    assert_eq!(s.tokens, 0);
+}
+
+/// A counter that is not a non-negative integer is refused rather than clamped:
+/// the cell then says `-`, which is true.
+#[test]
+fn a_counter_that_is_not_a_count_is_refused() {
+    let s = sum(
+        r#"{"type":"assistant","message":{"role":"assistant","content":[],
+            "usage":{"input_tokens":-5,"output_tokens":"lots","cache_read_input_tokens":7}}}"#,
+    );
+    assert_eq!(s.tokens, 7);
+    assert!(s.what.starts_with("in     -  out    -  read   7"), "{}", s.what);
+}
