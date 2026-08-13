@@ -21,6 +21,7 @@ use crate::source::detect::{self, Format};
 use crate::source::json::{self as json, JsonSource};
 use crate::source::text::TextSource;
 use crate::source::{csv::CsvSource, jsonl::JsonlSource, markdown::MarkdownSource, Source};
+use crate::plat::{path as ppath, Platform};
 use crate::{cli, md, sys};
 
 /// A fatal error plus the process exit code it maps to.
@@ -108,8 +109,24 @@ const PROJECT_MARKERS: [&str; 6] = [
 /// falls back to the file's own directory — and then every import of a sibling
 /// directory is *outside the corpus* and refused. The project root is the
 /// honest answer to "what may this file link to".
-pub fn corpus_root(file: &Path) -> Option<PathBuf> {
-    let mut at = file.parent()?;
+///
+/// `cwd` is what a relative `file` is relative *to*, and the climb runs against
+/// it rather than against the empty path. `Path::parent` of `..` is `""`, which
+/// names the working directory — not an ancestor of `../elsewhere` at all — so
+/// climbing into it adopted *this* project as the corpus root for a directory
+/// that merely sat beside it, and every entry of that listing was then refused
+/// for escaping a corpus it had never been in.
+pub fn corpus_root(file: &Path, cwd: &Path) -> Option<PathBuf> {
+    // Folded, not merely joined: `<cwd>/../there` still *contains* `<cwd>` as a
+    // component, so climbing it walks back through the directory the path had
+    // just left and finds its markers anyway. An absolute path is folded where
+    // it stands — joining it onto the cwd would bury it under one.
+    let given = file.to_string_lossy();
+    let here = PathBuf::from(match ppath::is_absolute(Platform::HOST, &given) {
+        true => ppath::join(Platform::HOST, &given, "")?,
+        false => ppath::join(Platform::HOST, &cwd.to_string_lossy(), &given)?,
+    });
+    let mut at = here.parent()?;
     // Deep enough for any real tree, bounded so a symlink loop cannot spin.
     for _ in 0..64 {
         if PROJECT_MARKERS.iter().any(|m| at.join(m).exists()) {
@@ -531,9 +548,10 @@ mod tests {
         std::fs::write(t.join("package.json"), "{}\n").unwrap();
         let f = t.join("src/app/deep/page.tsx");
         std::fs::write(&f, "").unwrap();
-        assert_eq!(corpus_root(&f).as_deref(), Some(t.as_path()));
-        // Nothing above a bare temp file, and no panic looking.
-        assert!(corpus_root(Path::new("/")).is_none());
+        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        assert_eq!(corpus_root(&f, &cwd).as_deref(), Some(t.as_path()));
+        // Nothing above the filesystem root, and no panic looking.
+        assert!(corpus_root(Path::new("/"), &cwd).is_none());
         let _ = std::fs::remove_dir_all(&t);
     }
 

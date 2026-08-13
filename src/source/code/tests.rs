@@ -501,9 +501,9 @@ fn imports_resolve_when_the_corpus_is_the_project() {
     assert_eq!(urls, vec!["../components/Widget.tsx#Widget"], "relative, with the anchor");
 
     // Rooted at the project, as `main` does for a code file.
-    let root = crate::open::corpus_root(&page).expect("the package.json above it");
-    assert_eq!(root, t, "the project, not the folder the file sits in");
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::open::corpus_root(&page, &cwd).expect("the package.json above it");
+    assert_eq!(root, t, "the project, not the folder the file sits in");
     let mut p = crate::pager::Pager::new(Box::new(s), "page.tsx".into(), 80, 24, Some(80));
     p.attach_nav(crate::nav::Navigator::new(&page, Some(&root), &cwd));
     p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));

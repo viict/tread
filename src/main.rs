@@ -200,7 +200,7 @@ fn interactive(
         let index = match (&args.index, input.format) {
             (Some(i), _) => Some(i.clone()),
             (None, source::detect::Format::Markdown) => None,
-            (None, _) => open::corpus_root(path),
+            (None, _) => open::corpus_root(path, &cwd),
         };
         pager.attach_nav(nav::Navigator::new(path, index.as_deref(), &cwd));
     }
