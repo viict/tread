@@ -402,7 +402,17 @@ run is a conversation, and what a reader wants is the conversation with the
 mechanics folded away. Messages stay visible; consecutive tool calls and their
 results collapse into one summary row (`⟨6 steps · 4 tool calls⟩`) that opens.
 Two dialects read one today — `agent` for Claude Code session logs, `atif` for
-ATIF trajectories — and a third is a module and a line.
+ATIF trajectories — and another is a module and a line.
+
+A lens says what a record *is*, and there is more than one honest answer for the
+same file. `usage` and `usage-atif` read those same two shapes as what each
+record **spent**: a fixed-width block of token counters, then what the record
+did, with a record that spent nothing showing its kind and no number columns at
+all. A printed number means the format recorded that value, `-` means this
+record did not record a field its format has, and an absent column means the
+format has no such field. Counts are floored to four columns, so a row that says
+`18k` promises at least 18,000; the exact integers are on the level under it,
+and the exact sums are on the run's row and in the status bar.
 
 **A row is a headline; the record is under it.** A summary row is one line —
 who, when, what — and for a message that `what` **is the message's own first

@@ -366,6 +366,136 @@ thing that scrolls sideways.
 `--toc --lens atif` prints the whole run as 50 tab-separated lines, headlines
 only — a list is a list, and the levels are for a screen.
 
+## The `usage` dialects
+
+The same two files, a different question: not what was said, but what each
+record **spent**. `usage` reads a Claude Code session log
+(`records_at() -> Lines`) and `usage-atif` reads an ATIF trajectory
+(`records_at() -> Member("steps")`); everything that is not that one declaration
+is shared, in `src/lens/usage.rs`.
+
+```text
+  user       14:01  user
+▸ ⟨3 steps · 1 tool call · 22k tokens⟩   14:02
+  assistant  14:02  in  1.2k  out  380  read  18k  new 2.1k  ·  Bash(cargo test)
+  ↳assistant 14:03  in   800  out   20  read    -  new    -  ·  assistant
+  system     14:03  file-history-snapshot
+```
+
+They are named `usage` and not `cost`: no price table is compiled in and no money
+is shown. A lens must not promise a currency it cannot compute.
+
+**The columns.** The actor is 10 and the clock is 5, so `what` starts at column
+21 — the same column every lens's `what` starts at. Then the numeric block, and
+then `  ·  ` and what the record did:
+
+| Field | Columns | Made of |
+| --- | --- | --- |
+| one field | 8 | its label left-justified in 4, then `lens::tokens` right-aligned in 4 |
+| the gap between two fields | 2 | |
+| `usage`'s block (`in`, `out`, `read`, `new`) | **38** | 4×8 + 3×2 |
+| `usage-atif`'s block (`in`, `out`, `read`) | **28** | 3×8 + 2×2 |
+
+The block is that width on **every** row of the file, whatever the numbers are,
+which is what makes it a column a reader can scan down. The row never wraps — it
+scrolls sideways like every other summary row — so a narrow terminal pans across
+the action rather than losing it.
+
+**Three different things a cell can say**, and this is the whole design:
+
+| On the row | Means |
+| --- | --- |
+| a number, `0` included | the format recorded that value. A recorded zero is a fact about the session, and it is shown |
+| `-` | **this record** did not record a field its format has. The column stays, because other records in the same file fill it |
+| no column at all | **the format** has no such field. ATIF-v1.7 records no cache-*creation* counter of any kind, so a `usage-atif` row has three fields and never a fourth |
+
+A format-level absence removes the column for the whole file, because alignment
+is what a number column is for and alignment is per file; a record-level absence
+inside a format that has the field prints `-`. A `0` in the third case would say
+"this agent wrote nothing to cache" when the truth is "this format does not
+record cache writes", which is a different and false claim.
+
+**A record with no usage shows its kind and nothing more** —
+`file-history-snapshot`, `queue-operation`, `user` — with no number fields at
+all, so the numeric column is simply absent where nothing was spent rather than
+a row of zeroes. A `type` the dialect has never seen prints its own name rather
+than being swallowed.
+
+**Numbers are floored, never rounded up.** `lens::tokens` is the one spelling
+there is: `380`, `1.2k`, `18k`, `1.8M`, never wider than four columns. `999` is
+`999` and not `1.0k`; `1999` is `1.9k` and not `2.0k`. A row that says `18k` is
+therefore a promise of *at least* 18,000, which is the reading a person makes of
+a truncated number and the only one that never overstates what a session spent.
+
+The cost is real and is stated here rather than discovered: a bucket hides its
+magnitude, so `18k` is anything up to 18,999 and **the floored numbers on the
+rows will not add up by eye to the total on the group row**. Both totals are the
+exact sum, spelled once at the end; and the exact integers of any one record are
+one `Enter` away.
+
+**Where a total lives, and why neither place is in a dialect.** A lens may not
+decide a row, so both are in the record seam:
+
+* the **group row** over a folded run — `lensrow::group_counts` sums the
+  members' exact counts and `group_text` spells the third clause,
+  `⟨15 steps · 3 tool calls · 128k tokens⟩`, omitted entirely at zero;
+* the **status bar** over the document — `record::view::position_text` appends
+  `  ·  ≥1.2M tokens` to its `record 812/≥1204 (indexing 44%)` head. The `≥` is
+  not cosmetic: classification runs only as far as the reader has scrolled, so an
+  unqualified total on an 8.8 MB log would be wrong by most of the file. It is a
+  running sum kept by `Plan::classify`, one add per record and nothing per frame,
+  and classification runs once per record — so opening a folded run cannot make
+  the total jump.
+
+Both are dialect-agnostic: any lens that fills `Summary::tokens` gets them, and a
+lens that fills none (`agent`, `atif`) changes not one byte of either.
+
+**Where the numbers are.** For `usage`, exactly one path — `message.usage` —
+mapping `input_tokens` → `in`, `output_tokens` → `out`,
+`cache_read_input_tokens` → `read`, `cache_creation_input_tokens` → `new`. For
+`usage-atif`, `steps[].metrics`, mapping `prompt_tokens` → `in`,
+`completion_tokens` → `out`, `cached_tokens` → `read`.
+
+Two things are deliberately **not** added to the total, and both would be a
+double count:
+
+* `output_tokens_details.thinking_tokens` and ATIF's
+  `metrics.extra.reasoning_tokens` are *subsets* of the output count;
+* `usage.iterations[]` is a list whose elements repeat the outer counter names
+  once per attempt. Its **length** is the fact — the request was retried — and
+  its contents are never summed. This is the mistake the next contributor will
+  make, so it is in a comment on `usage::Tokens::total` and in a test as well as
+  here.
+
+Neither is lost. Both are on the open level, along with the exact integers, the
+model the numbers were spent on, the cache-creation breakdown, and — for
+`usage` — a `service_tier` or `speed` that is **not** `standard`, which is
+exactly the anomaly a reader opened the row to find, and which would be 99.96%
+noise as a column.
+
+**The one decision that shapes the document.** For `usage`, a **human** `user`
+turn is a `Class::Message` and everything else is a `Class::Step`, so the run
+between two human turns is exactly one turn's mechanics and the group row over
+it totals what that turn cost. A `user` record whose content blocks are
+`tool_result` is mechanics — the same line `agent` draws — and drawing it
+anywhere else would shred every run into pairs and leave no group row totalling
+anything. For `usage-atif`, `source` is the discriminator: `user` is the turn
+boundary, `agent` is a step.
+
+**A subagent is `↳assistant`, with no space** — ten columns exactly, which is
+what the actor field is wide. `agent`'s `↳ assistant` is eleven and pushes every
+column on that row one to the right; more than half the records of a real session
+carry `isSidechain`, and on a lens whose whole product is a column of numbers
+that is fatal. `Who` still carries the colour, so the row still paints as an
+assistant. ATIF has no such flag and no row is marked: inventing one would be a
+guess.
+
+**Neither dialect shows any message text**: `Summary::body` is `None` on every
+row, because "what was said" is what `--lens agent` and `--lens atif` are for.
+That also means these dialects allocate nothing per record but their own one-line
+`what`, so a log whose longest line is most of a megabyte costs them a parse and
+no more.
+
 ## Adding a dialect
 
 opencode's own logs and OpenAI Codex logs are wanted and **not implemented**.
@@ -379,7 +509,9 @@ Adding one is a module and a line, and nothing else:
      or `RecordsAt::Member("steps")` (a document whose records are one of its
      keys, every *other* key becoming record 0). This is the only thing a
      dialect says about files, and the routing in `src/open/lens.rs` turns it
-     into a format and a refusal.
+     into a format and a refusal. **It is one answer**: a dialect that wants to
+     read two file shapes is two entries over one shared module, which is what
+     `usage` and `usage-atif` are.
    * `read(&mut self, &Value) -> Option<Summary>` — called **once per record, in
      file order**, so a dialect may carry state (the agent lens keeps a bounded
      ring of `tool_use` ids so a result can name its call). Return `None` for
@@ -398,7 +530,7 @@ Adding one is a module and a line, and nothing else:
    fixtures**. Real session logs are private; read one to learn the shape, never
    copy it into the repository.
 
-A `Summary` is seven fields and no styling:
+A `Summary` is eight fields and no styling:
 
 | Field | Meaning |
 | --- | --- |
@@ -408,6 +540,7 @@ A `Summary` is seven fields and no styling:
 | `time` | `HH:MM`, or `None`; `lens::clock` does ISO-8601 |
 | `what` | one line: `lens::excerpt` collapses whitespace and cuts to width. What `--toc` prints, and what the row paints for a record with no `body` |
 | `calls` | tool calls in this record, for a run's `· 4 tool calls` |
+| `tokens` | every token unit this record recorded, **exact**; `0` when it records none. The two places a total appears add these up and spell the sum once with `lens::tokens`, because a sum of rounded numbers is not the rounding of a sum |
 | `body` | the record's own text, for the rows under the summary: what was said on a message, what it was thinking on a step. `None` when it has none. `class` decides how it is painted — a message's body is one wrap split between its row and the rows under it; a step's row keeps saying what it *did* and its text goes wholly underneath |
 
 A `Part` is two variants and no styling either:
