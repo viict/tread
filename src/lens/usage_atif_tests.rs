@@ -16,6 +16,20 @@ fn sum(json: &str) -> Summary {
     read(json).expect("the dialect reads this record")
 }
 
+/// The numeric block of a row, or `""` when the row has none.
+///
+/// The rest of the row is what the record *did* — tool names, a command, a path
+/// — so asking about the *columns* by searching the whole row answers about the
+/// arguments instead: a step that ran `git checkout -b new` is not a step with a
+/// cache-creation column. Every row with counters opens with the first field's
+/// label, and the turn separator ends the block.
+fn block_of(what: &str) -> &str {
+    match what.starts_with("in ") {
+        true => what.split("  \u{b7}  ").next().unwrap_or(""),
+        false => "",
+    }
+}
+
 /// Three fields, twenty-eight columns, and no fourth.
 #[test]
 fn a_step_shows_the_three_counters_this_format_has() {
@@ -47,7 +61,7 @@ fn no_step_ever_shows_a_cache_creation_column() {
         r#"{"step_id":3,"source":"agent","metrics":{"cached_tokens":1823744}}"#,
     ] {
         let s = sum(fixture);
-        assert!(!s.what.contains("new"), "{}", s.what);
+        assert!(!block_of(&s.what).contains("new"), "{}", s.what);
     }
 }
 
@@ -214,11 +228,13 @@ fn a_real_atif_trajectory_is_read_as_what_it_spent() {
         let Some(s) = lens.read(step) else { continue };
         read += 1;
         total = total.saturating_add(s.tokens);
-        // No row of this format ever names a counter it does not have.
-        assert!(!s.what.contains("new"), "a cache-creation column appeared");
-        if s.what.starts_with("in ") {
+        // No row of this format ever names a counter it does not have — asked
+        // of the numeric block alone, because a real step's command or path is
+        // on the same row and a `new` in one of those is not a column.
+        let block = block_of(&s.what);
+        assert!(!block.contains("new"), "a cache-creation column appeared");
+        if !block.is_empty() {
             with_metrics += 1;
-            let block = s.what.split("  \u{b7}  ").next().unwrap_or("");
             assert_eq!(str_width(block), BLOCK, "the column bends on a real step");
         }
         assert!(s.body.is_none(), "this lens keeps no message text");

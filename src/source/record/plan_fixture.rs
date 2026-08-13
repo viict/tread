@@ -37,8 +37,15 @@ impl crate::lens::Lens for Fake {
             what: String::new(),
             calls: 1,
             // `"t"` is what this record claims to have spent, so the seam's
-            // running total can be exercised without a dialect.
-            tokens: v.get("t").and_then(|t| t.as_number()).and_then(|n| n.as_i64()).unwrap_or(0) as u64,
+            // running total can be exercised without a dialect. A count that is
+            // not a `u64` is zero here, not a cast: a negative would wrap to
+            // almost 2⁶⁴ and pin the saturating total at its ceiling, which is
+            // the one number these tests must be able to trust.
+            tokens: v
+                .get("t")
+                .and_then(|t| t.as_number())
+                .and_then(|n| n.as_i64())
+                .map_or(0, |n| u64::try_from(n).unwrap_or(0)),
             // A body is the source's to measure; these tests give one to an
             // item directly (`with_bodies`), which is the same number the
             // measurement would have produced and keeps this file file-free.
