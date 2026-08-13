@@ -352,7 +352,7 @@ pub(crate) fn toc_line(plan: Option<&Plan>, record: usize) -> Option<String> {
 /// It always carries a fold marker, because a group only exists when there
 /// is something inside it to open.
 pub(crate) fn group_row(plan: Option<&Plan>, item: usize) -> Line {
-    let (first, count, calls) = group_counts(plan, item);
+    let (first, count, calls, tokens) = group_counts(plan, item);
     let time = plan
         .and_then(|p| p.summary(first))
         .and_then(|s| s.time.clone())
@@ -361,24 +361,30 @@ pub(crate) fn group_row(plan: Option<&Plan>, item: usize) -> Line {
         Span::new(pad("", ACTOR), theme::text()),
         Span::new(pad(&time, TIME), theme::lens_time()),
         Span::new("  ", theme::text()),
-        Span::new(group_text(count, calls), theme::lens_group()),
+        Span::new(group_text(count, calls, tokens), theme::lens_group()),
     ];
     summary_line(marker(rest), first + 1)
 }
 
-/// `(first record, records, tool calls)` of a group.
-fn group_counts(plan: Option<&Plan>, item: usize) -> (usize, usize, usize) {
+/// `(first record, records, tool calls, tokens)` of a group.
+///
+/// The token total is the **exact** sum of the members' exact counts, spelled
+/// once by [`crate::lens::tokens`] — not a sum of what the rows show, which are
+/// floored and would not add up.
+fn group_counts(plan: Option<&Plan>, item: usize) -> (usize, usize, usize, u64) {
     let Some(plan) = plan else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
     let Some(it) = plan.item(item) else {
-        return (0, 0, 0);
+        return (0, 0, 0, 0);
     };
-    let calls = (it.first..it.first + it.count)
-        .filter_map(|r| plan.summary(r))
-        .map(|s| s.calls)
-        .sum();
-    (it.first, it.count, calls)
+    let mut calls = 0;
+    let mut tokens = 0u64;
+    for sum in (it.first..it.first + it.count).filter_map(|r| plan.summary(r)) {
+        calls += sum.calls;
+        tokens = tokens.saturating_add(sum.tokens);
+    }
+    (it.first, it.count, calls, tokens)
 }
 
 /// One summary row: never wrapped, and a landmark for `Tab`.
@@ -431,9 +437,14 @@ fn body_style(class: Class) -> crate::term::Style {
     }
 }
 
-/// `⟨6 steps · 4 tool calls⟩`, and the singulars, and no call clause when the
-/// run made no calls (a run of thoughts and bookkeeping).
-fn group_text(steps: usize, calls: usize) -> String {
+/// `⟨6 steps · 4 tool calls · 128k tokens⟩`, and the singulars, and no clause
+/// for a count that is zero — a run of thoughts and bookkeeping made no calls,
+/// and a lens that reads no counters spent nothing it knows of, so a row under
+/// either says neither.
+///
+/// One number rather than a breakdown because a group row has one column and no
+/// room for four; the breakdown is one `Enter` away on the member rows.
+fn group_text(steps: usize, calls: usize, tokens: u64) -> String {
     let steps = match steps {
         1 => "1 step".to_string(),
         n => format!("{n} steps"),
@@ -443,7 +454,12 @@ fn group_text(steps: usize, calls: usize) -> String {
         1 => " \u{b7} 1 tool call".to_string(),
         n => format!(" \u{b7} {n} tool calls"),
     };
-    format!("\u{27e8}{steps}{calls}\u{27e9}")
+    let tokens = match tokens {
+        0 => String::new(),
+        1 => " \u{b7} 1 token".to_string(),
+        n => format!(" \u{b7} {} tokens", crate::lens::tokens(n)),
+    };
+    format!("\u{27e8}{steps}{calls}{tokens}\u{27e9}")
 }
 
 /// Pad to `cols` display columns — display columns, not bytes, because an
@@ -457,3 +473,7 @@ fn pad(text: &str, cols: usize) -> String {
     s.push(' ');
     s
 }
+
+#[cfg(test)]
+#[path = "lensrow_tests.rs"]
+mod tests;

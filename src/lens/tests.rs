@@ -139,6 +139,60 @@ fn a_timestamp_with_a_multibyte_character_is_refused_rather_than_split() {
     assert_eq!(clock("2026-08-05T21:28\u{20ac}").as_deref(), Some("21:28"));
 }
 
+/// The number spelling, at every rung and at every boundary between them.
+#[test]
+fn a_token_count_is_spelled_at_the_scale_it_reaches() {
+    assert_eq!(tokens(0), "0");
+    assert_eq!(tokens(380), "380");
+    assert_eq!(tokens(999), "999", "999 is not a thousand of anything");
+    assert_eq!(tokens(1_000), "1.0k");
+    assert_eq!(tokens(1_200), "1.2k");
+    assert_eq!(tokens(9_999), "9.9k");
+    assert_eq!(tokens(10_000), "10k");
+    assert_eq!(tokens(999_999), "999k");
+    assert_eq!(tokens(1_000_000), "1.0M");
+}
+
+/// Floored, never rounded up: a row that says `18k` promises at least 18,000,
+/// and a reader reconciling it against a bill must never find less than it said.
+#[test]
+fn a_token_count_floors() {
+    assert_eq!(tokens(1_999), "1.9k", "not 2.0k");
+    assert_eq!(tokens(18_999), "18k", "not 19k");
+    assert_eq!(tokens(1_899_999), "1.8M", "not 1.9M");
+    assert_eq!(tokens(999_999_999), "999M");
+}
+
+/// The whole product of this lens family is a column of numbers, so the
+/// spelling may never be wider than the column — at any rung, at any boundary,
+/// and at the extremes a real session reaches.
+#[test]
+fn a_token_count_never_outgrows_its_column() {
+    let cases = [
+        0,
+        1,
+        999,
+        1_000,
+        9_999,
+        10_000,
+        999_999,
+        1_000_000,
+        20_385,
+        709_541,
+        802_174,
+        1_823_744,
+        u64::MAX / 2,
+        u64::MAX,
+    ];
+    for n in cases {
+        let text = tokens(n);
+        assert!(
+            crate::render::str_width(&text) <= 4,
+            "{n} spelled as {text}, wider than four columns"
+        );
+    }
+}
+
 #[test]
 fn record_helpers_read_only_what_is_there() {
     let v = crate::json::parse(br#"{"type":"user","timestamp":"2026-08-05T21:28:58.659Z"}"#)

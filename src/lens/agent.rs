@@ -179,7 +179,17 @@ impl Agent {
         };
         // A step's row stays one line — what it *did* — and whatever it was
         // thinking goes under it. Reasoning is text, so it is shown.
-        Summary { class: Class::Step, who, actor, time: None, what, calls: seen.calls.len(), body }
+        Summary {
+            class: Class::Step,
+            who,
+            actor,
+            time: None,
+            what,
+            calls: seen.calls.len(),
+            // What a turn *spent* is `--lens usage`'s question, not this one's.
+            tokens: 0,
+            body,
+        }
     }
 
     /// Read the blocks of one message into the four things a row can say.
@@ -277,6 +287,7 @@ fn said(who: Who, actor: String, what: String, body: Option<Body>) -> Summary {
         time: None,
         what,
         calls: 0,
+        tokens: 0,
         body,
     }
 }

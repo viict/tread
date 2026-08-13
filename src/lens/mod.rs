@@ -42,8 +42,10 @@
 
 pub mod agent;
 pub mod atif;
+pub mod num;
 pub mod part;
 
+pub use num::tokens;
 pub use part::Part;
 
 #[cfg(test)]
@@ -215,6 +217,18 @@ pub struct Summary {
     pub what: String,
     /// Tool calls this record makes, for the group row's `· 4 tool calls`.
     pub calls: usize,
+    /// Every token unit this record recorded, exact; `0` when it records none.
+    ///
+    /// Exact and not a spelling, because the two places a total is shown add
+    /// these up — the group row over a run ([`crate::source::record::lensrow`])
+    /// and the status bar over the document
+    /// ([`crate::source::record::view`]) — and a sum of rounded numbers is not
+    /// the rounding of a sum. [`tokens`] is the *only* spelling of one, so the
+    /// row and the total cannot disagree about what `18k` means.
+    ///
+    /// A dialect that reads no counters leaves it `0`, and the two clauses that
+    /// would show it are then omitted entirely rather than saying `0 tokens`.
+    pub tokens: u64,
     /// The record's own text, under the row: what was said for a message, and
     /// what the model was thinking for a step that only thought.
     ///
@@ -237,6 +251,7 @@ impl Summary {
             time: None,
             what: what.into(),
             calls: 0,
+            tokens: 0,
             body: None,
         }
     }

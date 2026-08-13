@@ -36,6 +36,7 @@ impl crate::lens::Lens for Fake {
             time: None,
             what: String::new(),
             calls: 1,
+            tokens: 0,
             // A body is the source's to measure; these tests give one to an
             // item directly (`with_bodies`), which is the same number the
             // measurement would have produced and keeps this file file-free.

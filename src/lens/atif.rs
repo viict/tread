@@ -155,6 +155,7 @@ fn session(v: &Value) -> Option<Summary> {
         time: None,
         what: parts.join(" \u{b7} "),
         calls: 0,
+        tokens: 0,
         // The envelope is a headline over a tree, not something anyone said:
         // its keys are the row, and `Enter` opens them.
         body: None,
@@ -194,7 +195,8 @@ fn spoken(source: &str, said: &str, thinking: bool, calls: usize) -> Summary {
         what.push_str(&format!(" \u{b7} {}", call_count(calls)));
     }
     let body = Body::new(said, vec![Step::Key("message")]);
-    Summary { class: Class::Message, who, actor, time: None, what, calls, body: Some(body) }
+    // What a step *spent* is `--lens usage-atif`'s question, not this one's.
+    Summary { class: Class::Message, who, actor, time: None, what, calls, tokens: 0, body: Some(body) }
 }
 
 /// A step that only did things: the thought and the calls it made, each with
@@ -233,6 +235,7 @@ fn worked(source: &str, v: &Value, thinking: bool, calls: Vec<Call>) -> Summary 
         time: None,
         what: collapse(parts).join(" \u{b7} "),
         calls: n,
+        tokens: 0,
         // Reasoning is text, so it is shown: a step that only thought puts the
         // thought under its row, clipped, the way a message puts what was said
         // there. The row keeps saying what the step *did* — the body goes
