@@ -44,6 +44,11 @@ mod view;
 #[path = "rows.rs"]
 mod rows;
 
+/// What folds, what a fold hides, and the fold state a session saves — the half
+/// of the `Source` impl `view.rs` forwards to.
+#[path = "folds.rs"]
+mod folds;
+
 /// `Enter` / `za`, and the levels it walks.
 #[path = "ladder.rs"]
 mod ladder;
