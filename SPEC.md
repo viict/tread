@@ -639,6 +639,69 @@ does not match, and install to a per-user location on `PATH`
 (`%LOCALAPPDATA%\Programs\tread` by default, `$env:INSTALL_PATH` to change it).
 It reports how to add the directory to `PATH` when it is not already there.
 
+## Installing from a package manager
+
+Two registries carry `tread`, and neither changes what the program is: the
+binary they deliver is the same static build the releases page holds, and
+nothing installed from a registry ever reaches the network again.
+
+```sh
+cargo install tread            # crates.io, built from source
+npx @viict/tread README.md     # npm
+npm install -g @viict/tread
+```
+
+The npm scope is not optional: the unscoped `tread` on npm is an unrelated
+package that has been there since 2016, and `npx tread` fetches *that*. The
+README says so above the fold, because it is the one mistake a new user makes
+without any way to tell they have made it.
+
+**The npm package is a launcher, not a copy of the program.** It carries no
+binary. On first run it fetches, from that version's GitHub release, the very
+`.tar.gz` or `.zip` a person would download by hand and `install.sh` already
+verifies — the release publishes one shape of each binary, not a second one cut
+for npm — checks it against the release's `SHA256SUMS`, and only then reads the
+binary out of it and puts it where it can be executed. An archive whose checksum
+does not match is never opened; the run fails, saying so. Nothing unverified is
+ever run, and nothing is left behind for a later run to pick up.
+
+Reading the archives is the launcher's own work, because node has `zlib` built
+in and no archive reader: a tar is 512-byte headers each followed by its file,
+and a zip is a central directory of deflate streams. Walking both costs about a
+hundred lines and keeps the package's dependency count where the rest of the
+project keeps it.
+
+The choice not to download at *install* time is deliberate. A `postinstall`
+script is dead weight under `npm ci --ignore-scripts` and under pnpm's default
+script blocking — the package would install and the binary would silently never
+arrive. Fetching at first run costs a moment once and works everywhere.
+
+The binary is state, not cache, so it lives under the platform's data directory
+rather than its cache directory: a cache is something the OS is entitled to
+delete, and a `tread` that evaporates leaves an offline machine unable to read
+anything. An explicitly set `XDG_DATA_HOME` wins on every platform, including
+macOS, by the same reasoning `src/plat/dirs.rs` gives for caches.
+
+| Platform | Location |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/tread/<version>/`, else `~/.local/share/tread/<version>/` |
+| macOS | `~/Library/Application Support/tread/<version>/` |
+| Windows | `%LOCALAPPDATA%\tread\<version>\` |
+
+A version is a directory, so upgrading needs no invalidation rule: a new version
+writes a new directory, and the others are removed once the new binary has run.
+
+`TREAD_BINARY` points at a `tread` that already exists and skips all of it —
+what one global install shared by several accounts wants, and what a runner with
+no route out of the network needs. It is honoured exactly: if it names something
+that is not there, the run fails rather than quietly downloading a second copy.
+
+What this costs, stated plainly: `npm ci` no longer reproduces the whole tool
+from the lockfile. The lockfile pins the launcher; the binary is fetched
+afterwards and vouched for by its checksum instead. Anyone who needs the
+stronger guarantee should install from crates.io, from `install.sh`, or from the
+releases page — all three deliver the program itself.
+
 ## Directories
 
 A directory is something to read, not an error. `tread some/dir` lists it, and a

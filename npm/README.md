@@ -8,9 +8,6 @@ links, and navigation across a corpus of linked documents.
 npx @viict/tread README.md
 ```
 
-> The unscoped name `tread` on npm belongs to an unrelated package. The scope is
-> not optional: `npx @viict/tread`.
-
 Or install it so the binary is on your `PATH` as `tread`:
 
 ```sh
