@@ -1,6 +1,6 @@
 {
   "name": "@viict/tread",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "private": false,
   "description": "A terminal reader for markdown, CSV, JSON and source code. Zero dependencies.",
   "keywords": [
