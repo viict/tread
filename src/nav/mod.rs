@@ -241,10 +241,17 @@ pub fn same_path(a: &Path, b: &Path) -> bool {
 }
 
 fn parent_of(path: &Path) -> PathBuf {
-    path.parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .map(|p| p.to_path_buf())
-        .unwrap_or_else(|| PathBuf::from("."))
+    if let Some(p) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        return p.to_path_buf();
+    }
+    // A filesystem root (`/`, `C:\`, `\\server\share\`) has no parent: the
+    // directory holding it is itself. Falling back to `.` rooted the corpus at
+    // the working directory instead, and `tread /` then refused every entry of
+    // its own listing.
+    match ppath::is_absolute(Platform::HOST, &path.to_string_lossy()) {
+        true => path.to_path_buf(),
+        false => PathBuf::from("."),
+    }
 }
 
 /// Find the corpus root and its index document.

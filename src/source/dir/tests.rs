@@ -219,3 +219,41 @@ fn enter_opens_a_file_from_a_directory_opened_on_the_command_line() {
     );
 }
 
+/// The same listing, named the way a person names a sibling directory:
+/// `tread ../thing/`. Every entry was refused with "link escapes the index
+/// root" — a relative path with a leading `..` did not parse, so containment
+/// said no to paths that were plainly inside.
+///
+/// The cwd is deliberately a *different* project (it has a marker of its own),
+/// because the second half of the bug was `corpus_root` climbing past the front
+/// of the relative path into the working directory and adopting it.
+#[test]
+fn enter_opens_a_file_from_a_listing_named_by_a_relative_parent_path() {
+    let t = tmp("relative");
+    let here = t.0.join("here");
+    let there = t.0.join("there");
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&there).unwrap();
+    // The cwd is a project; the listed directory is not inside it.
+    fs::write(here.join("Cargo.toml"), "[package]\n").unwrap();
+    fs::write(there.join("page.tsx"), "export function P() {}\n").unwrap();
+
+    let arg = PathBuf::from("../there");
+    let index = crate::open::corpus_root(&arg, &here);
+    assert_eq!(index, None, "the cwd's own project is not this listing's corpus");
+
+    let src = DirSource::open(&there);
+    let mut p = crate::pager::Pager::new(Box::new(src), arg.display().to_string(), 80, 24, Some(80));
+    p.attach_nav(crate::nav::Navigator::new(&arg, index.as_deref(), &here));
+
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Enter));
+
+    let shown = p.visible_text().join("\n");
+    assert!(
+        shown.contains("export function P"),
+        "Enter opened the file; message={:?}\n{shown}",
+        p.message
+    );
+}
+
