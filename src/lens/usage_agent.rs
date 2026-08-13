@@ -37,9 +37,10 @@
 //! | `cache_creation_input_tokens` | `new` |
 //!
 //! `output_tokens_details.thinking_tokens` is a *subset* of `output_tokens` and
-//! gets no column. **`usage.iterations[]` is never summed**: it is a list whose
-//! elements repeat the outer counters per attempt, so adding both counts every
-//! token twice ([`usage::Tokens::total`] says so where the adding happens).
+//! gets no column. **`usage.iterations[]` is never summed**: it is one element
+//! per attempt at the request, and the outer counters are the last attempt's,
+//! so a row here is what the attempt that survived spent
+//! ([`usage::Tokens::total`] says what that costs, where the adding happens).
 //!
 //! # The one decision that shapes the document
 //!
@@ -187,9 +188,9 @@ fn request_lines(u: &Value) -> Vec<String> {
             }
         }
     }
-    // A list whose elements repeat the outer counters per attempt. Its *length*
-    // is the fact — the request was retried — and its contents are never summed
-    // (`usage::Tokens::total` says why).
+    // One element per attempt at the request. Its *length* is the fact — the
+    // request was retried, and the row above is the last attempt alone — and
+    // its contents are never summed (`usage::Tokens::total` says why).
     if let Some(n) = u.get("iterations").and_then(|i| i.as_array()).map(|a| a.len()) {
         if n > 1 {
             lines.push(usage::line("iterations", n));

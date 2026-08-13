@@ -79,13 +79,23 @@ pub struct Tokens {
 impl Tokens {
     /// Every unit this record recorded, added once.
     ///
-    /// **The four counters and nothing else.** A record's reasoning count is a
-    /// *subset* of its output and a Claude Code `usage.iterations[]` list
-    /// repeats the outer counters per attempt — adding either would count the
-    /// same token twice, and a total that double-counts is worse than no total.
-    /// That mistake is the one a later reader of this file will be tempted into,
-    /// which is why it is written here and pinned by a test rather than left in
-    /// the documentation.
+    /// **The four counters and nothing else.** That is the one thing a later
+    /// reader of this file will be tempted to change, so it is written here and
+    /// pinned by a test rather than left in the documentation.
+    ///
+    /// * A record's **reasoning** count is a *subset* of its output, so adding
+    ///   it would count the same token twice.
+    /// * A Claude Code `usage.iterations[]` list is one element per attempt at
+    ///   the request, and on the rare record with more than one the outer
+    ///   counters are the **last** element's — never the sum of them. Adding
+    ///   the list would therefore count the surviving attempt twice *and* bill
+    ///   the abandoned ones, which is not a number the file states anywhere.
+    ///
+    /// What that costs is real and is the point: on a retried request this
+    /// total is what the **last attempt** spent, not what the attempts spent
+    /// between them. The file records no total across attempts, so a reader who
+    /// needs one adds the elements themselves — the row says the request was
+    /// retried (`iterations` on the open level), and `r` has the list.
     pub fn total(&self) -> u64 {
         [self.input, self.output, self.cache_read, self.cache_new]
             .into_iter()

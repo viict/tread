@@ -146,18 +146,19 @@ fn a_subagent_is_marked_without_costing_a_column() {
     assert!(str_width(&sum(r#"{"type":"assistant"}"#).actor) <= ACTOR);
 }
 
-/// `iterations` is a list whose elements repeat the outer counter names.
-/// Summing both double-counts every token on the records that carry it, which is
-/// the mistake this pins against.
+/// `iterations` is one element per attempt at the request, and the outer
+/// counters are the **last** attempt's. Adding the list would count that attempt
+/// twice and bill the abandoned ones, which is the mistake this pins against —
+/// so the total here is the last attempt's numbers and nothing else.
 #[test]
 fn iterations_are_never_added_to_the_total() {
     let s = sum(
         r#"{"type":"assistant","message":{"role":"assistant","content":[],
             "usage":{"input_tokens":100,"output_tokens":50,
                      "iterations":[{"input_tokens":60,"output_tokens":30},
-                                   {"input_tokens":40,"output_tokens":20}]}}}"#,
+                                   {"input_tokens":100,"output_tokens":50}]}}}"#,
     );
-    assert_eq!(s.tokens, 150, "the outer four once, the iterations not at all");
+    assert_eq!(s.tokens, 150, "the last attempt once, the list not at all");
     assert!(s.what.starts_with("in   100  out   50"), "{}", s.what);
 }
 

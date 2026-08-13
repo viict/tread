@@ -461,11 +461,17 @@ double count:
 
 * `output_tokens_details.thinking_tokens` and ATIF's
   `metrics.extra.reasoning_tokens` are *subsets* of the output count;
-* `usage.iterations[]` is a list whose elements repeat the outer counter names
-  once per attempt. Its **length** is the fact — the request was retried — and
-  its contents are never summed. This is the mistake the next contributor will
-  make, so it is in a comment on `usage::Tokens::total` and in a test as well as
-  here.
+* `usage.iterations[]` is one element per attempt at the request, and on a
+  record that carries more than one the outer counters are the **last**
+  element's, never the sum of them. Its **length** is the fact — the request was
+  retried — and its contents are never summed. This is the mistake the next
+  contributor will make, so it is in a comment on `usage::Tokens::total` and in
+  a test as well as here.
+
+What that means for a retried request is that the row, the group row and the
+status bar all say what the **last attempt** spent. No field of the file states
+what the attempts cost between them, and the lens invents nothing: the row says
+the request was retried, and the list itself is one `Enter` (or `r`) away.
 
 Neither is lost. Both are on the open level, along with the exact integers, the
 model the numbers were spent on, the cache-creation breakdown, and — for
