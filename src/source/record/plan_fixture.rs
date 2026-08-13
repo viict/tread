@@ -36,7 +36,9 @@ impl crate::lens::Lens for Fake {
             time: None,
             what: String::new(),
             calls: 1,
-            tokens: 0,
+            // `"t"` is what this record claims to have spent, so the seam's
+            // running total can be exercised without a dialect.
+            tokens: v.get("t").and_then(|t| t.as_number()).and_then(|n| n.as_i64()).unwrap_or(0) as u64,
             // A body is the source's to measure; these tests give one to an
             // item directly (`with_bodies`), which is the same number the
             // measurement would have produced and keeps this file file-free.
@@ -52,6 +54,19 @@ pub(super) fn plan_of(kinds: &str) -> (Plan, RowMap) {
     let mut map = RowMap::default();
     for (i, ch) in kinds.chars().enumerate() {
         let json = format!(r#"{{"k":"{ch}"}}"#);
+        let value = crate::json::parse(json.as_bytes()).expect("fixture");
+        plan.classify(i, Some(&value), &mut map);
+    }
+    plan.sync();
+    (plan, map)
+}
+
+/// The same, with every record claiming to have spent `each` tokens.
+pub(super) fn plan_of_spend(kinds: &str, each: u64) -> (Plan, RowMap) {
+    let mut plan = Plan::new(Box::new(Fake));
+    let mut map = RowMap::default();
+    for (i, ch) in kinds.chars().enumerate() {
+        let json = format!(r#"{{"k":"{ch}","t":{each}}}"#);
         let value = crate::json::parse(json.as_bytes()).expect("fixture");
         plan.classify(i, Some(&value), &mut map);
     }

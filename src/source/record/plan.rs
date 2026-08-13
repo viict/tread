@@ -153,6 +153,18 @@ pub struct Plan {
     /// Every record is at the open level: what a dump is, and what `zR` leaves
     /// behind.
     all_full: bool,
+    /// Every token every *classified* record recorded, added as it was
+    /// classified.
+    ///
+    /// A running total and not a sweep: it costs one add per record and nothing
+    /// per frame, and `classify` runs exactly once per record — a record
+    /// swallowed into a closed group is counted there and then, and opening the
+    /// group later does not classify it again, so the total cannot double.
+    ///
+    /// It is over the records the reader has reached, which is not the file:
+    /// classification is lazy, so [`crate::source::record::view`] prints it with
+    /// the same `\u{2265}` the record count beside it already carries.
+    tokens: u64,
 }
 
 /// The rows one record shows under its own summary row.
@@ -186,6 +198,7 @@ impl Plan {
             dirty: 0,
             width: 80,
             all_full: false,
+            tokens: 0,
         }
     }
 
@@ -196,6 +209,12 @@ impl Plan {
     /// Records classified so far.
     pub fn classified(&self) -> usize {
         self.seen.len()
+    }
+
+    /// Every token the classified records recorded. `0` under a lens that reads
+    /// no counters, and the status bar then says nothing about tokens at all.
+    pub fn tokens_seen(&self) -> u64 {
+        self.tokens
     }
 
     /// Read the next record — it must be record [`Plan::classified`] — and fold
@@ -209,6 +228,9 @@ impl Plan {
             return;
         }
         let sum = value.and_then(|v| self.lens.read(v));
+        if let Some(s) = &sum {
+            self.tokens = self.tokens.saturating_add(s.tokens);
+        }
         let step = matches!(sum, Some(Summary { class: crate::lens::Class::Step, .. }));
         self.seen.push(sum);
         self.under.push(Under::default());

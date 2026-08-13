@@ -96,9 +96,9 @@ impl<S: Store> Source for RecordSource<S> {
         };
         let head = match self.lens_name() {
             Some(lens) => format!(
-                "{lens}  \u{b7}  record {}/{total}{}",
+                "{lens}  \u{b7}  record {}/{total}{}{}",
                 record.saturating_add(1),
-                self.block_text(row)
+                self.block_text(row), self.tokens_text()
             ),
             None => format!("record {}/{total}", record.saturating_add(1)),
         };

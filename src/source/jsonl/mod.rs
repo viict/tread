@@ -31,6 +31,10 @@ mod lensrow_tests;
 #[path = "block_tests.rs"]
 mod block_tests;
 
+#[cfg(test)]
+#[path = "usage_tests.rs"]
+mod usage_tests;
+
 use std::cell::RefCell;
 use std::io;
 use std::path::Path;

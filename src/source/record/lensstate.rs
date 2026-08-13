@@ -183,6 +183,32 @@ impl<S: Store> RecordSource<S> {
         format!("  \u{b7}  block {}/{total}", i.saturating_add(1))
     }
 
+    /// The status bar's token clause — `  ·  ≥1.2M tokens` — or nothing at all.
+    ///
+    /// A whole-file total belongs in the one per-document field a *format* owns
+    /// ([`crate::source::Source::position_text`]), because a lens may not decide
+    /// a row and the record seam has no document-level row to hang a footer on.
+    /// It is dialect-agnostic: any lens that fills [`crate::lens::Summary`]'s
+    /// token count gets it, and a lens that fills none gets an empty string, so
+    /// no shipped lens's status bar changes.
+    ///
+    /// The `≥` is not cosmetic. Classification runs only as far as the reader
+    /// has scrolled, so on a multi-megabyte log an unqualified total would be
+    /// wrong by most of the file — exactly the qualification the record count
+    /// beside it already carries.
+    pub(crate) fn tokens_text(&self) -> String {
+        let classified = self.plan.as_ref().map(|p| p.classified()).unwrap_or(0);
+        let total = self.plan.as_ref().map(|p| p.tokens_seen()).unwrap_or(0);
+        if total == 0 {
+            return String::new();
+        }
+        let mark = match self.complete() && classified >= self.known() {
+            true => "",
+            false => "\u{2265}",
+        };
+        format!("  \u{b7}  {mark}{} tokens", crate::lens::tokens(total))
+    }
+
     /// `Y` on a group's row: every record the run holds.
     pub(crate) fn yank_group(&self, item: usize) -> Option<Yank> {
         ops::yank_group(self, self.plan.as_ref(), item)

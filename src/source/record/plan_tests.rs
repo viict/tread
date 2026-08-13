@@ -362,3 +362,35 @@ fn a_width_change_re_lays_every_body() {
     assert_eq!(plan.width(), 40);
 }
 
+/// The running total the status bar prints: every classified record counted
+/// exactly once, however the plan later reshapes the document around it.
+///
+/// The failure this guards against is a double count. Records swallowed into a
+/// closed run are classified there and then, and opening that run later must
+/// not classify them again — if it did, a reader who opened a group would watch
+/// the session total jump.
+#[test]
+fn the_token_total_counts_each_record_exactly_once() {
+    let (mut plan, mut map) = plan_of_spend("msssm", 100);
+    assert_eq!(plan.classified(), 5);
+    assert_eq!(plan.tokens_seen(), 500, "five records at a hundred each");
+    // Three of those were swallowed into one group. Opening it changes the rows
+    // and must not change the total.
+    let group = plan
+        .items()
+        .iter()
+        .position(|it| it.is_group())
+        .expect("a run of three steps");
+    assert!(plan.set_open(group, true, &mut map));
+    plan.sync();
+    assert_eq!(plan.tokens_seen(), 500, "opening a run re-counts nothing");
+}
+
+/// A lens that reads no counters totals nothing, so the status bar says nothing
+/// about tokens and no shipped lens's status line moves.
+#[test]
+fn a_plan_over_records_that_spent_nothing_totals_zero() {
+    let (plan, _) = plan_of("msssm");
+    assert_eq!(plan.tokens_seen(), 0);
+}
+
