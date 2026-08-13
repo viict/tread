@@ -300,3 +300,100 @@ fn the_envelope_carries_what_wrote_the_record() {
 fn a_record_with_nothing_to_open_has_no_parts() {
     assert!(detail_text(r#"{"type":"file-history-snapshot"}"#).is_empty());
 }
+
+// -- against a real corpus --------------------------------------------------------
+
+/// Columns the numeric block occupies on a `usage` row: four fields of eight,
+/// joined by two. The contract the whole lens rests on.
+const BLOCK: usize = 4 * 8 + 3 * 2;
+
+/// Against a real corpus, when one is pointed at: set `TREAD_AGENT_CORPUS` to a
+/// directory of session logs (`~/.claude/projects`).
+///
+/// Fixtures only prove the shapes someone thought of. Session logs are
+/// **private**: this reads them, asserts *structure*, and prints **counts
+/// only** — never a byte of their content, and nothing from them is ever copied
+/// into this repository. Skipped when the variable is unset, so a clean checkout
+/// and CI are unaffected.
+#[test]
+fn a_real_agent_corpus_is_read_as_what_it_spent() {
+    let Ok(root) = std::env::var("TREAD_AGENT_CORPUS") else {
+        return;
+    };
+    let mut files = Vec::new();
+    collect(std::path::Path::new(&root), &mut files);
+    assert!(!files.is_empty(), "no .jsonl under {root}");
+    let (mut records, mut unparsed, mut with_usage, mut side, mut zero) = (0, 0, 0, 0, 0);
+    let mut total = 0u64;
+    for path in &files {
+        let Ok(bytes) = std::fs::read(path) else { continue };
+        let mut lens = Usage;
+        for line in bytes.split(|&b| b == b'\n') {
+            if line.iter().all(u8::is_ascii_whitespace) {
+                continue;
+            }
+            records += 1;
+            // A line that does not parse must reach the generic row, not abort:
+            // real corpora carry truncated lines.
+            let Ok(v) = crate::json::parse(line) else {
+                unparsed += 1;
+                continue;
+            };
+            let Some(s) = lens.read(&v) else { continue };
+            if s.actor.starts_with('\u{21b3}') {
+                side += 1;
+                assert!(str_width(&s.actor) <= ACTOR, "a mark that costs a column");
+            }
+            total = total.saturating_add(s.tokens);
+            check_row(&v, &s, &mut with_usage, &mut zero);
+        }
+    }
+    println!(
+        "{} files, {records} records ({unparsed} unparsed), {with_usage} with usage \
+         ({zero} recording only zeroes), {side} sidechain, {} tokens",
+        files.len(),
+        crate::lens::tokens(total)
+    );
+    assert!(with_usage > 0, "no record in the corpus carried usage");
+}
+
+/// One record's row, against what the file actually says about it.
+fn check_row(v: &crate::json::Value, s: &Summary, with_usage: &mut usize, zero: &mut usize) {
+    let usage = v.get("message").and_then(|m| m.get("usage"));
+    let counted: Vec<u64> = match usage {
+        Some(u) => ["input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"]
+            .into_iter()
+            .filter_map(|k| super::count(u, k))
+            .collect(),
+        None => Vec::new(),
+    };
+    if counted.is_empty() {
+        // No counters: the kind and nothing more, so no number column anywhere.
+        assert!(!s.what.starts_with("in "), "a row of numbers with no numbers");
+        assert_eq!(s.tokens, 0);
+        return;
+    }
+    *with_usage += 1;
+    let want: u64 = counted.iter().fold(0u64, |a, b| a.saturating_add(*b));
+    assert_eq!(s.tokens, want, "the total is not the sum of the counters");
+    if want == 0 {
+        *zero += 1;
+    }
+    // The block is the same width on every row, which is the whole product.
+    let block = s.what.split("  \u{b7}  ").next().unwrap_or("");
+    assert_eq!(str_width(block), BLOCK, "the column bends on a real record");
+}
+
+/// Every `.jsonl` under `dir`, depth-first. No symlink following beyond what
+/// `read_dir` gives, and errors are skipped rather than failing the sweep.
+fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect(&path, out);
+        } else if path.extension().is_some_and(|e| e == "jsonl") {
+            out.push(path);
+        }
+    }
+}

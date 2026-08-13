@@ -183,3 +183,51 @@ fn no_step_ever_opens_into_a_cache_creation_number() {
 fn the_session_record_has_no_parts() {
     assert!(detail_text(r#"{"schema_version":"ATIF-v1.7","session_id":"s-1"}"#).is_empty());
 }
+
+// -- against a real trajectory ----------------------------------------------------
+
+/// Columns the numeric block occupies on a `usage-atif` row: three fields of
+/// eight, joined by two. There is no fourth field in this format.
+const BLOCK: usize = 3 * 8 + 2 * 2;
+
+/// Against a real trajectory, when one is pointed at: set
+/// `TREAD_ATIF_TRAJECTORY` — the same variable the `atif` harness uses.
+///
+/// A real trajectory is **private**: this reads it, asserts *structure*, and
+/// prints **counts only**. Nothing from it is copied into this repository.
+/// Skipped when the variable is unset.
+#[test]
+fn a_real_atif_trajectory_is_read_as_what_it_spent() {
+    let Ok(path) = std::env::var("TREAD_ATIF_TRAJECTORY") else {
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("the trajectory reads");
+    let doc = crate::json::parse(&bytes).expect("the trajectory parses");
+    let steps = doc
+        .get(super::STEPS)
+        .and_then(|s| s.as_array())
+        .expect("a trajectory with steps");
+    let mut lens = UsageAtif;
+    let (mut read, mut with_metrics) = (0usize, 0usize);
+    let mut total = 0u64;
+    for step in steps {
+        let Some(s) = lens.read(step) else { continue };
+        read += 1;
+        total = total.saturating_add(s.tokens);
+        // No row of this format ever names a counter it does not have.
+        assert!(!s.what.contains("new"), "a cache-creation column appeared");
+        if s.what.starts_with("in ") {
+            with_metrics += 1;
+            let block = s.what.split("  \u{b7}  ").next().unwrap_or("");
+            assert_eq!(str_width(block), BLOCK, "the column bends on a real step");
+        }
+        assert!(s.body.is_none(), "this lens keeps no message text");
+    }
+    println!(
+        "{} steps, {read} read by the lens, {with_metrics} with metrics, {} tokens",
+        steps.len(),
+        crate::lens::tokens(total)
+    );
+    assert_eq!(read, steps.len(), "the lens left steps unread");
+    assert!(with_metrics > 0, "no step carried metrics");
+}

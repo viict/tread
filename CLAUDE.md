@@ -159,7 +159,12 @@ TREAD_JAVA_CORPUS=~/some/java_project cargo test --bin tread a_real_java_corpus 
 TREAD_TS_PROJECT=~/some/ts_project    cargo test --bin tread a_real_project_resolves -- --nocapture
 TREAD_ATIF_TRAJECTORY=~/some/trajectory.json \
                                       cargo test --bin tread a_real_atif_trajectory -- --nocapture
+TREAD_AGENT_CORPUS=~/.claude/projects cargo test --bin tread a_real_agent_corpus -- --nocapture
 ```
+
+The last two sweep **private** files. They read and measure; they print counts
+only, and nothing from either is ever copied into a fixture, a doc or a commit
+message.
 
 The last reports what fraction of a project's own imports resolve; run it after
 touching resolution. It caught an absolute path where a relative one was needed,
