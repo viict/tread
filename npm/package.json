@@ -1,0 +1,33 @@
+{
+  "name": "@viict/tread",
+  "version": "0.0.0",
+  "description": "A terminal reader for markdown, CSV, JSON and source code. Zero dependencies.",
+  "keywords": [
+    "pager",
+    "markdown",
+    "csv",
+    "json",
+    "terminal",
+    "less",
+    "cli"
+  ],
+  "homepage": "https://github.com/viict/tread#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/viict/tread.git"
+  },
+  "bugs": "https://github.com/viict/tread/issues",
+  "license": "MIT OR Apache-2.0",
+  "type": "commonjs",
+  "bin": {
+    "tread": "bin/tread.js"
+  },
+  "files": [
+    "bin/tread.js",
+    "lib/unpack.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=16"
+  }
+}
