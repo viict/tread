@@ -9,6 +9,7 @@ license = "MIT OR Apache-2.0"
 readme = "README.md"
 keywords = ["pager", "markdown", "csv", "json", "code"]
 categories = ["command-line-utilities", "text-processing"]
+exclude = ["trajectory.json", "tools/__pycache__", ".claude", "CLAUDE.md", ".github"]
 
 [[bin]]
 name = "tread"
