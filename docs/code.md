@@ -44,6 +44,13 @@ come from the `Source` seam.
 - **Regions are stated, not inferred.** A block ends where it closes; the prose
   model of "until the next heading" would fold a branch over the statements
   after it (`src/source/fold.rs`).
+- **A signature declares one thing, however many lines it takes.** Depth counts
+  braces and a parameter list is parentheses, so every line of a wrapped
+  signature looks top-level and `content: Post,` reads exactly like a property.
+  The walker skips the lines a declaration's signature already covers
+  (`src/code/decl.rs`); a parameter that became a symbol would start inside the
+  function and end past its body, and its region would take the fold key from
+  the function on the very rows a reader presses it.
 - **Python is measured in columns.** Blocks are indentation, so it has its own
   walker, and its docstring — the first statement of the body — is pulled up
   into the signature so folding does not hide it.

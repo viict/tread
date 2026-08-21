@@ -2,7 +2,7 @@
 #![deny(unsafe_code)]
 
 use super::*;
-use crate::source::Source;
+use crate::source::{Folded, Source};
 
 const SRC: &str = "\
 //! A file about something.
@@ -606,8 +606,9 @@ fn f(a: bool) {
     assert_eq!(text(&mut s).len(), 7, "everything is showing");
 
     // Fold the branch: the cursor sits on the `if`, which is row 1.
-    let closed = s.fold_here(1).expect("code answers with its own regions");
-    assert!(closed);
+    let folded = s.fold_here(1).expect("code answers with its own regions");
+    assert!(folded.closed);
+    assert_eq!(folded.marker, Some(1), "the `if` row, where the count goes");
     let shown = text(&mut s);
     assert!(shown.iter().any(|l| l.contains("if a {")), "the head stays: {shown:?}");
     assert!(!shown.iter().any(|l| l.contains("one()")), "the body is hidden");
@@ -616,7 +617,7 @@ fn f(a: bool) {
     assert!(shown.iter().any(|l| l.contains("after()")), "{shown:?}");
 
     // And it toggles back.
-    assert_eq!(s.fold_here(1), Some(false));
+    assert_eq!(s.fold_here(1), Some(Folded { closed: false, marker: Some(1) }));
     assert!(text(&mut s).iter().any(|l| l.contains("one()")));
 }
 
@@ -740,4 +741,285 @@ fn a_source_file_that_is_not_utf8_still_opens() {
     assert!(shown.iter().any(|l| l.contains('\u{fffd}')), "the byte became U+FFFD");
     assert!(!s.outline().is_empty(), "and it still has an outline");
     let _ = std::fs::remove_file(&t);
+}
+
+/// Folding from *inside* a branch: `Enter` is the toggle, so pressing it twice
+/// must put the screen back. It only does if the cursor follows the head — the
+/// statement it was on is the first thing the fold hides.
+#[test]
+fn enter_twice_inside_a_branch_folds_and_unfolds_the_same_one() {
+    let src = "\
+export function f(flag: boolean) {
+    if (flag) {
+        one();
+        two();
+    }
+    after();
+}
+";
+    let s = CodeSource::with_fs(
+        PathBuf::from("/p/src/a.ts"),
+        "typescript",
+        src,
+        &|_: &Path| false,
+        &tsconfig::Aliases::none(),
+        &workspace::Workspace::none(),
+    );
+    let mut p = crate::pager::Pager::new(Box::new(s), "a.ts".into(), 80, 24, Some(80));
+    let key = |c: char| crate::key::KeyEvent::plain(crate::key::Key::Char(c));
+    let enter = || crate::key::KeyEvent::plain(crate::key::Key::Enter);
+    p.handle(key('z'));
+    p.handle(key('R'));
+    let open = p.visible_text();
+
+    // Down onto `one()`, which is inside the branch, and fold from there.
+    p.handle(key('j'));
+    p.handle(key('j'));
+    p.handle(enter());
+    let shut = p.visible_text();
+    assert!(!shut.iter().any(|l| l.contains("one()")), "the branch shut: {shut:?}");
+    assert!(shut.iter().any(|l| l.contains("after()")), "and nothing else");
+    assert_eq!(
+        p.visible_text()[p.cursor].trim_end(),
+        "if (flag) {",
+        "the cursor followed the head it folded"
+    );
+
+    // The same key, again: back to where it started, not another fold.
+    p.handle(enter());
+    assert_eq!(p.visible_text(), open, "the second press undid the first");
+}
+
+/// A leaf declares nothing under it, so folding it hides nothing. `Enter` on an
+/// interface member folds the interface instead of spending the press on a
+/// region no reader can see.
+#[test]
+fn enter_on_a_leaf_folds_what_the_leaf_is_in() {
+    let src = "\
+interface I {
+    a: string;
+    b: number;
+    c: boolean;
+}
+";
+    let mut s = CodeSource::with_fs(
+        PathBuf::from("/p/src/a.ts"),
+        "typescript",
+        src,
+        &|_: &Path| false,
+        &tsconfig::Aliases::none(),
+        &workspace::Workspace::none(),
+    );
+    s.fold_all(false);
+    // Row 1 is `a: string;` — its own region, and a region of zero height.
+    let folded = s.fold_here(1).expect("the interface answers");
+    assert!(folded.closed);
+    assert_eq!(folded.marker, Some(0), "the interface line carries the count");
+    assert_eq!(s.collapsed, vec![String::from("I")], "the leaf was not folded");
+    let n = s.len();
+    let shown: Vec<String> = s.lines(0..n).iter().map(|l| l.text()).collect();
+    assert!(!shown.iter().any(|l| l.contains("a: string")), "{shown:?}");
+}
+
+/// The last function of a real file, folded from the parameter row a reader's
+/// cursor lands on. The parameters of a multi-line signature used to be
+/// declarations of their own, starting inside the function and ending past its
+/// body, so they won the innermost-region race on exactly the rows the reader
+/// presses the key on and the function itself could not be reached.
+#[test]
+fn enter_on_a_parameter_row_folds_the_function_it_belongs_to() {
+    let src = "\
+export async function resolve(
+  content: Post,
+  isDraftMode: boolean
+): Promise<Result> {
+  const level = pick(content);
+  if (isDraftMode) {
+    return draft(level);
+  }
+  return gate(level);
+}
+";
+    let s = CodeSource::with_fs(
+        PathBuf::from("/p/src/a.ts"),
+        "typescript",
+        src,
+        &|_: &Path| false,
+        &tsconfig::Aliases::none(),
+        &workspace::Workspace::none(),
+    );
+    assert_eq!(
+        s.outline().iter().map(|e| e.text.as_str()).collect::<Vec<_>>(),
+        vec!["fn resolve"],
+        "the parameters are not symbols"
+    );
+    let mut p = crate::pager::Pager::new(Box::new(s), "a.ts".into(), 80, 24, Some(80));
+    let key = |c: char| crate::key::KeyEvent::plain(crate::key::Key::Char(c));
+    let enter = || crate::key::KeyEvent::plain(crate::key::Key::Enter);
+    p.handle(key('z'));
+    p.handle(key('R'));
+    let open = p.visible_text();
+    assert!(open.iter().any(|l| l.contains("return gate(level)")), "{open:?}");
+
+    // Down onto `content: Post,` — the row under the signature's first line.
+    p.handle(key('j'));
+    p.handle(enter());
+    let shut = p.visible_text();
+    assert!(!shut.iter().any(|l| l.contains("return gate(level)")), "{shut:?}");
+    assert!(shut.iter().any(|l| l.contains("export async function resolve")));
+
+    // And it comes back, which is what the report was about.
+    p.handle(enter());
+    assert_eq!(p.visible_text(), open, "the same press unfolded it");
+}
+
+/// The row carrying `(N lines)` is the row a reader presses the key on, and the
+/// brace that opens a body opens a nameless block over the same lines. Only the
+/// declaration folds there — a duplicate region hiding exactly what is already
+/// hidden made that row a dead key.
+#[test]
+fn a_declaration_body_is_not_also_a_nameless_block() {
+    let src = "\
+export async function resolve(
+  content: Post,
+  isDraftMode: boolean
+): Promise<Result> {
+  const level = pick(content);
+  if (isDraftMode) {
+    return draft(level);
+  }
+  return gate(level);
+}
+";
+    let s = CodeSource::with_fs(
+        PathBuf::from("/p/src/a.ts"),
+        "typescript",
+        src,
+        &|_: &Path| false,
+        &tsconfig::Aliases::none(),
+        &workspace::Workspace::none(),
+    );
+    let over_body: Vec<&str> = s
+        .regions
+        .iter()
+        .filter(|r| r.body == 4 && r.end == 10)
+        .map(|r| r.id.as_str())
+        .collect();
+    assert_eq!(over_body, vec!["resolve"], "one fold over the body, not two");
+
+    // Row 3 is `): Promise<Result> {`, the last row the declaration owns and
+    // the one the count sits on.
+    let mut p = crate::pager::Pager::new(Box::new(s), "a.ts".into(), 80, 24, Some(80));
+    let key = |c: char| crate::key::KeyEvent::plain(crate::key::Key::Char(c));
+    let enter = || crate::key::KeyEvent::plain(crate::key::Key::Enter);
+    p.handle(key('z'));
+    p.handle(key('R'));
+    for _ in 0..3 {
+        p.handle(key('j'));
+    }
+    p.handle(enter());
+    let shut = p.visible_text();
+    assert!(!shut.iter().any(|l| l.contains("return gate(level)")), "{shut:?}");
+    assert_eq!(
+        p.visible_text()[p.cursor].trim_end(),
+        "): Promise<Result> {",
+        "and the cursor did not go anywhere"
+    );
+    p.handle(enter());
+    assert!(p.visible_text().iter().any(|l| l.contains("return gate(level)")));
+}
+
+/// Folding must not scroll the reader off the line they were reading. The
+/// cursor stays put unless the fold hid the line under it.
+#[test]
+fn folding_a_declaration_leaves_the_cursor_on_its_signature() {
+    let src = "\
+/// One.
+/// Two.
+/// Three.
+pub fn f() {
+    body();
+    more();
+}
+";
+    let s = CodeSource::with_fs(
+        PathBuf::from("/p/src/a.rs"),
+        "rust",
+        src,
+        &|_: &Path| false,
+        &tsconfig::Aliases::none(),
+        &workspace::Workspace::none(),
+    );
+    let mut p = crate::pager::Pager::new(Box::new(s), "a.rs".into(), 80, 24, Some(80));
+    let key = |c: char| crate::key::KeyEvent::plain(crate::key::Key::Char(c));
+    p.handle(key('z'));
+    p.handle(key('R'));
+    // Onto the signature, three rows below the first line of the doc comment.
+    for _ in 0..3 {
+        p.handle(key('j'));
+    }
+    assert_eq!(p.visible_text()[p.cursor].trim_end(), "pub fn f() {");
+    p.handle(key('z'));
+    p.handle(key('c'));
+    assert_eq!(
+        p.visible_text()[p.cursor].trim_end(),
+        "pub fn f() {",
+        "`zc` folded the body without moving the reader to the comment"
+    );
+    p.handle(key('z'));
+    p.handle(key('o'));
+    assert_eq!(p.visible_text()[p.cursor].trim_end(), "pub fn f() {", "and back");
+}
+
+/// Folding from *inside* a body is the one case the cursor has to move: its
+/// line is gone. It lands on the signature — the row the count is printed on —
+/// not on the first line of a doc comment that can be fifteen lines long.
+#[test]
+fn a_fold_that_hides_the_cursor_leaves_it_on_the_count_not_the_comment() {
+    let src = "\
+/** One.
+ * Two.
+ * Three.
+ * Four.
+ */
+export function f(a: boolean) {
+  first();
+  second();
+  third();
+}
+";
+    let each = |keys: &[char]| {
+        let s = CodeSource::with_fs(
+            PathBuf::from("/p/src/a.ts"),
+            "typescript",
+            src,
+            &|_: &Path| false,
+            &tsconfig::Aliases::none(),
+            &workspace::Workspace::none(),
+        );
+        let mut p = crate::pager::Pager::new(Box::new(s), "a.ts".into(), 80, 24, Some(80));
+        for c in [&['z', 'R'][..], keys].concat() {
+            p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char(c)));
+        }
+        p
+    };
+    // Down onto `second()`, inside the body, then `Enter` — and `zc`, which
+    // takes the other path through the pager and used to jump to `/** One.`
+    for keys in [
+        vec!['j', 'j', 'j', 'j', 'j', 'j', 'j'],
+        vec!['j', 'j', 'j', 'j', 'j', 'j', 'j', 'z', 'c'],
+    ] {
+        let mut p = each(&keys);
+        if keys.last() != Some(&'c') {
+            assert!(p.visible_text()[p.cursor].contains("second()"));
+            p.handle(crate::key::KeyEvent::plain(crate::key::Key::Enter));
+        }
+        let shown = p.visible_text();
+        assert!(!shown.iter().any(|l| l.contains("second()")), "{shown:?}");
+        assert_eq!(
+            shown[p.cursor].trim_end(),
+            "export function f(a: boolean) {",
+            "landed on the signature, not the comment: {keys:?}"
+        );
+    }
 }

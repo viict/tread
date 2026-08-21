@@ -61,7 +61,7 @@ use crate::render::Line;
 use crate::select::Yank;
 use search::Dir;
 
-pub use types::{Anchor, Detail, End, Entry, FoldState, Hit, LinkSite, Mark, MatchSpan};
+pub use types::{Anchor, Detail, End, Entry, FoldState, Folded, Hit, LinkSite, Mark, MatchSpan};
 
 /// A document behind the format seam.
 ///
@@ -344,14 +344,21 @@ pub trait Source {
 
     // -- row detail -----------------------------------------------------------
 
-    /// Fold or unfold whatever region sits at `row`, returning its new state.
+    /// Fold or unfold whatever region sits at `row`, returning its new state
+    /// and where its head ended up ([`Folded`]).
     ///
     /// `None` — the default — means this format has no regions of its own and
     /// the pager should fall back to the outline: a section, chosen by heading.
     /// Code answers, because a branch inside a function is foldable without
     /// being an outline entry; listing every `if` under `o` would bury the
     /// declarations the outline exists for.
-    fn fold_here(&mut self, _row: usize) -> Option<bool> {
+    ///
+    /// A region that would hide **nothing** is not an answer. Every leaf of a
+    /// file is a region of zero height — an interface member, a struct field, a
+    /// one-line `const` — and claiming the key there spends the press on a fold
+    /// with no visible effect, which reads as a dead key. Answer with the
+    /// nearest region that has a body, or `None`.
+    fn fold_here(&mut self, _row: usize) -> Option<Folded> {
         None
     }
 

@@ -169,13 +169,20 @@ impl Pager {
         if self.len() == 0 {
             return;
         }
+        // Where the reader is looking, taken before anything moves. Folding
+        // renumbers the rows under it, so the line the cursor is on is a place
+        // in the document, not a row index.
+        let here = self.cursor_anchor();
         // A format with regions of its own answers first: code folds the branch
         // the cursor is in, which is not an outline entry and could not be
         // reached through one (`Source::fold_here`).
         if want.is_none() {
-            if let Some(closed) = self.src.fold_here(self.cursor) {
+            if let Some(folded) = self.src.fold_here(self.cursor) {
                 self.folds_changed();
-                let _ = closed;
+                self.stay_at(here, folded.marker);
+                // The screen changed, so whatever the status bar was still
+                // saying about the last command is now answering for this one.
+                self.clear_message();
                 return;
             }
         }
@@ -192,7 +199,51 @@ impl Pager {
             return;
         }
         self.folds_changed();
-        self.jump_to(anchor);
+        let head = self.src.row_of(anchor);
+        // Closing is the case that can take the cursor's line away, and the row
+        // the section now answers on is not always its first.
+        let marker = match close {
+            true => head.map(|h| self.count_row(entry, h)),
+            false => head,
+        };
+        self.stay_at(here, marker);
+    }
+
+    /// Put the cursor back where the reader left it.
+    ///
+    /// Folding a section must not scroll the reader somewhere else: pressing
+    /// the key on a signature and landing three lines up on the first line of
+    /// its doc comment is a jump nobody asked for. The cursor stays on the same
+    /// *line*, whatever row number that line now has.
+    ///
+    /// It moves for one reason only — that line has just been folded away —
+    /// and then to the row the fold answers on, which is the one place the same
+    /// key reopens it from.
+    fn stay_at(&mut self, here: Option<Anchor>, marker: Option<usize>) {
+        // Nothing to aim at leaves the cursor to `folds_changed`'s clamp, which
+        // has already kept it inside the document.
+        if let Some(row) = here.and_then(|a| self.src.row_of(a)).or(marker) {
+            self.jump_to_row(row);
+        }
+    }
+
+    /// The row a shut section prints its `(N lines)` on, searched from its head.
+    ///
+    /// The two models disagree and the pager stays out of it: prose puts the
+    /// count on the heading, so the answer is the head itself; code puts it on
+    /// the signature, which is the *last* row the declaration keeps — landing on
+    /// the head there means the top of a doc comment that can be fifteen lines
+    /// long. Asking which row carries the count is the one question that gets
+    /// the right answer from both without naming either.
+    fn count_row(&self, entry: usize, head: usize) -> usize {
+        let mut row = head;
+        while row < self.len() && self.src.section_at(row) == Some(entry) {
+            if self.src.hidden_at(row).is_some() {
+                return row;
+            }
+            row += 1;
+        }
+        head
     }
 
     fn fold_all(&mut self, close: bool) {

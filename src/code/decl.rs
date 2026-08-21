@@ -55,11 +55,30 @@ pub fn symbols(
 
     let mut out: Vec<Symbol> = Vec::new();
     let mut container: Option<(String, i32)> = None;
+    // First line after the signature last recognised. Depth counts braces, and
+    // a parameter list is parentheses, so every line of
+    //
+    // ```text
+    // export async function f(
+    //     content: Post,        <- reads exactly like a property
+    //     draft: boolean
+    // ) {
+    // ```
+    //
+    // is still at depth 0 and is offered to the recognizer as if it began a
+    // declaration of its own. A parameter is not a declaration: the symbols it
+    // invents start inside the function and end past its body, so they win the
+    // innermost-region race on the signature the reader's cursor is sitting on,
+    // and the fold key stops reaching the function.
+    let mut sig_until = 0usize;
     for i in 0..lines.len() {
         if let Some((_, d)) = &container {
             if depths[i] <= *d {
                 container = None;
             }
+        }
+        if i < sig_until {
+            continue;
         }
         let depth = depths[i];
         // Top level, or one level inside a container. Deeper is a local item —
@@ -74,6 +93,7 @@ pub fn symbols(
             continue;
         }
         let (sig_end, body) = extent(&lines, &depths, i);
+        sig_until = sig_end;
         let path = match &container {
             Some((c, _)) if !c.is_empty() => format!("{c}::{name}"),
             _ => name.clone(),

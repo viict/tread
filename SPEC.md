@@ -746,6 +746,22 @@ signature with a count of what it hides.
 - Blocks are not outline entries. Listing every branch under `o` would bury the
   declarations the outline exists for, so the fold key reaches them directly
   (`Source::fold_here`).
+- **The fold key never lands on a region that would hide nothing.** A leaf —
+  an interface member, a struct field, a one-line `const` — owns its row and has
+  no body, so folding it changes nothing on screen and the key reads as dead.
+  `Enter`/`za` there folds the nearest thing that *does* hide something: what
+  the leaf is in.
+- **A declaration's body is one fold, not two.** The brace that opens a body
+  opens a block as well, and a nameless duplicate over the same lines would take
+  the key on the signature row — the row the count is printed on — and hide what
+  was already hidden.
+- **Folding leaves the cursor where it is.** It stays on the same *line*,
+  whatever row number folding gives that line: pressing the key on a signature
+  and landing on the first line of the doc comment above it is a jump nobody
+  asked for. The one exception is a fold that hid the line the cursor was on —
+  folded from inside a branch, say — and then the cursor lands on the row the
+  fold's `(N lines)` is printed on, which is where the same key reopens it. In
+  code that is the signature, never the first line of the doc comment above it.
 - **A declaration is a heading and its body is what that heading hides.** This
   is the whole design: folding, the `o` outline, `zo`/`zc`/`zR`/`zM`, `]`/`[`,
   `#anchor` jumps and the fold counts are the machinery markdown already used,

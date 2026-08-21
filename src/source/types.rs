@@ -83,6 +83,36 @@ pub struct Hit {
     pub wrapped: bool,
 }
 
+/// A fold a format did on its own, from [`crate::source::Source::fold_here`].
+///
+/// The state alone is not enough. A code region is folded from *inside* it —
+/// the cursor sits on a statement in the branch, not on the `if` — and the
+/// moment it shuts, that statement is gone. The cursor cannot stay on a line
+/// that is no longer on screen, so a format says which row now stands for what
+/// it folded, and that is where the reader is put in that one case.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Folded {
+    /// The region's new state: `true` = shut.
+    pub closed: bool,
+    /// The row this fold answers on — the one its `(N lines)` is printed on,
+    /// and the one the same key toggles it from. Only used when the line the
+    /// cursor was on has just been folded away.
+    ///
+    /// `None` leaves the cursor alone: a format whose fold is always on the row
+    /// the key was pressed on has nothing to move.
+    pub marker: Option<usize>,
+}
+
+impl Folded {
+    /// A fold on the row the key was pressed on, so the cursor stays.
+    pub fn here(closed: bool) -> Self {
+        Self {
+            closed,
+            marker: None,
+        }
+    }
+}
+
 /// One row expanded into labelled fields.
 ///
 /// A grid shows as many columns as fit and no more, which is exactly wrong for

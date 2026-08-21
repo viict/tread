@@ -59,10 +59,23 @@ fn regions_of(
     len: usize,
 ) -> Vec<Region> {
     let mut out: Vec<Region> = Vec::new();
-    // Blocks first, so a declaration's own region wins the `id` race when both
-    // start on the same line — a function's body is the function's, not a
-    // nameless block's.
+    // A declaration's body is the declaration's fold, never a second nameless
+    // one over the same lines. The brace that opens a body opens a block too,
+    // so every function has a duplicate of itself in `blocks` — and because a
+    // block is keyed by the line its brace is on, that duplicate starts
+    // *lower* than the declaration (whose region starts at the doc comment) and
+    // wins the innermost-region race on the signature row. The reader presses
+    // the key on the row carrying `(40 lines)` and toggles a region that hides
+    // exactly what the declaration's fold already hides: nothing moves.
+    let shadows = |body: usize, end: usize| {
+        symbols
+            .iter()
+            .any(|s| s.sig.1 == body && s.body.1 == end)
+    };
     for (head, body, end) in blocks {
+        if shadows(*body, *end) {
+            continue;
+        }
         out.push(Region {
             // Keyed by source line: stable while the file is open, which is all
             // a block fold needs — unlike a symbol, it has no name to survive
