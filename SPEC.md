@@ -78,6 +78,17 @@ src/select.rs      visual/line selection state + yank text extraction
 - Every heading carries a collapse marker in the left gutter:
   `▾` open / `▸` collapsed. A collapsed heading hides all content until the
   next heading of equal-or-shallower depth.
+- **A status tag is coloured whole.** `[KEYWORD]` or `[KEYWORD: text]` in a
+  heading — brackets, keyword and text — takes the colour of its status, with
+  the same vocabulary as a frontmatter `status` (§Frontmatter): green for
+  `DONE` / `ACCEPTED` / `IMPLEMENTED` / `ACTIVE`, amber for `PROPOSED` /
+  `DRAFT` / `EXECUTING` / `WIP`, red for `BLOCKED`, dim for `SUPERSEDED` /
+  `ARCHIVED` / `CANCELLED` / `REJECTED`. The keyword is one whole word, any
+  case, closed by `]` or `:`. Anything else in brackets (`[1]`, `[FOO]`) stays
+  text, a tag inside a link stays the link, and a tag never runs across a line
+  break. The outline overlay colours the same tags. The heading's id, its slug
+  and `--toc` (plain text) are unchanged. A tagged H1 has a `[` the banner font
+  lacks, so it takes the bold-uppercase row.
 
 ### Inline
 - Links: blue (`38;5;39`), underlined; the URL is hidden in the body and shown

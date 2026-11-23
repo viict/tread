@@ -110,3 +110,24 @@ fn an_external_link_is_a_different_colour_from_an_internal_one() {
     assert_ne!(LINK_EXTERNAL, SEARCH_BG);
     assert_ne!(LINK_EXTERNAL, SELECTION_BG);
 }
+
+/// One vocabulary for a frontmatter `status:` and a heading `[TAG]`.
+#[test]
+fn a_status_and_a_tag_read_the_same_words() {
+    for (word, fg) in [
+        ("DONE", STATUS_LIVE),
+        ("Proposed", STATUS_OPEN),
+        ("wip", STATUS_OPEN),
+        ("BLOCKED", STATUS_BLOCKED),
+        ("rejected", MUTED_FG),
+    ] {
+        assert_eq!(tag_style(word).and_then(|s| s.fg), Some(fg), "{word}");
+        assert_eq!(status_of(word).fg, Some(fg), "{word}");
+    }
+    // A status reads its first word; a tag is one whole word.
+    assert_eq!(status_of("Blocked — on infra").fg, Some(STATUS_BLOCKED));
+    assert_eq!(status_of("In flight").fg, Some(STATUS_OPEN));
+    assert_eq!(tag_style("in"), None);
+    assert_eq!(tag_style("note"), None);
+    assert_eq!(status_of("note"), Style::new());
+}

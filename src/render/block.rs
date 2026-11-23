@@ -221,7 +221,8 @@ fn heading(ctx: &mut Ctx, level: u8, content: &[Inline], id: &str, src: usize, p
         ctx.blank(src);
         return;
     }
-    let atoms = flatten(content, theme::heading(level));
+    let mut atoms = flatten(content, theme::heading(level));
+    super::tag::tint(&mut atoms);
     let mut head = Some(info);
     for l in wrap(&atoms, avail, avail) {
         ctx.emit(with_prefix(&hp.first, l), LineKind::Heading, src, false, head.take());
@@ -250,7 +251,9 @@ fn fallback_h1(
     avail: usize,
 ) {
     let upper: String = text.to_uppercase();
-    let atoms = flatten(&[Inline::Text(upper)], theme::heading(1));
+    // The banner font has no `[`, so a tagged H1 always lands here.
+    let mut atoms = flatten(&[Inline::Text(upper)], theme::heading(1));
+    super::tag::tint(&mut atoms);
     let mut head = Some(info);
     for l in wrap(&atoms, avail, avail) {
         ctx.emit(with_prefix(&pfx.first, l), LineKind::Heading, src, false, head.take());

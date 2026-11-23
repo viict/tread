@@ -34,6 +34,35 @@ fn h1_renders_as_a_banner_with_a_gutter_marker() {
     assert_eq!(out.last().unwrap().text(), "  body");
 }
 
+/// SPEC.md §Headings: a status tag is coloured whole, and the heading around
+/// it, its id and its outline text are untouched.
+#[test]
+fn a_heading_status_tag_is_coloured_and_the_heading_keeps_its_id() {
+    let out = lines("## Cache [BLOCKED: waiting on infra] now\n", 80);
+    let tag = out[0].spans.iter().find(|s| s.text.contains("BLOCKED")).expect("tag span");
+    assert_eq!(tag.text, "[BLOCKED: waiting on infra]");
+    assert_eq!(tag.style.fg, Some(theme::STATUS_BLOCKED));
+    assert!(tag.style.has(BOLD));
+    let after = out[0].spans.iter().find(|s| s.text.contains("now")).expect("rest");
+    assert_eq!(after.style, theme::heading(2));
+    let h = out[0].heading.as_ref().expect("heading metadata");
+    assert_eq!(h.id, "cache-blocked-waiting-on-infra-now");
+    assert_eq!(out[0].text().trim_end(), "\u{25be} Cache [BLOCKED: waiting on infra] now");
+}
+
+#[test]
+fn a_tagged_h1_takes_the_plain_row_and_still_colours_the_tag() {
+    // The banner font has no `[`, so the fallback row carries the tag.
+    let out = lines("# Auth [proposed]\n", 80);
+    let tag = out
+        .iter()
+        .flat_map(|l| &l.spans)
+        .find(|s| s.text.contains("PROPOSED"))
+        .expect("tag span");
+    assert_eq!(tag.text, "[PROPOSED]");
+    assert_eq!(tag.style.fg, Some(theme::STATUS_OPEN));
+}
+
 #[test]
 fn h1_falls_back_to_bold_uppercase_with_a_rule() {
     // A colon-free but unmappable character forces the fallback.

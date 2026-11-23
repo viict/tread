@@ -31,7 +31,12 @@ pub(crate) fn flatten(items: &[Inline], base: Style) -> Vec<Atom> {
 /// Flatten to a single line of spans (tables, status bar, outline entries):
 /// spaces and breaks collapse to one space, nothing wraps.
 pub(crate) fn line_spans(items: &[Inline], base: Style) -> Vec<Span> {
-    let atoms = flatten(items, base);
+    atoms_to_line(flatten(items, base))
+}
+
+/// The single-line half of [`line_spans`], for atoms already flattened (and,
+/// for a heading, already tinted).
+pub(crate) fn atoms_to_line(atoms: Vec<Atom>) -> Vec<Span> {
     let mut out: Vec<Span> = Vec::new();
     for a in atoms {
         let (space, url) = match a {
