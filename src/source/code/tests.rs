@@ -480,8 +480,7 @@ fn a_link_is_relative_even_when_the_target_is_elsewhere() {
 /// rooted the way `main` roots it, whose imports all resolve.
 #[test]
 fn imports_resolve_when_the_corpus_is_the_project() {
-    let t = std::env::temp_dir().join(format!("tread-corpus-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&t);
+    let t = crate::testutil::scratch("corpus");
     std::fs::create_dir_all(t.join("src/app")).unwrap();
     std::fs::create_dir_all(t.join("src/components")).unwrap();
     // The marker that makes this a project, and the alias table.
@@ -503,7 +502,7 @@ fn imports_resolve_when_the_corpus_is_the_project() {
     // Rooted at the project, as `main` does for a code file.
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let root = crate::open::corpus_root(&page, &cwd).expect("the package.json above it");
-    assert_eq!(root, t, "the project, not the folder the file sits in");
+    assert_eq!(root, *t, "the project, not the folder the file sits in");
     let mut p = crate::pager::Pager::new(Box::new(s), "page.tsx".into(), 80, 24, Some(80));
     p.attach_nav(crate::nav::Navigator::new(&page, Some(&root), &cwd));
     p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));
@@ -514,7 +513,6 @@ fn imports_resolve_when_the_corpus_is_the_project() {
         "the import opened; message={:?}\n{shown}",
         p.message
     );
-    let _ = std::fs::remove_dir_all(&t);
 }
 
 /// Imports fold as one block, the way frontmatter does: the wall of lines at
@@ -726,7 +724,9 @@ def f(items):
 /// one because of a byte is worse than showing one character wrong.
 #[test]
 fn a_source_file_that_is_not_utf8_still_opens() {
-    let t = std::env::temp_dir().join(format!("tread-enc-{}.py", std::process::id()));
+    let d = crate::testutil::scratch("enc");
+    std::fs::create_dir(&*d).unwrap();
+    let t = d.join("enc.py");
     // `def f():` followed by a latin-1 comment byte.
     let mut bytes = b"def f():\n    # \xe9\n    return 1\n".to_vec();
     bytes.extend_from_slice(b"x = 1\n");
@@ -740,7 +740,6 @@ fn a_source_file_that_is_not_utf8_still_opens() {
     assert!(shown.iter().any(|l| l.contains("def f")), "{shown:?}");
     assert!(shown.iter().any(|l| l.contains('\u{fffd}')), "the byte became U+FFFD");
     assert!(!s.outline().is_empty(), "and it still has an outline");
-    let _ = std::fs::remove_file(&t);
 }
 
 /// Folding from *inside* a branch: `Enter` is the toggle, so pressing it twice
@@ -1031,8 +1030,7 @@ export function f(a: boolean) {
 /// import its siblings (SPEC.md §Code, "a code file's corpus").
 #[test]
 fn an_import_into_a_sibling_package_opens() {
-    let t = std::env::temp_dir().join(format!("tread-mono-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&t);
+    let t = crate::testutil::scratch("mono");
     std::fs::create_dir_all(t.join("apps/client/src/components")).unwrap();
     std::fs::create_dir_all(t.join("packages/ui/src")).unwrap();
     std::fs::write(t.join(".git"), "gitdir: elsewhere\n").unwrap();
@@ -1059,7 +1057,7 @@ fn an_import_into_a_sibling_package_opens() {
     let root = crate::open::corpus_root(&doc, &cwd).expect("the app's package.json");
     assert!(root.ends_with("apps/client"), "the nearest marker: {root:?}");
     let root = crate::open::widen_root(root, &doc, &cwd, &links);
-    assert_eq!(root, t, "widened to hold the package the import climbs to");
+    assert_eq!(root, *t, "widened to hold the package the import climbs to");
 
     let mut p = crate::pager::Pager::new(Box::new(s), "post.ts".into(), 80, 24, Some(80));
     p.attach_nav(crate::nav::Navigator::new(&doc, Some(&root), &cwd));
@@ -1080,5 +1078,4 @@ fn an_import_into_a_sibling_package_opens() {
         "and landed on the declaration: {:?}",
         p.visible_text()[p.cursor]
     );
-    let _ = std::fs::remove_dir_all(&t);
 }

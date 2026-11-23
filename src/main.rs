@@ -369,5 +369,8 @@ fn install_panic_hook() {
 }
 
 #[cfg(test)]
+mod testutil;
+
+#[cfg(test)]
 #[path = "main_tests.rs"]
 mod tests;

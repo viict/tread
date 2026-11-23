@@ -8,17 +8,8 @@
 mod harness;
 
 use harness::{render, render_stdin, strip, temp_doc_ext};
-use std::path::PathBuf;
 
 const SCRIPT: &str = "#!/bin/sh\n# deploy the thing\nset -eu\n\nfor f in *; do\n\techo \"$f\"\ndone\n";
-
-struct Doc(PathBuf);
-
-impl Drop for Doc {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
 
 fn lines(out: &str) -> Vec<String> {
     strip(out).lines().map(|l| l.trim_end().to_string()).collect()
@@ -27,8 +18,8 @@ fn lines(out: &str) -> Vec<String> {
 /// The whole promise: a shell script comes back as a shell script.
 #[test]
 fn an_unknown_extension_renders_verbatim() {
-    let doc = Doc(temp_doc_ext("script", "sh", SCRIPT.as_bytes()));
-    let out = lines(&render(&doc.0, &["--no-alt", "--plain", "--width", "80"]));
+    let doc = temp_doc_ext("script", "sh", SCRIPT.as_bytes());
+    let out = lines(&render(&doc, &["--no-alt", "--plain", "--width", "80"]));
     assert_eq!(
         out,
         [
@@ -51,8 +42,8 @@ fn an_unknown_extension_renders_verbatim() {
 fn an_extensionless_file_is_text_and_is_not_sniffed() {
     // Content that would sniff as CSV if anything sniffed it.
     let body = "id,name\n1,alice\n2,bo\n3,carol\n";
-    let doc = Doc(temp_doc_ext("plainname", "conf", body.as_bytes()));
-    let out = lines(&render(&doc.0, &["--no-alt", "--plain", "--width", "80"]));
+    let doc = temp_doc_ext("plainname", "conf", body.as_bytes());
+    let out = lines(&render(&doc, &["--no-alt", "--plain", "--width", "80"]));
     assert_eq!(out, ["id,name", "1,alice", "2,bo", "3,carol"], "{out:#?}");
     assert!(!out[0].starts_with('\u{250c}'), "read as a grid: {out:#?}");
 }
@@ -62,12 +53,12 @@ fn an_extensionless_file_is_text_and_is_not_sniffed() {
 #[test]
 fn the_flag_forces_text_over_an_extension() {
     let md = "# Title\n\nSome **bold** prose.\n";
-    let doc = Doc(temp_doc_ext("forced", "md", md.as_bytes()));
-    let out = lines(&render(&doc.0, &["--no-alt", "--plain", "--width", "80", "--format", "text"]));
+    let doc = temp_doc_ext("forced", "md", md.as_bytes());
+    let out = lines(&render(&doc, &["--no-alt", "--plain", "--width", "80", "--format", "text"]));
     assert_eq!(out, ["# Title", "", "Some **bold** prose."], "{out:#?}");
 
     // …and without the flag the same file is markdown: a banner, not a `#`.
-    let normal = strip(&render(&doc.0, &["--no-alt", "--plain", "--width", "80"]));
+    let normal = strip(&render(&doc, &["--no-alt", "--plain", "--width", "80"]));
     assert!(!normal.contains("# Title"), "{normal}");
     assert!(normal.contains("bold"), "{normal}");
 }
@@ -76,8 +67,8 @@ fn the_flag_forces_text_over_an_extension() {
 /// a notes file is a comment, not a heading.
 #[test]
 fn a_txt_file_is_text() {
-    let doc = Doc(temp_doc_ext("notes", "txt", b"# TODO\n- buy milk\n"));
-    let out = lines(&render(&doc.0, &["--no-alt", "--plain", "--width", "80"]));
+    let doc = temp_doc_ext("notes", "txt", b"# TODO\n- buy milk\n");
+    let out = lines(&render(&doc, &["--no-alt", "--plain", "--width", "80"]));
     assert_eq!(out, ["# TODO", "- buy milk"], "{out:#?}");
 }
 
@@ -87,8 +78,8 @@ fn a_txt_file_is_text() {
 fn hostile_bytes_render_and_exit_cleanly() {
     let mut body = b"crlf\r\ncr\rlf\n\x1b[2Jescape\n".to_vec();
     body.extend_from_slice(b"\xff\xfe not utf8\nno trailing newline");
-    let doc = Doc(temp_doc_ext("hostile", "log", &body));
-    let raw = render(&doc.0, &["--no-alt", "--plain", "--width", "80"]);
+    let doc = temp_doc_ext("hostile", "log", &body);
+    let raw = render(&doc, &["--no-alt", "--plain", "--width", "80"]);
     let out = lines(&raw);
     assert_eq!(out.len(), 6, "{out:#?}");
     assert_eq!(out[0], "crlf");
@@ -103,8 +94,8 @@ fn hostile_bytes_render_and_exit_cleanly() {
 /// will not invent one.
 #[test]
 fn toc_of_a_text_file_is_empty() {
-    let doc = Doc(temp_doc_ext("toc", "sh", SCRIPT.as_bytes()));
-    assert_eq!(render(&doc.0, &["--toc"]), "");
+    let doc = temp_doc_ext("toc", "sh", SCRIPT.as_bytes());
+    assert_eq!(render(&doc, &["--toc"]), "");
 }
 
 /// A pipe still gets sniffed — it has no name to read — so piping markdown

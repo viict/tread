@@ -420,17 +420,15 @@ mod tests {
     /// escaping it.
     #[test]
     fn a_projects_root_is_found_from_a_marker_above_the_file() {
-        let t = std::env::temp_dir().join(format!("tread-root-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&t);
+        let t = crate::testutil::scratch("root");
         std::fs::create_dir_all(t.join("src/app/deep")).unwrap();
         std::fs::write(t.join("package.json"), "{}\n").unwrap();
         let f = t.join("src/app/deep/page.tsx");
         std::fs::write(&f, "").unwrap();
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        assert_eq!(corpus_root(&f, &cwd).as_deref(), Some(t.as_path()));
+        assert_eq!(corpus_root(&f, &cwd).as_deref(), Some(&*t));
         // Nothing above the filesystem root, and no panic looking.
         assert!(corpus_root(Path::new("/"), &cwd).is_none());
-        let _ = std::fs::remove_dir_all(&t);
     }
 
     #[test]

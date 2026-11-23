@@ -396,14 +396,12 @@ fn a_document_nested_to_the_limit_still_shows_its_deepest_value() {
 /// reader.
 #[test]
 fn a_file_and_a_pipe_render_the_same_document() {
-    let mut path = std::env::temp_dir();
-    path.push(format!("tread-json-{}.json", std::process::id()));
-    std::fs::write(&path, DOC.as_bytes()).expect("write");
+    let path = crate::testutil::scratch("json-file");
+    std::fs::write(&*path, DOC.as_bytes()).expect("write");
     let mut from_file = JsonSource::open(&path).expect("open");
     from_file.set_width(80);
     let mut from_pipe = src(DOC);
     assert_eq!(shown(&mut from_file), shown(&mut from_pipe));
-    std::fs::remove_file(&path).ok();
 }
 
 /// `--toc` lists the root's members and walks nothing else.
