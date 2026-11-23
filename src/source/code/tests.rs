@@ -1023,3 +1023,62 @@ export function f(a: boolean) {
         );
     }
 }
+
+/// A monorepo, laid out as one is: an app package importing a sibling package
+/// by name. The nearest project marker is the app's own `package.json`, so the
+/// import out of it used to be refused for "escaping the index root" — a
+/// corpus drawn one package too small around a file whose whole job is to
+/// import its siblings (SPEC.md §Code, "a code file's corpus").
+#[test]
+fn an_import_into_a_sibling_package_opens() {
+    let t = std::env::temp_dir().join(format!("tread-mono-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&t);
+    std::fs::create_dir_all(t.join("apps/client/src/components")).unwrap();
+    std::fs::create_dir_all(t.join("packages/ui/src")).unwrap();
+    std::fs::write(t.join(".git"), "gitdir: elsewhere\n").unwrap();
+    std::fs::write(t.join("package.json"), r#"{"workspaces":["apps/*","packages/*"]}"#).unwrap();
+    std::fs::write(t.join("apps/client/package.json"), "{}\n").unwrap();
+    std::fs::write(t.join("apps/client/tsconfig.json"), "{}\n").unwrap();
+    std::fs::write(
+        t.join("packages/ui/src/entitlements.ts"),
+        "export function parseEntitlements(v: unknown) {\n  return [];\n}\n",
+    )
+    .unwrap();
+    let doc = t.join("apps/client/src/components/post.ts");
+    let src = "import { parseEntitlements } from \"../../../../packages/ui/src/entitlements\";\n\
+               \nexport function gate() {}\n";
+    std::fs::write(&doc, src).unwrap();
+
+    let s = CodeSource::new(doc.clone(), "typescript", src);
+    let links: Vec<String> = s.links().iter().map(|l| l.url.clone()).collect();
+    assert_eq!(links.len(), 1, "the import resolved: {links:?}");
+    assert!(links[0].ends_with("#parseEntitlements"), "{links:?}");
+
+    // Rooted the way `main` roots it: the project, then widened by the links.
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let root = crate::open::corpus_root(&doc, &cwd).expect("the app's package.json");
+    assert!(root.ends_with("apps/client"), "the nearest marker: {root:?}");
+    let root = crate::open::widen_root(root, &doc, &cwd, &links);
+    assert_eq!(root, t, "widened to hold the package the import climbs to");
+
+    let mut p = crate::pager::Pager::new(Box::new(s), "post.ts".into(), 80, 24, Some(80));
+    p.attach_nav(crate::nav::Navigator::new(&doc, Some(&root), &cwd));
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Char('n')));
+    p.handle(crate::key::KeyEvent::plain(crate::key::Key::Enter));
+    let shown = p.visible_text().join("\n");
+    assert!(
+        shown.contains("export function parseEntitlements"),
+        "the sibling package opened; message={:?}\n{shown}",
+        p.message
+    );
+    // The anchor is a symbol path, not a heading slug: it survives the trip
+    // verbatim and lands on the declaration rather than at the top of the file.
+    let msg = p.message.clone().unwrap_or_default();
+    assert!(!msg.contains("no heading"), "the symbol anchor matched: {msg}");
+    assert!(
+        p.visible_text()[p.cursor].contains("parseEntitlements"),
+        "and landed on the declaration: {:?}",
+        p.visible_text()[p.cursor]
+    );
+    let _ = std::fs::remove_dir_all(&t);
+}

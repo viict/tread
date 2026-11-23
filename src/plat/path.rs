@@ -294,6 +294,36 @@ fn strip(p: Platform, root: &str, child: &str) -> Option<Vec<String>> {
     Some(c.comps[r.comps.len()..].to_vec())
 }
 
+/// The deepest directory holding both paths, or `None` when they share none —
+/// two Windows drives, or one rooted path and one relative.
+///
+/// This is where a link's `../../..` bottoms out: fold the climb and the first
+/// component that is not a `..` sits in the common ancestor. A corpus that has
+/// to hold both a document and what it links to is exactly this directory, so
+/// it is derived from the paths rather than guessed at from project markers.
+pub fn common(p: Platform, a: &str, b: &str) -> Option<String> {
+    let (x, y) = (parse(p, a)?, parse(p, b)?);
+    if x.rooted != y.rooted || !eq(p, &x.prefix, &y.prefix) {
+        return None;
+    }
+    // A relative path may still carry `..`; those cannot be matched against a
+    // named directory, so nothing above them is shared.
+    let shared = x
+        .comps
+        .iter()
+        .zip(&y.comps)
+        .take_while(|(u, v)| eq(p, u, v) && *u != "..")
+        .count();
+    Some(render(
+        p,
+        &Parts {
+            prefix: x.prefix,
+            rooted: x.rooted,
+            comps: x.comps[..shared].to_vec(),
+        },
+    ))
+}
+
 /// `child` written relative to `root` for display, with native separators.
 /// Falls back to `child` unchanged when it is not under `root`.
 pub fn rel_to(p: Platform, root: &str, child: &str) -> String {

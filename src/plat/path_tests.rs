@@ -248,3 +248,27 @@ fn the_status_bar_path_is_relative_with_native_separators() {
     assert_eq!(rel_to(Linux, "/corpus", "/corpus"), "");
     assert_eq!(rel_to(Linux, "/corpus", "/elsewhere/a.md"), "/elsewhere/a.md");
 }
+
+#[test]
+fn the_common_ancestor_is_where_a_climb_bottoms_out() {
+    // The monorepo case: an import out of one package into a sibling.
+    let doc = "/repo/apps/client/src/components/Blog";
+    let target = "/repo/packages/ui/src/entitlements/index.ts";
+    assert_eq!(common(Linux, doc, target).as_deref(), Some("/repo"));
+    // Already inside: the ancestor is the shallower of the two.
+    assert_eq!(
+        common(Linux, "/repo/apps", "/repo/apps/client/x.ts").as_deref(),
+        Some("/repo/apps")
+    );
+    assert_eq!(common(Linux, "/a/b", "/a/b").as_deref(), Some("/a/b"));
+    // Nothing in common but the filesystem root, which is spelled as one.
+    assert_eq!(common(Linux, "/a/b", "/c/d").as_deref(), Some("/"));
+    // Windows: case-insensitive, either separator, and never across volumes.
+    assert_eq!(
+        common(Windows, "C:\\repo\\Apps\\client", "c:/repo/apps/ui/x.ts").as_deref(),
+        Some("C:\\repo\\Apps")
+    );
+    assert_eq!(common(Windows, "C:\\repo\\a", "D:\\repo\\b"), None);
+    // A rooted path and a relative one share nothing that can be named.
+    assert_eq!(common(Linux, "/a/b", "a/b"), None);
+}

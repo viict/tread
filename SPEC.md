@@ -822,6 +822,13 @@ signature with a count of what it hides.
   nothing links to `page.tsx`, so without this the root would be the folder the
   file happens to sit in and every import of a sibling directory would be
   refused for escaping it.
+- **…and it is widened until it holds what the document links to.** In a
+  monorepo the nearest `package.json` is one package of many, and an import that
+  climbs out of it is not an escape — it is the point. Each of the document's
+  own resolved links is folded against its directory, and the corpus grows to
+  the deepest directory holding both: exactly where the link's `../../` bottoms
+  out. Only ever wider, never narrower, and no package manager is consulted, so
+  a Cargo workspace and a `pyproject` tree get the same answer as pnpm.
 - **A workspace package is followed like any other import.** In a monorepo a
   package's own code is imported by *name*, and nothing in `tsconfig.json` says
   where that name lives. Members come from `pnpm-workspace.yaml` or from

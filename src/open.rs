@@ -22,7 +22,7 @@ use crate::source::json::{self as json, JsonSource};
 use crate::source::text::TextSource;
 use crate::source::{csv::CsvSource, jsonl::JsonlSource, markdown::MarkdownSource, Source};
 use crate::plat::{path as ppath, Platform};
-use crate::{cli, md, sys};
+use crate::{cli, md, sys, url};
 
 pub use input::resolve_input;
 
@@ -104,6 +104,16 @@ const PROJECT_MARKERS: [&str; 6] = [
     "pyproject.toml",
 ];
 
+/// `file` as one folded path against `cwd`.
+///
+/// Folded, not merely joined: `<cwd>/../there` still *contains* `<cwd>` as a
+/// component, so climbing it walks back through the directory the path had just
+/// left and finds its markers anyway. `absolutize` also keeps Windows `\dir`
+/// on the cwd's volume, where a plain join buried it under the cwd.
+fn folded(p: Platform, file: &str, cwd: &str) -> String {
+    ppath::absolutize(p, cwd, file)
+}
+
 /// The project a file belongs to, used as its corpus root.
 ///
 /// A markdown corpus is discovered from a `README.md` that links to the
@@ -118,16 +128,15 @@ const PROJECT_MARKERS: [&str; 6] = [
 /// climbing into it adopted *this* project as the corpus root for a directory
 /// that merely sat beside it, and every entry of that listing was then refused
 /// for escaping a corpus it had never been in.
+///
+/// The root this finds is a floor, not the answer: [`widen_root`] takes it
+/// from here.
 pub fn corpus_root(file: &Path, cwd: &Path) -> Option<PathBuf> {
-    // Folded, not merely joined: `<cwd>/../there` still *contains* `<cwd>` as a
-    // component, so climbing it walks back through the directory the path had
-    // just left and finds its markers anyway. An absolute path is folded where
-    // it stands — joining it onto the cwd would bury it under one.
-    let given = file.to_string_lossy();
-    let here = PathBuf::from(match ppath::is_absolute(Platform::HOST, &given) {
-        true => ppath::join(Platform::HOST, &given, "")?,
-        false => ppath::join(Platform::HOST, &cwd.to_string_lossy(), &given)?,
-    });
+    let here = PathBuf::from(folded(
+        Platform::HOST,
+        &file.to_string_lossy(),
+        &cwd.to_string_lossy(),
+    ));
     let mut at = here.parent()?;
     // Deep enough for any real tree, bounded so a symlink loop cannot spin.
     for _ in 0..64 {
@@ -137,6 +146,56 @@ pub fn corpus_root(file: &Path, cwd: &Path) -> Option<PathBuf> {
         at = at.parent()?;
     }
     None
+}
+
+/// Widen a corpus until it holds everything the document links to.
+///
+/// A project marker answers "where does this tree start" for one package, and
+/// in a monorepo that is the wrong tree: `apps/client` has its own
+/// `package.json`, so it becomes the root, and `../../../../../../packages/ui`
+/// — an import the reader *resolved*, to a file that exists — is then refused
+/// for escaping a corpus drawn six levels too low.
+///
+/// The link says where the tree starts. Fold its `../` climb and the directory
+/// it bottoms out in holds both the document and the target, by construction;
+/// the widest such directory over all of a document's links is the smallest
+/// corpus that can hold the document *and* everything it points at. No package
+/// manager is consulted, so a Cargo workspace and a `pyproject` tree get the
+/// same answer as pnpm.
+///
+/// Only ever widens. A link that stays inside the project leaves the root
+/// alone, and one that resolves to nothing was never a path to widen for.
+pub fn widen_root(root: PathBuf, file: &Path, cwd: &Path, links: &[String]) -> PathBuf {
+    let s = |x: &Path| x.to_string_lossy().to_string();
+    PathBuf::from(widen_on(Platform::HOST, s(&root), &s(file), &s(cwd), links))
+}
+
+/// [`widen_root`] over strings, by `host`'s path rules, so every platform's
+/// rules are tested on any host.
+fn widen_on(host: Platform, root: String, file: &str, cwd: &str, links: &[String]) -> String {
+    let Some(dir) = ppath::join(host, &folded(host, file, cwd), "..") else {
+        return root;
+    };
+    let mut root = root;
+    for url in links {
+        // Only a relative path can climb. A scheme leaves the reader, and a
+        // rooted link already means "the corpus root" by definition.
+        let raw = url.split(['#', '?']).next().unwrap_or("");
+        if raw.is_empty() || url::is_external(url) || ppath::markdown_is_rooted(host, raw) {
+            continue;
+        }
+        let Some(target) = ppath::join(host, &dir, raw) else {
+            continue;
+        };
+        if ppath::contains(host, &root, &target) {
+            continue;
+        }
+        match ppath::common(host, &root, &target) {
+            Some(up) => root = up,
+            None => continue,
+        }
+    }
+    root
 }
 
 /// The document behind the format seam. Which format is this wiring's decision
@@ -385,5 +444,50 @@ mod tests {
         assert!(!navigable(&input(Some("/p/a.txt"), Format::Text)));
         // Piped input has no location to resolve anything against.
         assert!(!navigable(&input(None, Format::Markdown)));
+    }
+
+    /// `widen_on` over `&str` links, for the tables below.
+    fn widen(p: Platform, root: &str, file: &str, cwd: &str, links: &[&str]) -> String {
+        let links: Vec<String> = links.iter().map(|l| l.to_string()).collect();
+        widen_on(p, root.to_string(), file, cwd, &links)
+    }
+
+    /// The monorepo case, which the project markers get wrong: `apps/client`
+    /// has its own `package.json`, so the corpus stops one package short of the
+    /// import that climbs out of it. On Windows `\repo` is rooted on the cwd's
+    /// volume: it must not be joined under the cwd.
+    #[test]
+    fn a_corpus_widens_to_hold_what_the_document_links_to() {
+        let post = "/repo/apps/client/src/components/Blog/post.ts";
+        let win_post = r"C:\repo\apps\client\src\components\Blog\post.ts";
+        for (p, root, file, cwd, up) in [
+            (Platform::Linux, "/repo/apps/client", post, "/anywhere", "/repo"),
+            (Platform::Windows, r"C:\repo\apps\client", post, r"C:\anywhere", r"C:\repo"),
+            (Platform::Windows, r"C:\repo\apps\client", win_post, r"D:\x", r"C:\repo"),
+        ] {
+            let links = [
+                "../../../../../packages/ui/src/entitlements/index.ts#parseEntitlements",
+                "../../constants/entitlements.ts#SLUG_TO_LEVEL",
+            ];
+            let got = widen(p, root, file, cwd, &links);
+            assert!(ppath::same(p, &got, up), "{p:?} {file}: the repository is the corpus, got {got}");
+            // A document whose links all stay inside it keeps the root it had.
+            assert_eq!(widen(p, root, file, cwd, &["../../constants/entitlements.ts"]), root);
+            // Neither a URL nor a root-relative link says anything about the tree.
+            let other = ["https://example.com/x", "/src/other.ts", "#Symbol"];
+            assert_eq!(widen(p, root, file, cwd, &other), root, "{p:?}");
+        }
+    }
+
+    /// A relative argument must fold against the working directory first, or
+    /// the climb is measured from nowhere and nothing widens.
+    #[test]
+    fn widening_folds_a_relative_document_against_the_cwd() {
+        let links = ["../../../packages/ui/index.ts"];
+        let got = widen(Platform::Linux, "/repo/apps/client", "client/src/post.ts", "/repo/apps", &links);
+        assert_eq!(got, "/repo");
+        let (root, file, cwd) = (r"C:\repo\apps\client", r"client\src\post.ts", r"C:\repo\apps");
+        let got = widen(Platform::Windows, root, file, cwd, &links);
+        assert!(ppath::same(Platform::Windows, &got, r"C:\repo"), "{got}");
     }
 }
