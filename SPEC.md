@@ -794,7 +794,12 @@ signature with a count of what it hides.
   name.** `use super::parse::{Records, QUOTE}` is two links, and `Enter` on
   either lands on *that declaration* in the target rather than at the top of the
   file — the url carries the name as an anchor, and the target's fold ids are
-  its symbol paths, so nothing new is needed on the other side. `n` walks them
+  its symbol paths, so nothing new is needed on the other side. **A `#fragment`
+  travels verbatim**: it is a name in the target's own vocabulary — a heading
+  slug in markdown, a symbol path in code, a record number in a `.jsonl` — and
+  each format reads its own. Slugifying every fragment for markdown's sake
+  lowercased `#EntitlementLevel` and dropped the `::` from `#Thing::go`, so the
+  jump this rule promises landed at the top of the file. `n` walks them
   and `Backspace` comes back.
 - Rust resolves `crate::`, `super::` and `self::` against the nearest `src/`,
   and **`mod foo;` is a link like any import**. TypeScript resolves `./` and

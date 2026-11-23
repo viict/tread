@@ -263,11 +263,16 @@ impl Source for MarkdownSource {
         }
     }
 
+    /// A fragment is a *heading* here, so it is read as one: `#Future
+    /// directions` and `#future-directions` name the same section. The slug is
+    /// this format's own vocabulary and the link layer no longer guesses at it —
+    /// a code file's `#Thing::go` would not survive being lowercased.
     fn goto_id(&mut self, id: &str) -> Option<usize> {
+        let id = &crate::md::ast::slugify(id);
         let found = self
             .lines
             .iter()
-            .position(|l| matches!(&l.heading, Some(h) if h.id == id))?;
+            .position(|l| matches!(&l.heading, Some(h) if h.id == *id))?;
         self.collapsed.retain(|c| c != id);
         self.refresh_view();
         self.reveal(Anchor(found))

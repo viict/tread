@@ -201,11 +201,14 @@ fn link_kinds_are_classified() {
 
 #[test]
 fn cross_document_anchors_carry_a_slug() {
+    // Verbatim: the target reads its own fragment, and markdown slugifies on
+    // arrival so both spellings still land on the same heading. A code file
+    // would be handed `Thing::go` intact.
     assert_eq!(
         resolve("models/A.md#Deep Heading", "/corpus"),
         Target::Doc {
             path: PathBuf::from("/corpus/models/A.md"),
-            anchor: Some("deep-heading".to_string())
+            anchor: Some("Deep Heading".to_string())
         }
     );
     assert_eq!(
