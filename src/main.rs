@@ -181,6 +181,10 @@ fn interactive(
     };
     let (cols, rows) = term.size();
     let label = status_label(input);
+    // Read before the source is handed over: the corpus root below is widened
+    // to hold whatever these point at, and the pager does not lend its source
+    // out (SPEC.md §Code, "a code file's corpus").
+    let links: Vec<String> = src.links().iter().map(|l| l.url.clone()).collect();
     // The pager is handed a `Box<dyn Source>` and never learns the format
     // (SPEC.md §The `Source` seam); picking one was `build_source`'s job.
     let mut pager = pager::Pager::new(src, label, cols as usize, rows as usize, args.width);
@@ -197,10 +201,14 @@ fn interactive(
         // corpus is the project they sit in — without it the root is whatever
         // folder the file is in, and every import of a sibling directory is
         // refused for escaping it (`open::corpus_root`).
+        // …and widened until it holds what this document actually links to: in
+        // a monorepo the nearest `package.json` is one package of many, and an
+        // import that climbs out of it is not an escape, it is the point.
         let index = match (&args.index, input.format) {
             (Some(i), _) => Some(i.clone()),
             (None, source::detect::Format::Markdown) => None,
-            (None, _) => open::corpus_root(path, &cwd),
+            (None, _) => open::corpus_root(path, &cwd)
+                .map(|root| open::widen_root(root, path, &cwd, &links)),
         };
         pager.attach_nav(nav::Navigator::new(path, index.as_deref(), &cwd));
     }
@@ -359,6 +367,9 @@ fn install_panic_hook() {
         previous(info);
     }));
 }
+
+#[cfg(test)]
+mod testutil;
 
 #[cfg(test)]
 #[path = "main_tests.rs"]

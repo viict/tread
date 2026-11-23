@@ -15,6 +15,8 @@ mod code;
 mod inline;
 mod list;
 mod table;
+mod tag;
+pub use tag::tagged;
 mod width;
 mod wrap;
 

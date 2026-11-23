@@ -6,8 +6,10 @@
 //! a specific style span, never on a whole escaped line, so a palette tweak
 //! cannot break the layout assertions.
 
-use std::io::Write;
-use std::path::PathBuf;
+mod harness;
+
+use harness::{temp_doc, TempDoc};
+use std::path::Path;
 use std::process::Command;
 
 const DOC: &str = "\
@@ -29,15 +31,11 @@ echo hi
 ```
 ";
 
-fn fixture(name: &str, body: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!("tread-golden-{}-{}.md", std::process::id(), name));
-    let mut f = std::fs::File::create(&p).expect("create fixture");
-    f.write_all(body.as_bytes()).expect("write fixture");
-    p
+fn fixture(name: &str, body: &str) -> TempDoc {
+    temp_doc(&format!("golden-{name}"), body.as_bytes())
 }
 
-fn run(path: &PathBuf, extra: &[&str]) -> String {
+fn run(path: &Path, extra: &[&str]) -> String {
     let out = Command::new(env!("CARGO_BIN_EXE_tread"))
         .args(extra)
         .arg(path)
@@ -115,7 +113,6 @@ fn layout_is_stable() {
     // Code block: language label plus the verbatim body.
     assert!(lines.iter().any(|l| l.trim_end().ends_with("sh")), "language label");
     assert!(lines.iter().any(|l| l.contains("echo hi")), "code body");
-    let _ = std::fs::remove_file(&p);
 }
 
 #[test]
@@ -129,7 +126,6 @@ fn a_piped_render_is_free_of_control_sequences() {
     for bad in ["\x1b", "?1000", "?1002", "?1003", "?1006", "?1015"] {
         assert!(!out.contains(bad), "{bad:?} leaked into a piped render");
     }
-    let _ = std::fs::remove_file(&p);
 }
 
 #[test]
@@ -137,7 +133,6 @@ fn toc_prints_the_outline_and_exits() {
     let p = fixture("toc", "# A\n\ntext\n\n## B\n\n### C\n");
     let out = run(&p, &["--toc"]);
     assert_eq!(out, "A\n  B\n    C\n");
-    let _ = std::fs::remove_file(&p);
 }
 
 #[test]

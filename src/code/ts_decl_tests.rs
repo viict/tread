@@ -158,3 +158,24 @@ function real() {
 ";
     assert_eq!(named(src), vec![("re".into(), Kind::Const), ("s".into(), Kind::Const), ("real".into(), Kind::Func)]);
 }
+
+/// A parameter is not a declaration. Brace depth cannot tell the difference —
+/// a parameter list is parentheses — so a line of one reads exactly like a
+/// property, and the symbol it invents starts inside the function and ends past
+/// its body.
+#[test]
+fn the_parameters_of_a_multi_line_signature_are_not_declarations() {
+    let src = "\
+export async function resolve(
+  content: Post,
+  isDraftMode: boolean,
+  previewViewerLevel?: Level
+): Promise<Result> {
+  return one(content);
+}
+";
+    assert_eq!(named(src), vec![("resolve".into(), Kind::Func)]);
+    let f = &syms(src)[0];
+    assert_eq!(f.sig, (0, 5), "the signature is every line up to the brace");
+    assert_eq!(f.body, (5, 7), "and the body is what it hides");
+}

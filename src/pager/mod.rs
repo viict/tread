@@ -257,8 +257,7 @@ impl Pager {
                 // status bar; the arrival is the answer, so take it down rather
                 // than let "scanning… 98%" sit there over the last row.
                 if std::mem::take(&mut self.seek_end) {
-                    self.message = None;
-                    self.message_at = None;
+                    self.clear_message();
                 }
                 self.goto(row);
             }
@@ -337,6 +336,15 @@ impl Pager {
     pub fn notify(&mut self, msg: impl Into<String>) {
         self.message = Some(msg.into());
         self.message_at = Some(Instant::now());
+        self.dirty = true;
+    }
+
+    /// Take down the transient message before its time is up, for a command
+    /// that answers on the screen instead: the old text left standing beside a
+    /// changed screen reads as the answer to the key just pressed.
+    pub(crate) fn clear_message(&mut self) {
+        self.message = None;
+        self.message_at = None;
         self.dirty = true;
     }
 

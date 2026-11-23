@@ -54,14 +54,37 @@ pub fn render_stdin(body: &[u8], args: &[&str]) -> String {
     String::from_utf8(out.stdout).expect("render produced invalid UTF-8")
 }
 
-/// Write `body` to a uniquely named temp file and return the path.
-pub fn temp_doc(name: &str, body: &[u8]) -> PathBuf {
+/// A temp file that is removed when it goes out of scope, also when the test
+/// panics. It reads as a `&Path` wherever one is expected.
+pub struct TempDoc(PathBuf);
+
+impl std::ops::Deref for TempDoc {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for TempDoc {
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.0.as_os_str()
+    }
+}
+
+impl Drop for TempDoc {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+/// Write `body` to a uniquely named temp file.
+pub fn temp_doc(name: &str, body: &[u8]) -> TempDoc {
     temp_doc_ext(name, "md", body)
 }
 
 /// [`temp_doc`], with the extension spelled out — the format detector reads it,
 /// so `.json` and `.jsonl` over the same bytes are two different tests.
-pub fn temp_doc_ext(name: &str, ext: &str, body: &[u8]) -> PathBuf {
+pub fn temp_doc_ext(name: &str, ext: &str, body: &[u8]) -> TempDoc {
     let mut p = std::env::temp_dir();
     p.push(format!(
         "tread-{}-{}-{name}.{ext}",
@@ -72,7 +95,7 @@ pub fn temp_doc_ext(name: &str, ext: &str, body: &[u8]) -> PathBuf {
             .unwrap_or(0)
     ));
     std::fs::write(&p, body).expect("write temp doc");
-    p
+    TempDoc(p)
 }
 
 /// Remove CSI and OSC sequences, leaving the visible text.

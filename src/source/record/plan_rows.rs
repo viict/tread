@@ -156,9 +156,7 @@ impl Plan {
     /// record's own tree, which `zR` also opens, is where every byte is.
     pub fn set_all_full(&mut self, full: bool) {
         self.all_full = full;
-        for e in &mut self.exc {
-            *e = false;
-        }
+        self.exc.fill(false);
         self.open_parts.clear();
         self.mark(0);
     }

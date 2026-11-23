@@ -171,9 +171,29 @@ pub fn reveal(regions: &[Region], collapsed: &mut Vec<String>, target: usize) ->
 
 /// The innermost region owning `row`, which is the section a cursor is in.
 pub fn at(regions: &[Region], row: usize) -> Option<&Region> {
+    innermost(regions, row, |_| true)
+}
+
+/// The innermost region owning `row` that would actually hide something.
+///
+/// Not the same question as [`at`], and the difference is the whole reason this
+/// exists: every leaf of a file is a region of zero height — an interface
+/// member, a struct field, a one-line `const` — and the innermost region at
+/// such a row is the leaf itself. Folding it hides nothing, so the key looks
+/// dead while the fold state quietly fills up with regions no reader can see.
+/// Folding at a leaf means folding what the leaf is *in*.
+pub fn foldable_at(regions: &[Region], row: usize) -> Option<&Region> {
+    innermost(regions, row, |r| r.hidden() > 0)
+}
+
+/// Innermost first, and — among regions starting on the same line — the one
+/// declared last, so a declaration's own region beats the nameless block that
+/// opens on its signature.
+fn innermost(regions: &[Region], row: usize, keep: impl Fn(&Region) -> bool) -> Option<&Region> {
     regions
         .iter()
         .filter(|r| row >= r.head && row < r.end.max(r.body))
+        .filter(|r| keep(r))
         .max_by_key(|r| r.head)
 }
 
@@ -271,5 +291,21 @@ mod tests {
         assert_eq!(at(&rs, 4).map(|r| r.id.as_str()), Some("inner"));
         assert_eq!(at(&rs, 6).map(|r| r.id.as_str()), Some("outer"));
         assert_eq!(at(&rs, 99), None);
+    }
+
+    /// A leaf — a field, an interface member, a one-line `const` — is a region
+    /// of zero height. It owns its row, and folding it does nothing at all, so
+    /// the key belongs to what the leaf is in.
+    #[test]
+    fn a_region_that_would_hide_nothing_is_not_what_folds() {
+        let rs = vec![
+            region("interface", 1, 0, 1, 4),
+            region("member", 2, 1, 2, 2),
+        ];
+        assert_eq!(at(&rs, 1).map(|r| r.id.as_str()), Some("member"));
+        assert_eq!(foldable_at(&rs, 1).map(|r| r.id.as_str()), Some("interface"));
+        // And a file of nothing but leaves has no fold to offer.
+        let leaves = vec![region("a", 1, 0, 1, 1), region("b", 1, 1, 2, 2)];
+        assert!(foldable_at(&leaves, 1).is_none());
     }
 }

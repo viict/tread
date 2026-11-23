@@ -13,6 +13,7 @@
 use std::ops::Range;
 
 use super::*;
+use crate::source::Folded;
 
 impl<S: Store> Source for RecordSource<S> {
     // -- layout ---------------------------------------------------------------
@@ -232,8 +233,10 @@ impl<S: Store> Source for RecordSource<S> {
         self.fold_every(closed)
     }
 
-    fn fold_here(&mut self, row: usize) -> Option<bool> {
-        self.fold_at_row(row)
+    /// A record's rung is always headed by the row the key was pressed on — the
+    /// record's own row, or the call's — so the cursor has nowhere to follow.
+    fn fold_here(&mut self, row: usize) -> Option<Folded> {
+        self.fold_at_row(row).map(Folded::here)
     }
 
     /// `r`: the raw record under the cursor, whatever its body is doing.

@@ -36,6 +36,7 @@ use super::abi::{
 };
 use super::layout::Winsize;
 use super::{Fd, ReadOutcome, INTR, TERM, WINCH};
+use core::ffi::c_void;
 use core::sync::atomic::Ordering;
 
 // ---- which unix -------------------------------------------------------------
@@ -102,8 +103,10 @@ extern "C" {
     fn tcgetattr(fd: c_int, termios_p: *mut RawTermios) -> c_int;
     fn tcsetattr(fd: c_int, optional_actions: c_int, termios_p: *const RawTermios) -> c_int;
     fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
-    fn read(fd: c_int, buf: *mut u8, count: size_t) -> ssize_t;
-    fn write(fd: c_int, buf: *const u8, count: size_t) -> ssize_t;
+    // `void *`, as the headers say: std links these same symbols, and rustc
+    // refuses a second declaration whose signature differs from its own.
+    fn read(fd: c_int, buf: *mut c_void, count: size_t) -> ssize_t;
+    fn write(fd: c_int, buf: *const c_void, count: size_t) -> ssize_t;
     fn isatty(fd: c_int) -> c_int;
     fn open(path: *const c_char, flags: c_int, ...) -> c_int;
     fn close(fd: c_int) -> c_int;
@@ -260,7 +263,7 @@ pub fn read_input(fd: Fd, buf: &mut [u8]) -> ReadOutcome {
     loop {
         // SAFETY: `buf` is a live slice; we pass its true pointer/length and
         // `read` writes at most `len` bytes.
-        let n = unsafe { read(fd, buf.as_mut_ptr(), buf.len()) };
+        let n = unsafe { read(fd, buf.as_mut_ptr().cast(), buf.len()) };
         let e = if n < 0 { os::errno() } else { 0 };
         match classify_read(n, e, &HOST_ABI) {
             ReadStep::Bytes(k) => return ReadOutcome::Bytes(k),
@@ -278,7 +281,7 @@ pub fn write_all(fd: Fd, buf: &[u8]) -> Result<(), i32> {
     while off < buf.len() {
         // SAFETY: `buf[off..]` is in bounds; `write` reads at most that many
         // bytes from the pointer.
-        let n = unsafe { write(fd, buf[off..].as_ptr(), buf.len() - off) };
+        let n = unsafe { write(fd, buf[off..].as_ptr().cast(), buf.len() - off) };
         let e = if n < 0 { os::errno() } else { 0 };
         match classify_write(n, e, &HOST_ABI) {
             WriteStep::Advance(k) => off += k,

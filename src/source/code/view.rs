@@ -11,7 +11,7 @@ use super::*;
 use crate::render::str_width;
 use crate::select::Yank;
 use crate::source::search::Dir;
-use crate::source::{Detail, End, Hit, LinkSite, Mark, MatchSpan, Source};
+use crate::source::{Detail, End, Folded, Hit, LinkSite, Mark, MatchSpan, Source};
 
 impl Source for CodeSource {
     // -- layout ---------------------------------------------------------------
@@ -105,18 +105,32 @@ impl Source for CodeSource {
         self.outline.iter().position(|e| e.anchor == Anchor(head))
     }
 
-    /// The innermost region at this row — a branch, a loop, or the declaration
-    /// itself when the cursor is not inside one.
-    fn fold_here(&mut self, row: usize) -> Option<bool> {
+    /// The innermost region at this row that has a body — a branch, a loop, or
+    /// the declaration itself when the cursor is not inside one.
+    ///
+    /// A leaf is skipped rather than folded ([`fold::foldable_at`]), and the
+    /// row the count sits on comes back with the state, because folding a
+    /// branch from a statement inside it takes that statement off the screen.
+    ///
+    /// That row is the **last** the region owns, not its first: a declaration
+    /// starts at its doc comment, and a reader sent to the top of a fifteen-line
+    /// comment has been scrolled away from the line they were reading. It is
+    /// where `(N lines)` is printed ([`fold::Note::LastOwn`]) for the same
+    /// reason.
+    fn fold_here(&mut self, row: usize) -> Option<Folded> {
         let line = self.at(row)?;
-        let id = fold::at(&self.regions, line)?.id.clone();
+        let region = fold::foldable_at(&self.regions, line)?;
+        let (id, last_own) = (region.id.clone(), region.body.saturating_sub(1));
         let closed = !self.collapsed.contains(&id);
         match closed {
             true => self.collapsed.push(id),
             false => self.collapsed.retain(|c| *c != id),
         }
         self.refresh();
-        Some(closed)
+        Some(Folded {
+            closed,
+            marker: self.row_of(Anchor(last_own)),
+        })
     }
 
     fn set_fold(&mut self, entry: usize, closed: bool) -> bool {

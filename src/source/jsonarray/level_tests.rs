@@ -11,7 +11,7 @@
 
 use super::*;
 use crate::source::record::Records;
-use crate::source::{Anchor, Source};
+use crate::source::{Anchor, Folded, Source};
 
 /// A trajectory with one of everything the level has to answer for: a message
 /// long enough to clip, a thought, two calls with several arguments apiece and
@@ -165,7 +165,7 @@ fn a_record_with_no_body_and_no_calls_has_no_rung_and_r_is_its_bytes() {
     // `done.` — one line, no calls, no thought.
     let row = s.row_of_record(DONE);
     let clipped = s.len();
-    assert_eq!(s.fold_here(row), Some(false), "claimed, and no level to descend to");
+    assert_eq!(s.fold_here(row), Some(Folded::here(false)), "claimed, and no level to descend to");
     assert_eq!(s.len(), clipped, "and nothing repainted");
     s.toggle_tree(row).expect("`r` still reaches the record");
     let tree = rows(&mut s);
@@ -323,9 +323,9 @@ fn a_rungless_record_has_no_rung_after_zr_either() {
     s.fold_all(false);
     let open = s.len();
     let row = s.row_of_record(DONE);
-    assert_eq!(s.fold_here(row), Some(false), "still no rung at the open level");
+    assert_eq!(s.fold_here(row), Some(Folded::here(false)), "still no rung at the open level");
     assert_eq!(s.len(), open, "and no press of it moves a row");
-    assert_eq!(s.fold_here(row), Some(false), "nor does the next one");
+    assert_eq!(s.fold_here(row), Some(Folded::here(false)), "nor does the next one");
     assert_eq!(s.len(), open);
 }
 

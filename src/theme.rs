@@ -67,6 +67,9 @@ pub const MORE_FG: u8 = 214;
 pub const COLUMN_BG: u8 = 237;
 pub const STATUS_LIVE: u8 = 114;
 pub const STATUS_OPEN: u8 = 214;
+/// Stopped on something outside the document: the one status that asks for
+/// action.
+pub const STATUS_BLOCKED: u8 = 203;
 
 // ---------------------------------------------------------------------------
 // Element styles
@@ -104,8 +107,8 @@ pub const fn table_border() -> Style {
 /// Opinionated on purpose, and matched on the first word so a status carrying
 /// a trailing explanation (`Superseded — co-location abandoned`) still reads
 /// as superseded. Three states are worth distinguishing at a glance: live,
-/// in flight, and historical. Anything unrecognised is left plain rather than
-/// mis-coloured.
+/// in flight, and historical — plus blocked, which asks for action. Anything
+/// unrecognised is left plain rather than mis-coloured.
 pub fn status_of(value: &str) -> Style {
     let first = value
         .split(|c: char| c.is_whitespace() || c == '|' || c == '\u{2014}')
@@ -113,12 +116,30 @@ pub fn status_of(value: &str) -> Style {
         .unwrap_or("")
         .to_ascii_lowercase();
     match first.as_str() {
-        "active" | "accepted" | "implemented" | "done" => Style::new().fg(STATUS_LIVE).bold(),
-        "draft" | "proposed" | "executing" | "in" | "partially" => {
-            Style::new().fg(STATUS_OPEN).bold()
+        // The first word of "in flight" / "partially implemented": a status
+        // field, never a heading tag, where `[IN]` would mean nothing.
+        "in" | "partially" => Style::new().fg(STATUS_OPEN).bold(),
+        w => status_word(w).unwrap_or_default(),
+    }
+}
+
+/// The style of a `[KEYWORD]` tag in a heading (SPEC.md §Headings), or `None`
+/// when the keyword is not a status. The same vocabulary as [`status_of`], so a
+/// heading tag and a frontmatter status cannot disagree.
+pub fn tag_style(keyword: &str) -> Option<Style> {
+    status_word(&keyword.to_ascii_lowercase())
+}
+
+/// One whole, lowercased status word.
+fn status_word(w: &str) -> Option<Style> {
+    match w {
+        "active" | "accepted" | "implemented" | "done" => Some(Style::new().fg(STATUS_LIVE).bold()),
+        "draft" | "proposed" | "executing" | "wip" => Some(Style::new().fg(STATUS_OPEN).bold()),
+        "blocked" => Some(Style::new().fg(STATUS_BLOCKED).bold()),
+        "superseded" | "archived" | "cancelled" | "rejected" => {
+            Some(Style::new().fg(MUTED_FG).dim())
         }
-        "superseded" | "archived" | "cancelled" | "rejected" => Style::new().fg(MUTED_FG).dim(),
-        _ => Style::new(),
+        _ => None,
     }
 }
 

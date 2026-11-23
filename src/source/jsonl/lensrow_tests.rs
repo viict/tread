@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::source::Source;
-use crate::source::{Anchor, Dir};
+use crate::source::{Anchor, Dir, Folded};
 
 /// A small trajectory in the shape a Claude Code session file has: a prompt,
 /// an answer, a run of mechanics, another answer, and one record from a
@@ -345,8 +345,8 @@ fn a_message_with_nothing_under_it_has_no_rung_and_r_shows_it() {
     let _ = rows(&mut s);
     let clipped = s.len();
     // Row 1 is `assistant 14:02 On it.`, row 2 the rest of what it said.
-    assert_eq!(s.fold_here(1), Some(false), "claimed, and no rung to descend");
-    assert_eq!(s.fold_here(1), Some(false), "and the second press says the same");
+    assert_eq!(s.fold_here(1), Some(Folded::here(false)), "claimed, and no rung to descend");
+    assert_eq!(s.fold_here(1), Some(Folded::here(false)), "and the second press says the same");
     assert_eq!(s.len(), clipped, "and nothing was repainted");
     s.toggle_tree(1).expect("`r` reaches the record");
     let got = rows(&mut s);
@@ -367,7 +367,7 @@ fn a_clipped_message_opens_and_comes_back_without_showing_its_json() {
     );
     let mut s = lensed(&text);
     let clipped = s.len();
-    assert_eq!(s.fold_here(0), Some(false), "the open level: the whole message");
+    assert_eq!(s.fold_here(0), Some(Folded::here(false)), "the open level: the whole message");
     let open = s.len();
     assert!(open > clipped, "the whole message is on screen");
     let got = rows(&mut s);
@@ -403,7 +403,7 @@ fn a_message_wider_than_the_kept_head_is_whole_on_a_wide_terminal() {
     for width in [92usize, 1100, 2000] {
         let mut s = lensed(&text);
         s.set_width(width);
-        assert_eq!(s.fold_here(0), Some(false), "{width}: the message opens");
+        assert_eq!(s.fold_here(0), Some(Folded::here(false)), "{width}: the message opens");
         let got = rows(&mut s).join(" ");
         for w in &words {
             assert_eq!(

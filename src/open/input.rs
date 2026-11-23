@@ -216,27 +216,15 @@ pub fn index_path(index: Option<&Path>) -> Result<PathBuf, Fail> {
 mod tests {
     use super::*;
 
-    fn tmp_path(name: &str) -> PathBuf {
-        let mut p = std::env::temp_dir();
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        p.push(format!("tread-open-{}-{nanos}-{name}", std::process::id()));
-        p
-    }
-
     #[test]
     fn only_a_regular_file_can_be_read_lazily() {
-        let file = tmp_path("regular");
-        std::fs::write(&file, b"id,name\n1,a\n").expect("write");
+        let file = crate::testutil::scratch("open-regular");
+        std::fs::write(&*file, b"id,name\n1,a\n").expect("write");
         assert!(is_regular(&file));
-        std::fs::remove_file(&file).ok();
 
-        let dir = tmp_path("dir");
-        std::fs::create_dir(&dir).expect("mkdir");
+        let dir = crate::testutil::scratch("open-dir");
+        std::fs::create_dir(&*dir).expect("mkdir");
         assert!(!is_regular(&dir), "a directory is not a regular file");
-        std::fs::remove_dir(&dir).ok();
 
         // A path that cannot be stat'ed is left to the reader, which reports
         // the open error with its own wording rather than calling it a stream.

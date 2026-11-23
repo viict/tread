@@ -56,6 +56,7 @@ mod csv;
 mod lens;
 mod openrun;
 mod paint;
+mod tags;
 
 // -- scrolling ---------------------------------------------------------------
 

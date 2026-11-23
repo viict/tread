@@ -21,7 +21,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use crate::md::ast::slugify;
 use crate::plat::{path as ppath, Platform};
 
 /// The filesystem seam. `RealFs` is the only implementation outside tests.
@@ -163,7 +162,9 @@ pub fn resolve(raw: &str, doc_dir: &Path, root: &Path, fs: &dyn Fs) -> Target {
         return broken(raw, "empty link");
     }
     if let Some(frag) = raw.strip_prefix('#') {
-        return Target::Anchor(slugify(frag));
+        // Verbatim, like every other fragment: `#parseEntitlements` inside a
+        // code file names a symbol, not a heading.
+        return Target::Anchor(frag.to_string());
     }
     if scheme_of(raw).is_some() {
         return Target::External(raw.to_string());
@@ -261,11 +262,18 @@ pub fn is_markdown(path: &Path) -> bool {
     crate::source::detect::from_path(path) == Some(crate::source::detect::Format::Markdown)
 }
 
-/// Split `path#fragment`. The fragment is slugified so it compares directly
-/// against the heading ids the block parser assigns.
+/// Split `path#fragment`, keeping the fragment **verbatim**.
+///
+/// A fragment is a name in the target's own vocabulary, and only the target
+/// knows that vocabulary: markdown reads it as a heading slug, a code file as a
+/// symbol path (`Thing::go`), a `.jsonl` as a record number. Slugifying here
+/// served markdown and mangled the other two — it lowercases and drops `::`, so
+/// the import anchor `#EntitlementLevel` arrived as `entitlementlevel`, matched
+/// no symbol, and a jump that SPEC promises would land on the declaration
+/// landed at the top of the file instead. Each format slugifies its own.
 pub fn split_fragment(raw: &str) -> (&str, Option<String>) {
     match raw.split_once('#') {
-        Some((p, f)) if !f.is_empty() => (p, Some(slugify(f))),
+        Some((p, f)) if !f.is_empty() => (p, Some(f.to_string())),
         Some((p, _)) => (p, None),
         None => (raw, None),
     }

@@ -231,7 +231,7 @@ fn highlight(p: &Pager, cells: &mut Cells, row: usize, off: usize) {
 // Overlays
 // ---------------------------------------------------------------------------
 
-fn outline_rows(p: &Pager) -> Vec<(String, Style)> {
+pub(super) fn outline_rows(p: &Pager) -> Vec<Vec<Span>> {
     p.src
         .outline()
         .iter()
@@ -241,10 +241,12 @@ fn outline_rows(p: &Pager) -> Vec<(String, Style)> {
                 true => theme::MARKER_CLOSED,
                 false => theme::MARKER_OPEN,
             };
-            (
-                format!("{indent}{marker} {}", e.text),
-                theme::heading(e.level),
-            )
+            // The text is tinted like the heading it names, so a `[BLOCKED]`
+            // section stands out in the list as it does in the body.
+            let style = theme::heading(e.level);
+            let mut row = vec![Span::new(format!("{indent}{marker} "), style)];
+            row.extend(crate::render::tagged(&e.text, style));
+            row
         })
         .collect()
 }
@@ -270,7 +272,7 @@ fn index_title(p: &Pager) -> String {
 }
 
 /// One row per linked document: section, title, trailing description.
-fn index_rows(p: &Pager) -> Vec<(String, Style)> {
+fn index_rows(p: &Pager) -> Vec<Vec<Span>> {
     let nav = match &p.nav {
         Some(n) => n,
         None => return Vec::new(),
@@ -281,18 +283,18 @@ fn index_rows(p: &Pager) -> Vec<(String, Style)> {
         .map(|e| {
             let here = nav.is_current(&e.path);
             let style = if here { theme::heading(3) } else { theme::text() };
-            (e.row(), style)
+            vec![Span::new(e.row(), style)]
         })
         .collect()
 }
 
-fn help_rows() -> Vec<(String, Style)> {
+fn help_rows() -> Vec<Vec<Span>> {
     let w = keys::help_key_width();
     keys::help_rows()
         .into_iter()
         .map(|(k, d)| {
             let pad = w.saturating_sub(str_width(k));
-            (format!("{k}{}  {d}", " ".repeat(pad)), theme::text())
+            vec![Span::new(format!("{k}{}  {d}", " ".repeat(pad)), theme::text())]
         })
         .collect()
 }
@@ -311,7 +313,7 @@ fn detail(p: &Pager, frame: &mut Frame) {
         .map(|(k, _)| str_width(k))
         .max()
         .unwrap_or(0);
-    let rows: Vec<(String, Style)> = d
+    let rows: Vec<Vec<Span>> = d
         .fields
         .iter()
         .map(|(k, v)| {
@@ -320,7 +322,7 @@ fn detail(p: &Pager, frame: &mut Frame) {
                 true => theme::muted(),
                 false => theme::text(),
             };
-            (format!(" {k}{pad}   {}", visible(v)), style)
+            vec![Span::new(format!(" {k}{pad}   {}", visible(v)), style)]
         })
         .collect();
     overlay(p, frame, &d.title, READ, &rows, p.detail_sel);
@@ -331,7 +333,7 @@ fn overlay(
     frame: &mut Frame,
     title: &str,
     hint: &str,
-    rows: &[(String, Style)],
+    rows: &[Vec<Span>],
     sel: usize,
 ) {
     let body = p.body_rows();
@@ -348,10 +350,12 @@ fn overlay(
     let top = window_top(sel, rows.len(), list_rows);
     for r in 0..list_rows {
         frame.move_to(r as u16 + 2, 1);
-        if let Some((text, style)) = rows.get(top + r) {
-            let chosen = top + r == sel;
-            let style = if chosen { style.reverse() } else { *style };
-            frame.span(style, truncate_width(text, width));
+        if let Some(row) = rows.get(top + r) {
+            let mut row = slice_spans(row, 0, width);
+            if top + r == sel {
+                row.iter_mut().for_each(|s| s.style = s.style.reverse());
+            }
+            paint_spans(frame, &row);
         }
         frame.reset_style();
         frame.clear_to_eol();
@@ -460,7 +464,7 @@ mod tests {
     fn help_overlay_lists_every_binding() {
         let rows = help_rows();
         assert_eq!(rows.len(), keys::BINDINGS.len());
-        assert!(rows.iter().any(|(t, _)| t.contains("quit")));
-        assert!(rows.iter().any(|(t, _)| t.contains("collapse every section")));
+        assert!(rows.iter().any(|r| r[0].text.contains("quit")));
+        assert!(rows.iter().any(|r| r[0].text.contains("collapse every section")));
     }
 }

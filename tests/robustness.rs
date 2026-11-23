@@ -39,7 +39,6 @@ fn all_widths(name: &str, body: &[u8]) -> String {
     }
     // --toc must survive the same inputs.
     let _ = render(&path, &["--toc"]);
-    let _ = std::fs::remove_file(&path);
     at80
 }
 
@@ -249,7 +248,6 @@ fn pseudo_random_documents_never_crash_the_renderer() {
             let out = render(&path, &["--width", w]);
             assert_clean(&format!("fuzz{doc}@{w}"), &out);
         }
-        let _ = std::fs::remove_file(&path);
     }
 }
 

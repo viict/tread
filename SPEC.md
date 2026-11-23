@@ -78,6 +78,17 @@ src/select.rs      visual/line selection state + yank text extraction
 - Every heading carries a collapse marker in the left gutter:
   `▾` open / `▸` collapsed. A collapsed heading hides all content until the
   next heading of equal-or-shallower depth.
+- **A status tag is coloured whole.** `[KEYWORD]` or `[KEYWORD: text]` in a
+  heading — brackets, keyword and text — takes the colour of its status, with
+  the same vocabulary as a frontmatter `status` (§Frontmatter): green for
+  `DONE` / `ACCEPTED` / `IMPLEMENTED` / `ACTIVE`, amber for `PROPOSED` /
+  `DRAFT` / `EXECUTING` / `WIP`, red for `BLOCKED`, dim for `SUPERSEDED` /
+  `ARCHIVED` / `CANCELLED` / `REJECTED`. The keyword is one whole word, any
+  case, closed by `]` or `:`. Anything else in brackets (`[1]`, `[FOO]`) stays
+  text, a tag inside a link stays the link, and a tag never runs across a line
+  break. The outline overlay colours the same tags. The heading's id, its slug
+  and `--toc` (plain text) are unchanged. A tagged H1 has a `[` the banner font
+  lacks, so it takes the bold-uppercase row.
 
 ### Inline
 - Links: blue (`38;5;39`), underlined; the URL is hidden in the body and shown
@@ -746,6 +757,22 @@ signature with a count of what it hides.
 - Blocks are not outline entries. Listing every branch under `o` would bury the
   declarations the outline exists for, so the fold key reaches them directly
   (`Source::fold_here`).
+- **The fold key never lands on a region that would hide nothing.** A leaf —
+  an interface member, a struct field, a one-line `const` — owns its row and has
+  no body, so folding it changes nothing on screen and the key reads as dead.
+  `Enter`/`za` there folds the nearest thing that *does* hide something: what
+  the leaf is in.
+- **A declaration's body is one fold, not two.** The brace that opens a body
+  opens a block as well, and a nameless duplicate over the same lines would take
+  the key on the signature row — the row the count is printed on — and hide what
+  was already hidden.
+- **Folding leaves the cursor where it is.** It stays on the same *line*,
+  whatever row number folding gives that line: pressing the key on a signature
+  and landing on the first line of the doc comment above it is a jump nobody
+  asked for. The one exception is a fold that hid the line the cursor was on —
+  folded from inside a branch, say — and then the cursor lands on the row the
+  fold's `(N lines)` is printed on, which is where the same key reopens it. In
+  code that is the signature, never the first line of the doc comment above it.
 - **A declaration is a heading and its body is what that heading hides.** This
   is the whole design: folding, the `o` outline, `zo`/`zc`/`zR`/`zM`, `]`/`[`,
   `#anchor` jumps and the fold counts are the machinery markdown already used,
@@ -778,7 +805,12 @@ signature with a count of what it hides.
   name.** `use super::parse::{Records, QUOTE}` is two links, and `Enter` on
   either lands on *that declaration* in the target rather than at the top of the
   file — the url carries the name as an anchor, and the target's fold ids are
-  its symbol paths, so nothing new is needed on the other side. `n` walks them
+  its symbol paths, so nothing new is needed on the other side. **A `#fragment`
+  travels verbatim**: it is a name in the target's own vocabulary — a heading
+  slug in markdown, a symbol path in code, a record number in a `.jsonl` — and
+  each format reads its own. Slugifying every fragment for markdown's sake
+  lowercased `#EntitlementLevel` and dropped the `::` from `#Thing::go`, so the
+  jump this rule promises landed at the top of the file. `n` walks them
   and `Backspace` comes back.
 - Rust resolves `crate::`, `super::` and `self::` against the nearest `src/`,
   and **`mod foo;` is a link like any import**. TypeScript resolves `./` and
@@ -801,6 +833,13 @@ signature with a count of what it hides.
   nothing links to `page.tsx`, so without this the root would be the folder the
   file happens to sit in and every import of a sibling directory would be
   refused for escaping it.
+- **…and it is widened until it holds what the document links to.** In a
+  monorepo the nearest `package.json` is one package of many, and an import that
+  climbs out of it is not an escape — it is the point. Each of the document's
+  own resolved links is folded against its directory, and the corpus grows to
+  the deepest directory holding both: exactly where the link's `../../` bottoms
+  out. Only ever wider, never narrower, and no package manager is consulted, so
+  a Cargo workspace and a `pyproject` tree get the same answer as pnpm.
 - **A workspace package is followed like any other import.** In a monorepo a
   package's own code is imported by *name*, and nothing in `tsconfig.json` says
   where that name lives. Members come from `pnpm-workspace.yaml` or from
