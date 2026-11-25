@@ -157,7 +157,15 @@ pub fn slice_spans(spans: &[Span], offset: usize, width: usize) -> Vec<Span> {
             let w = char_width(c);
             let (cs, ce) = (x, x + w);
             x = ce;
-            if ce <= offset || cs >= end {
+            // A zero-width character belongs to the cell before it: in the
+            // window when that cell is, so one right after the last column
+            // stays and one right after a cut-off column goes. At column 0
+            // there is no cell before it, and it opens the row.
+            let outside = match w {
+                0 => cs > end || (cs <= offset && offset > 0),
+                _ => ce <= offset || cs >= end,
+            };
+            if outside {
                 continue;
             }
             if cs < offset || ce > end {

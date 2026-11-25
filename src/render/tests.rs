@@ -335,6 +335,20 @@ fn slicing_replaces_a_straddling_wide_char_with_a_space() {
     assert_eq!(got, "a ");
 }
 
+/// A zero-width character goes with the cell before it: kept after the last
+/// column of the window, dropped after a column the window cut off, and kept
+/// at the very start of a row, where no cell precedes it.
+#[test]
+fn slicing_keeps_a_zero_width_char_with_the_cell_before_it() {
+    let text = |s: &[Span]| s.iter().map(|s| s.text.clone()).collect::<String>();
+    let accent = vec![Span::plain("abe\u{301}c")];
+    assert_eq!(text(&slice_spans(&accent, 0, 3)), "abe\u{301}");
+    assert_eq!(text(&slice_spans(&accent, 3, 2)), "c");
+    let lead = vec![Span::plain("\u{200b}ab")];
+    assert_eq!(text(&slice_spans(&lead, 0, 2)), "\u{200b}ab");
+    assert_eq!(text(&slice_spans(&lead, 1, 1)), "b");
+}
+
 #[test]
 fn slicing_preserves_style_and_link() {
     let spans = vec![Span::linked("docs", theme::heading(2), "u")];
