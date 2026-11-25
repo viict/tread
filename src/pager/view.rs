@@ -12,6 +12,7 @@ use crate::term::{Frame, Style};
 use crate::theme;
 
 mod cells;
+mod reveal;
 use cells::Cells;
 
 /// Left/right "content continues" markers for horizontally scrolled rows.
@@ -46,6 +47,7 @@ fn document(p: &mut Pager, frame: &mut Frame, body: usize) {
     let (top, pin) = (p.top, p.pinned());
     let head = p.src.lines(0..pin);
     let window = p.src.lines(top..top.saturating_add(body - pin));
+    p.reveal_note = reveal_note(p, &head, &window);
     for r in 0..body {
         frame.move_to(r as u16 + 1, 1);
         // Rows 0..pin are frozen at the top of the viewport — a CSV's header
@@ -90,6 +92,12 @@ fn compose(p: &Pager, row: usize, line: &Line) -> Vec<Span> {
     highlight(p, &mut cells, row, off);
     if p.cursor == row || selected(p, row) {
         cells.tint(theme::selection());
+    }
+    // Last of the cell edits: the ones above placed their columns against the
+    // row as laid out, and a revealed zero-width character adds one.
+    if p.reveal {
+        cells.reveal(theme::hidden_char());
+        cells.clip(width, CUT_RIGHT, theme::muted());
     }
     if scroll {
         if off > 0 {
@@ -410,7 +418,24 @@ pub(crate) fn status_text(p: &Pager) -> String {
         s.push_str("  \u{b7}  ");
         s.push_str(&target);
     }
+    if let Some(names) = &p.reveal_note {
+        s.push_str("  \u{b7}  ");
+        s.push_str(names);
+    }
     s
+}
+
+/// What `I` names in the status bar: the hidden characters on the cursor row,
+/// read from the rows this frame already fetched.
+fn reveal_note(p: &Pager, head: &[Line], window: &[Line]) -> Option<String> {
+    if !p.reveal {
+        return None;
+    }
+    let line = match p.cursor < head.len() {
+        true => head.get(p.cursor),
+        false => window.get(p.cursor.checked_sub(p.top)?),
+    }?;
+    reveal::describe(&line.text())
 }
 
 fn status(p: &Pager, frame: &mut Frame) {

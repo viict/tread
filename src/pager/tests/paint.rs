@@ -287,3 +287,49 @@ fn a_width_inside_the_viewport_scrolls_nothing() {
         .iter()
         .all(|l| !crate::pager::scrollable(l, 100)));
 }
+
+// -- hidden characters (`I`) -------------------------------------------------
+
+/// `I` draws a zero-width space and a no-break space as glyphs, and the status
+/// bar names them while the cursor is on their row. A second `I` restores the
+/// row exactly as it was laid out.
+#[test]
+fn i_reveals_hidden_characters_and_names_them() {
+    let mut p = pager("a\u{200b}b\u{a0}c\n", 40, 6);
+    let text = |p: &mut Pager| -> String {
+        let spans = crate::pager::view::row_spans(p, 0);
+        spans.iter().map(|s| s.text.as_str()).collect()
+    };
+    assert_eq!(text(&mut p).trim(), "a\u{200b}b\u{a0}c");
+    press(&mut p, "I");
+    assert!(p.reveal);
+    let shown = text(&mut p);
+    assert_eq!(shown.trim(), "a\u{b7}b\u{2423}c");
+    let spans = crate::pager::view::row_spans(&mut p, 0);
+    let glyph = spans.iter().find(|s| s.text.contains('\u{b7}')).map(|s| s.style);
+    assert_eq!(glyph, Some(crate::theme::hidden_char()));
+    p.message = None;
+    p.paint(&mut Frame::new(true));
+    let status = crate::pager::view::status_text(&p);
+    assert!(status.contains("U+200B ZERO WIDTH SPACE, U+00A0 NO-BREAK SPACE"), "{status}");
+    press(&mut p, "I");
+    assert!(!p.reveal);
+    assert_eq!(text(&mut p).trim(), "a\u{200b}b\u{a0}c");
+}
+
+/// A zero-width character gains a column when revealed. A row that already
+/// filled the viewport is cut at its edge and says so, never painted past it.
+#[test]
+fn a_revealed_row_never_paints_past_the_viewport() {
+    let row = format!("{}\u{200b}\u{200b}", "x".repeat(10));
+    // Ten cells of text plus the paragraph's two-column margin fill the row.
+    let mut p = pager(&row, 12, 6);
+    let before = crate::pager::view::row_spans(&mut p, 0);
+    assert_eq!(before.iter().map(|s| s.width()).sum::<usize>(), 12);
+    press(&mut p, "I");
+    let spans = crate::pager::view::row_spans(&mut p, 0);
+    let width: usize = spans.iter().map(|s| s.width()).sum();
+    assert_eq!(width, 12);
+    let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+    assert!(text.ends_with('\u{203a}'), "{text}");
+}

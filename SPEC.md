@@ -194,9 +194,30 @@ i              open the corpus index
 v              visual line-select mode; y yanks (OSC 52)
 Y              yank the section (or code block) under the cursor
 c              yank the code block under cursor, verbatim
-?  or F1       help overlay
+I              show / hide hidden characters (§Hidden characters)
+F1 or H        help overlay: every binding, from the keymap itself
 q              quit (pops nav stack first if deep)
 ```
+
+`?` is search backward, as in `less` and vim, so the help overlay is on `F1`
+and `H`.
+
+### Hidden characters
+
+`I` toggles a view of characters the terminal draws as nothing or as a plain
+space: zero-width spaces and joiners, the BOM, word joiners, bidi marks,
+embeddings and isolates, tag characters, and look-alike spaces (NBSP, narrow
+NBSP, typographic spaces). Each one is drawn as one red cell: `·` zero-width,
+`␣` a space that is not U+0020, `↔` a direction change, `¶` a line or
+paragraph separator, `¬` a soft hyphen. The status bar names the code points
+on the cursor row (`U+200B ZERO WIDTH SPACE`). It works in every format.
+
+- Off at start, not saved between sessions.
+- Paint only: layout, search, links and yank see the original text. A
+  revealed zero-width character takes one column, so a full row can be cut at
+  the right edge; it then ends in `›`.
+- Variation selectors (U+FE00–FE0F) are not revealed: every emoji with a text
+  form carries one.
 
 ## CLI
 

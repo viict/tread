@@ -102,6 +102,35 @@ impl Cells {
         self.cells.push(Cell { ch, w: 1, style, link: None });
     }
 
+    /// Draw every hidden character as its one-cell glyph in `style`, keeping
+    /// its link (SPEC.md §"Hidden characters"). A zero-width one gains a
+    /// column, so the row can grow past the viewport; [`Self::clip`] marks it.
+    pub fn reveal(&mut self, style: Style) {
+        for c in self.cells.iter_mut() {
+            if let Some(k) = super::reveal::classify(c.ch) {
+                c.ch = k.glyph;
+                c.w = 1;
+                c.style = style;
+            }
+        }
+    }
+
+    /// Cut the row to `width` columns. When anything was cut, the last column
+    /// shows `ch`, so the reader sees that the row goes on.
+    pub fn clip(&mut self, width: usize, ch: char, style: Style) {
+        let mut x = 0;
+        let keep = self.cells.iter().take_while(|c| {
+            x += c.w;
+            x <= width
+        });
+        let keep = keep.count();
+        if keep == self.cells.len() || width == 0 {
+            return;
+        }
+        self.cells.truncate(keep);
+        self.set(width - 1, ch, style);
+    }
+
     /// Merge adjacent cells that share a style and link back into spans.
     pub fn into_spans(self) -> Vec<Span> {
         let mut out: Vec<Span> = Vec::new();
@@ -203,6 +232,28 @@ mod tests {
         c.set(4, '>', Style::new());
         assert_eq!(c.width(), 5);
         assert_eq!(text_of(&c.into_spans()), "ab  >");
+    }
+
+    #[test]
+    fn reveal_swaps_hidden_characters_and_keeps_links() {
+        let mut c = Cells::from_spans(&[Span::linked("a\u{200b}b", Style::new(), "u")]);
+        assert_eq!(c.width(), 2);
+        c.reveal(Style::new().bold());
+        assert_eq!(c.width(), 3);
+        let out = c.into_spans();
+        assert_eq!(text_of(&out), "a\u{b7}b");
+        assert!(out[1].style.has(crate::term::BOLD));
+        assert!(out.iter().all(|s| s.link.as_deref() == Some("u")));
+    }
+
+    #[test]
+    fn clip_cuts_a_grown_row_and_marks_it() {
+        let mut c = Cells::from_spans(&spans("abcdef"));
+        c.clip(4, '>', Style::new());
+        assert_eq!(text_of(&c.into_spans()), "abc>");
+        let mut c = Cells::from_spans(&spans("abc"));
+        c.clip(4, '>', Style::new());
+        assert_eq!(text_of(&c.into_spans()), "abc");
     }
 
     #[test]

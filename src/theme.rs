@@ -55,6 +55,8 @@ pub const SEARCH_BG: u8 = 226;
 pub const SEARCH_FG: u8 = 16;
 pub const SEARCH_CURRENT_BG: u8 = 208;
 pub const SELECTION_BG: u8 = 238;
+/// A revealed hidden character (`I`): red, so it is never read as a search hit.
+pub const HIDDEN_BG: u8 = 203;
 pub const STATUS_BG: u8 = 238;
 pub const STATUS_FG: u8 = 252;
 pub const GUTTER_FG: u8 = 244;
@@ -175,6 +177,9 @@ pub const fn search_current() -> Style {
 }
 pub const fn selection() -> Style {
     Style::new().bg(SELECTION_BG)
+}
+pub const fn hidden_char() -> Style {
+    Style::new().fg(SEARCH_FG).bg(HIDDEN_BG)
 }
 pub const fn status() -> Style {
     Style::new().fg(STATUS_FG).bg(STATUS_BG)
