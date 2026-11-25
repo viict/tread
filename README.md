@@ -261,6 +261,7 @@ Exit codes: `0` ok, `1` runtime error, `2` usage error.
 | `y` | yank the selection, or the focused link's target |
 | `Y` | yank the section under the cursor |
 | `c` | yank the code block under the cursor, verbatim |
+| `I` | show hidden characters (zero-width, bidi, odd spaces) |
 | `F1 / H` | this help |
 | `q` | quit (steps back first when the history is deep) |
 | `Ctrl-C` | quit immediately, whatever the history depth |

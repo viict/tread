@@ -106,6 +106,10 @@ pub struct Pager {
     pub(crate) index_typing: bool,
     /// Visual line-select state (`v`); `None` outside visual mode.
     pub(crate) select: Option<Selection>,
+    /// `I`: draw hidden characters as glyphs (SPEC.md §"Hidden characters"),
+    /// and the names of those on the cursor row, set when a frame is painted.
+    pub(crate) reveal: bool,
+    pub(crate) reveal_note: Option<String>,
     /// Text produced by `y`/`Y`/`c`, waiting for `main` to put it on the
     /// clipboard. The pager itself performs no I/O.
     pending_yank: Option<Yank>,
@@ -161,6 +165,8 @@ impl Pager {
             index_filter: String::new(),
             index_typing: false,
             select: None,
+            reveal: false,
+            reveal_note: None,
             pending_yank: None,
             pending_open: None,
             browser: true,

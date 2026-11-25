@@ -35,6 +35,8 @@ pub enum Action {
     Widen,
     /// Show or hide what the format hides by default (a listing's dotfiles).
     ToggleHidden,
+    /// `I`: draw invisible characters (zero-width, bidi, odd spaces) as glyphs.
+    Reveal,
     ToggleCollapse,
     /// `r`: show the raw record under the cursor, where a row stands for one —
     /// open its JSON tree, or shut the one that is open (SPEC.md §Lenses).
@@ -341,6 +343,12 @@ pub const BINDINGS: &[Binding] = &[
         desc: "yank the code block under the cursor, verbatim",
         action: A::YankCode,
         triggers: &[Trigger::c('c')],
+    },
+    Binding {
+        keys: "I",
+        desc: "show hidden characters (zero-width, bidi, odd spaces)",
+        action: A::Reveal,
+        triggers: &[Trigger::c('I')],
     },
     Binding {
         keys: "F1 / H",

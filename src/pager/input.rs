@@ -145,6 +145,13 @@ impl Pager {
                 self.mode = Mode::Help;
                 self.help_top = 0;
             }
+            Action::Reveal => {
+                self.reveal = !self.reveal;
+                self.notify(match self.reveal {
+                    true => "hidden characters shown (I hides them)",
+                    false => "hidden characters hidden",
+                });
+            }
             Action::SearchForward => self.start_search(Dir::Forward),
             Action::SearchBackward => self.start_search(Dir::Backward),
             // With no live search, `n`/`N` walk the document's links instead.

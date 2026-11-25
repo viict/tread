@@ -125,6 +125,7 @@ KEYS
     Backspace             back
     o  i                  outline/index  / ?        search
     v y Y c               select & yank  q  Ctrl-C   quit
+    I                     hidden chars   F1  H      every key
 
 JSON
     A .json document is a foldable tree: root open, everything under it
